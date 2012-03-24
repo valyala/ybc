@@ -1,0 +1,17 @@
+YBC - Yet another Blob Cache library.
+
+This library provides support for in-process blob cache.
+
+It has the following features:
+
+* Persistence support. Cache data survives process restart if the cache
+  is explicitly backed by files.
+* Automatic recovery from corrupted backing files.
+* Huge amounts of data can be cached. The maximum size of cached data
+  is limited by free space on backing store. So thousands multi-GB media files
+  can be easily placed into the cache if a backing store can handle such amount
+  of data.
+* Optimization for HDD and SSD devices.
+* Atomic updates.
+* Dogpile effect handling support.
+* Automatic sharding of cache data among available backing store devices.
