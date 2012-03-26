@@ -1495,7 +1495,7 @@ static void m_sync_init(struct m_sync *const sc,
 {
   sc->snapshot_cursor = *next_cursor;
   sc->sync_interval = sync_interval;
-  sc->last_sync_time = 0;
+  sc->last_sync_time = m_get_current_time();
   sc->is_syncing = 0;
 }
 

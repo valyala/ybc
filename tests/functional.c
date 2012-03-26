@@ -575,7 +575,7 @@ void test_large_cache(struct ybc *const cache)
   char *const value_buf = malloc(value_buf_size);
 
   struct ybc_key key;
-  struct ybc_value value = {
+  const struct ybc_value value = {
     .ptr = value_buf,
     .size = value_buf_size,
     .ttl = 1000 * 1000,
@@ -589,6 +589,42 @@ void test_large_cache(struct ybc *const cache)
   }
 
   free(value_buf);
+
+  ybc_close(cache);
+}
+
+static void test_small_sync_interval(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 100);
+  ybc_config_set_data_file_size(config, 4000);
+  ybc_config_set_sync_interval(config, 100);
+
+  if (!ybc_open(cache, config, 1)) {
+    assert(0 && "cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  struct ybc_key key;
+  const struct ybc_value value = {
+      .ptr = "1234567890a",
+      .size = 11,
+      .ttl = 1000 * 1000,
+  };
+
+  for (size_t i = 0; i < 10; ++i) {
+    for (size_t j = 0; j < 100; ++j) {
+      key.ptr = &j;
+      key.size = sizeof(j);
+      expect_item_add(cache, &key, &value);
+    }
+    m_sleep(31);
+  }
 
   ybc_close(cache);
 }
@@ -611,6 +647,7 @@ int main(void)
   test_persistent_survival(cache);
   test_broken_index_handling(cache);
   test_large_cache(cache);
+  test_small_sync_interval(cache);
 
   printf("All functional tests done\n");
   return 0;
