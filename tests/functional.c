@@ -1,7 +1,8 @@
 #include "ybc.h"
 
 #include <assert.h>
-#include <stdio.h>   /* for printf */
+#include <stdio.h>   /* printf, fopen, fclose, fwrite */
+#include <stdlib.h>  /* malloc, free */
 #include <string.h>  /* memcmp, memcpy */
 
 #ifdef YBC_HAVE_NANOSLEEP
@@ -419,6 +420,47 @@ static void test_cluster_ops(const size_t cluster_size,
   ybc_cluster_close(cluster);
 }
 
+static void test_instant_clear(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 1000);
+  ybc_config_set_data_file_size(config, 128 * 1024);
+
+  if (!ybc_open(cache, config, 1)) {
+    assert(0 && "cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  struct ybc_key key;
+  struct ybc_value value;
+
+  /* Add a lot of items to the cache */
+  value.ttl = 1000 * 1000;
+  for (size_t i = 0; i < 1000; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    value.ptr = &i;
+    value.size = sizeof(i);
+    expect_item_add(cache, &key, &value);
+  }
+
+  ybc_clear(cache);
+
+  /* Test that the cache doesn't contain any items after the clearance. */
+  for (size_t i = 0; i < 1000; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    expect_item_miss(cache, &key);
+  }
+
+  ybc_close(cache);
+}
+
 static void test_persistent_survival(struct ybc *const cache)
 {
   char config_buf[ybc_config_get_size()];
@@ -456,9 +498,102 @@ static void test_persistent_survival(struct ybc *const cache)
 
   expect_item_hit(cache, &key, &value);
 
+  ybc_close(cache);
+
   ybc_remove(config);
 
   ybc_config_destroy(config);
+}
+
+static void test_broken_index_handling(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_index_file(config, "./tmp_cache.index");
+  ybc_config_set_data_file(config, "./tmp_cache.data");
+  ybc_config_set_max_items_count(config, 1000);
+  ybc_config_set_data_file_size(config, 64 * 1024);
+
+  /* Create index and data files. */
+  if (!ybc_open(cache, config, 1)) {
+    assert(0 && "cannot create persistent cache");
+  }
+
+  ybc_close(cache);
+
+  /* Corrupt index file. */
+  FILE *const fp = fopen("./tmp_cache.index", "r+");
+  for (size_t i = 0; i < 100; ++i) {
+    if (fwrite(&i, sizeof(i), 1, fp) != 1) {
+      assert(0 && "cannot write data");
+    }
+  }
+  fclose(fp);
+
+  /* Try reading index file. It must be "empty". */
+  if (!ybc_open(cache, config, 0)) {
+    assert(0 && "cannot open persistent cache");
+  }
+
+  struct ybc_key key;
+  for (size_t i = 0; i < 100; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    expect_item_miss(cache, &key);
+  }
+
+  ybc_close(cache);
+
+  /* Remove index and data files. */
+  ybc_remove(config);
+
+  ybc_config_destroy(config);
+}
+
+void test_large_cache(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 10 * 1000);
+  ybc_config_set_data_file_size(config, 32 * 1024 * 1024);
+
+  /* Disable data syncing for faster speed. */
+  ybc_config_set_sync_chunk_size(config, 0);
+
+  if (!ybc_open(cache, config, 1)) {
+    assert(0 && "cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  const size_t value_buf_size = 13 * 3457;
+
+  /* Don't care what does this buffer contain. */
+  char *const value_buf = malloc(value_buf_size);
+
+  struct ybc_key key;
+  struct ybc_value value = {
+    .ptr = value_buf,
+    .size = value_buf_size,
+    .ttl = 1000 * 1000,
+  };
+
+  /* Test handling of cache data size wrapping. */
+  for (size_t i = 0; i < 10 * 1000; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    expect_item_add(cache, &key, &value);
+  }
+
+  free(value_buf);
+
+  ybc_close(cache);
 }
 
 int main(void)
@@ -475,7 +610,10 @@ int main(void)
   test_dogpile_effect_ops(cache);
   test_cluster_ops(5, 1000);
 
+  test_instant_clear(cache);
   test_persistent_survival(cache);
+  test_broken_index_handling(cache);
+  test_large_cache(cache);
 
   printf("All functional tests done\n");
   return 0;

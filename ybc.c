@@ -737,10 +737,6 @@ static int m_storage_allocate(struct m_storage *const storage,
   assert(next_offset <= storage_size);
 
   /*
-   * Make sure currently acquired items don't interfere with a region
-   * of size bytes starting from next_offset.
-   * Move next_offset forward if required.
-   *
    * This loop has O(n^2) worst-case performance, where n is the number
    * of items in the acquired_items list. But this is unlikely case.
    * Amortized performance is O(n), when acquired items don't interfere
@@ -751,15 +747,19 @@ static int m_storage_allocate(struct m_storage *const storage,
   const size_t initial_offset = next_offset;
   int is_storage_wrapped = 0;
   for (;;) {
+    if (next_offset > storage_size - size) {
+      ++storage->next_cursor.wrap_count;
+      next_offset = 0;
+      is_storage_wrapped = 1;
+    }
+
+   /*
+    * Make sure currently acquired items don't interfere with a region
+    * of size bytes starting from next_offset.
+    * Move next_offset forward if required.
+    */
     const struct ybc_item *item = acquired_items;
-
     while (item != NULL) {
-      if (next_offset > storage_size - size) {
-        ++storage->next_cursor.wrap_count;
-        next_offset = 0;
-        is_storage_wrapped = 1;
-      }
-
       const struct m_storage_payload *const payload = &item->payload;
 
       /*
@@ -1349,11 +1349,51 @@ static void m_map_cache_remove(const struct m_map *const map,
  * Index API.
  ******************************************************************************/
 
+/*
+ * Cache index.
+ */
 struct m_index
 {
+  /*
+   * A mapping between cache items and values.
+   *
+   * Map's data is mapped directly into index file.
+   */
   struct m_map map;
+
+  /*
+   * A cache, which contains frequently accessed items from the map.
+   *
+   * Since an item stored in the map occupies a tiny fraction of VM page size
+   * (currently 1/100th), each VM page behind the map is likely to contain only
+   * a few frequently accessed items. The cache allows packing such items more
+   * tightly, thus reducing the number of frequently accessed VM pages
+   * (aka 'working set').
+   */
   struct m_map map_cache;
+
+  /*
+   * A pointer to the next free memory in storage file.
+   *
+   * This pointer points to the corresponding location in index file.
+   */
   struct m_storage_cursor *sync_cursor;
+
+  /*
+   * A pointer to hash seed.
+   *
+   * This pointer points to the corresponding location in index file.
+   *
+   * Hash seed is used for key digest calculations. It serves the following
+   * purposes:
+   * - Security. It reduces chances for successful hash table collision attack.
+   * - Fast cache data invalidation. See ybc_clear().
+   */
+  uint64_t *hash_seed_ptr;
+
+  /*
+   * An immutable copy of hash seed from index file.
+   */
   uint64_t hash_seed;
 };
 
@@ -1395,14 +1435,13 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   m_file_close(&file);
 
   index->sync_cursor = ptr;
-
-  uint64_t *const hash_seed_ptr = (uint64_t *)(index->sync_cursor + 1);
+  index->hash_seed_ptr = (uint64_t *)(index->sync_cursor + 1);
   if (*is_file_created) {
-    *hash_seed_ptr = m_get_current_time();
+    *index->hash_seed_ptr = m_get_current_time();
   }
-  index->hash_seed = *hash_seed_ptr;
+  index->hash_seed = *index->hash_seed_ptr;
 
-  index->map.key_digests = (struct m_key_digest *)(hash_seed_ptr + 1);
+  index->map.key_digests = (struct m_key_digest *)(index->hash_seed_ptr + 1);
   index->map.payloads = (struct m_storage_payload *)
       (index->map.key_digests + index->map.slots_count);
 
@@ -1814,6 +1853,21 @@ void ybc_close(struct ybc *const cache)
   m_storage_close(&cache->storage);
 
   m_index_close(&cache->index);
+}
+
+void ybc_clear(struct ybc *const cache)
+{
+  /*
+   * New hash seed automatically invalidates all the items stored in the cache.
+   */
+
+  /*
+   * Use addition operation instead of xor for calculation new hash seed,
+   * because xor may result in very low entropy if the previous hash seed
+   * has been generated recently.
+   */
+  *cache->index.hash_seed_ptr += m_get_current_time();
+  cache->index.hash_seed = *cache->index.hash_seed_ptr;
 }
 
 void ybc_remove(const struct ybc_config *const config)

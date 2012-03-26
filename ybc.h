@@ -254,6 +254,17 @@ int ybc_open(struct ybc *cache, const struct ybc_config *config, int force);
 void ybc_close(struct ybc *cache);
 
 /*
+ * Discards all the items in the cache.
+ *
+ * This function is very fast and its' speed doesn't depend on the number
+ * and the size of items stored in the cache.
+ *
+ * Unlike ybc_remove(), this function doesn't remove files associated
+ * with the cache.
+ */
+void ybc_clear(struct ybc *cache);
+
+/*
  * Removes files associated with the given cache.
  *
  * Config must be non-NULL.
