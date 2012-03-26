@@ -250,7 +250,7 @@ static void m_lock_unlock(struct m_lock *const lock)
 #include <stdio.h>      /* tmpfile, fileno, fclose */
 #include <sys/stat.h>   /* open, fstat */
 #include <sys/types.h>  /* open, fstat */
-#include <unistd.h>     /* close, fsync, fstat, access, unlink, dup, fcntl */
+#include <unistd.h>     /* close, fstat, access, unlink, dup, fcntl */
 
 struct m_file
 {
@@ -354,12 +354,10 @@ static void m_file_open(struct m_file *const file, const char *const filename)
 static void m_file_close(const struct m_file *const file)
 {
   /*
-   * According to manpages, fsync() cannot generate EINTR,
-   * so don't handle this case.
+   * Do not use fsync() before closing the file, because this may be
+   * extremely slow in certain filesystems.
+   * Rely on OS for flushing file's data to storage device instead.
    */
-  if (fsync(file->fd) == -1) {
-    error(EXIT_FAILURE, errno, "fsync(fd=%d)", file->fd);
-  }
 
   for (;;) {
     if (close(file->fd) != -1) {
