@@ -4,6 +4,17 @@
 #include <stddef.h>  /* for size_t */
 #include <stdint.h>  /* for uint*_t */
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#if defined(YBC_BUILD_LIBRARY) || defined(YBC_USE_LIBRARY)
+#define YBC_API  __attribute__((externally_visible))
+#else
+#define YBC_API  /* No special handling for static linkage. */
+#endif
+
 /*******************************************************************************
  * Config API.
  *
@@ -34,7 +45,7 @@ struct ybc_config;
  * The caller is responsible for allocating this amount of memory
  * for ybc_config structure before passint it into ybc_config_*() functions.
  */
-size_t ybc_config_get_size(void);
+YBC_API size_t ybc_config_get_size(void);
 
 /*
  * Returns a pointer to the config with the given index.
@@ -47,12 +58,12 @@ size_t ybc_config_get_size(void);
  *
  * The initialized config must be destroyed by ybc_config_destroy().
  */
-void ybc_config_init(struct ybc_config *config);
+YBC_API void ybc_config_init(struct ybc_config *config);
 
 /*
  * Destroys the given config, which has been initialized by ybc_config_init().
  */
-void ybc_config_destroy(struct ybc_config *config);
+YBC_API void ybc_config_destroy(struct ybc_config *config);
 
 /*
  * Sets the maximum number of items in the cache.
@@ -64,7 +75,7 @@ void ybc_config_destroy(struct ybc_config *config);
  *
  * Index file size will be proportional to this number.
  */
-void ybc_config_set_max_items_count(struct ybc_config *config,
+YBC_API void ybc_config_set_max_items_count(struct ybc_config *config,
     size_t max_items_count);
 
 /*
@@ -73,7 +84,8 @@ void ybc_config_set_max_items_count(struct ybc_config *config,
  * The size can be arbitrary large. The only limit on the size is filesystem's
  * free space.
  */
-void ybc_config_set_data_file_size(struct ybc_config *config, size_t size);
+YBC_API void ybc_config_set_data_file_size(struct ybc_config *config,
+    size_t size);
 
 /*
  * Sets path to the index file for the given config.
@@ -91,7 +103,8 @@ void ybc_config_set_data_file_size(struct ybc_config *config, size_t size);
  *
  * It is safe removing the string pointed by filename after the call.
  */
-void ybc_config_set_index_file(struct ybc_config *config, const char *filename);
+YBC_API void ybc_config_set_index_file(struct ybc_config *config,
+    const char *filename);
 
 /*
  * Sets path to the data file for the given config.
@@ -118,7 +131,8 @@ void ybc_config_set_index_file(struct ybc_config *config, const char *filename);
  *
  * It is safe removing the string pointed by filename after the call.
  */
-void ybc_config_set_data_file(struct ybc_config *config, const char *filename);
+YBC_API void ybc_config_set_data_file(struct ybc_config *config,
+    const char *filename);
 
 /*
  * Sets the expected number of hot (frequently requested) items in the cache.
@@ -141,7 +155,7 @@ void ybc_config_set_data_file(struct ybc_config *config, const char *filename);
  * Default value should work well for almost all cases, so tune this value only
  * if you know what you are doing.
  */
-void ybc_config_set_hot_items_count(struct ybc_config *config,
+YBC_API void ybc_config_set_hot_items_count(struct ybc_config *config,
     size_t hot_items_count);
 
 /*
@@ -166,7 +180,7 @@ void ybc_config_set_hot_items_count(struct ybc_config *config,
  * if you know what you are doing.
  */
 
-void ybc_config_set_hot_data_size(struct ybc_config *config,
+YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
     size_t hot_data_size);
 
 /*
@@ -188,7 +202,7 @@ void ybc_config_set_hot_data_size(struct ybc_config *config,
  * Default value should work well for almost all cases, so tune this value only
  * if you know what you are doing.
  */
-void ybc_config_set_sync_interval(struct ybc_config *config,
+YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
     uint64_t sync_interval);
 
 
@@ -220,7 +234,7 @@ struct ybc;
  * The caller is responsible for allocating this amount of memory
  * for ybc structure before passing it into ybc_*() functions.
  */
-size_t ybc_get_size(void);
+YBC_API size_t ybc_get_size(void);
 
 /*
  * Opens and, optionally, initializes the cache.
@@ -246,12 +260,13 @@ size_t ybc_get_size(void);
  *
  * Returns non-zero value on success, 0 on error.
  */
-int ybc_open(struct ybc *cache, const struct ybc_config *config, int force);
+YBC_API int ybc_open(struct ybc *cache, const struct ybc_config *config,
+    int force);
 
 /*
  * Closes the given cache handler.
  */
-void ybc_close(struct ybc *cache);
+YBC_API void ybc_close(struct ybc *cache);
 
 /*
  * Discards all the items in the cache.
@@ -262,14 +277,14 @@ void ybc_close(struct ybc *cache);
  * Unlike ybc_remove(), this function doesn't remove files associated
  * with the cache.
  */
-void ybc_clear(struct ybc *cache);
+YBC_API void ybc_clear(struct ybc *cache);
 
 /*
  * Removes files associated with the given cache.
  *
  * Config must be non-NULL.
  */
-void ybc_remove(const struct ybc_config *config);
+YBC_API void ybc_remove(const struct ybc_config *config);
 
 
 /*******************************************************************************
@@ -343,7 +358,7 @@ struct ybc_key
  * The caller is responsible for allocating this amount of memory
  * for ybc_add_txn structure before passing it into ybc_add_txn_*() functions.
  */
-size_t ybc_add_txn_get_size(void);
+YBC_API size_t ybc_add_txn_get_size(void);
 
 /*
  * Starts 'add' transaction for the given key and value of the given size.
@@ -358,7 +373,7 @@ size_t ybc_add_txn_get_size(void);
  * The item can be released also without commit. This is equivalent
  * to transaction rollback.
  */
-int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
+YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
     struct ybc_item *item, const struct ybc_key *key, size_t value_size);
 
 /*
@@ -374,7 +389,7 @@ int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  * The item passed to ybc_add_txn_begin() must remain acquired during
  * the call to this function.
  */
-void ybc_add_txn_commit(struct ybc_add_txn *txn, uint64_t ttl);
+YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, uint64_t ttl);
 
 /*
  * Returns a pointer to allocated space for item's value.
@@ -384,7 +399,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *txn, uint64_t ttl);
  *
  * Always returns non-NULL value.
  */
-void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
+YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
 
 
 /*******************************************************************************
@@ -454,7 +469,7 @@ struct ybc_value
  * The caller is responsible for allocating this amount of memory
  * for ybc_item structure before passing it into ybc_item_*() functions.
  */
-size_t ybc_item_get_size(void);
+YBC_API size_t ybc_item_get_size(void);
 
 /*
  * Adds the given value with the given key to the cache.
@@ -474,7 +489,7 @@ size_t ybc_item_get_size(void);
  *
  * The returned item MUST be released via ybc_item_release() call.
  */
-int ybc_item_add(struct ybc *cache, struct ybc_item *item,
+YBC_API int ybc_item_add(struct ybc *cache, struct ybc_item *item,
     const struct ybc_key *key, const struct ybc_value *value);
 
 /*
@@ -482,7 +497,7 @@ int ybc_item_add(struct ybc *cache, struct ybc_item *item,
  *
  * Does nothing if the item wan't in the cache.
  */
-void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
+YBC_API void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
 
 /*
  * Acquires an item with the given key.
@@ -494,7 +509,7 @@ void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
  *
  * Acquired items MUST be released via ybc_item_release() call.
  */
-int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
+YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
     const struct ybc_key *key);
 
 /*
@@ -538,7 +553,7 @@ int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  *
  * Acquired items MUST be released with ybc_item_release().
  */
-int ybc_item_acquire_de(struct ybc *cache, struct ybc_item *item,
+YBC_API int ybc_item_acquire_de(struct ybc *cache, struct ybc_item *item,
     const struct ybc_key *key, uint64_t grace_ttl);
 
 /*
@@ -548,12 +563,13 @@ int ybc_item_acquire_de(struct ybc *cache, struct ybc_item *item,
  * after the item is released.
  * The item MUST not be passed to ybc_item_get_value() after it is released.
  */
-void ybc_item_release(struct ybc_item *item);
+YBC_API void ybc_item_release(struct ybc_item *item);
 
 /*
  * Returns a value for the given item.
  */
-void ybc_item_get_value(const struct ybc_item *item, struct ybc_value *value);
+YBC_API void ybc_item_get_value(const struct ybc_item *item,
+    struct ybc_value *value);
 
 
 /*******************************************************************************
@@ -630,7 +646,7 @@ struct ybc_cluster;
  * The caller is responsible for allocating this amount of memory
  * for ybc_cluster structure before passing it into ybc_cluster_*() functions.
  */
-size_t ybc_cluster_get_size(size_t caches_count);
+YBC_API size_t ybc_cluster_get_size(size_t caches_count);
 
 /*
  * Opens all the caches_count caches defined in configs.
@@ -640,20 +656,24 @@ size_t ybc_cluster_get_size(size_t caches_count);
  *
  * Returns non-zero on success, zero on failure.
  */
-int ybc_cluster_open(struct ybc_cluster *cluster,
+YBC_API int ybc_cluster_open(struct ybc_cluster *cluster,
     const struct ybc_config *configs, size_t caches_count, int force);
 
 /*
  * Closes the given cache cluster.
  */
-void ybc_cluster_close(struct ybc_cluster *cluster);
+YBC_API void ybc_cluster_close(struct ybc_cluster *cluster);
 
 /*
  * Returns cache responsible for the corresponding key.
  *
  * Always returns non-NULL result.
  */
-struct ybc *ybc_cluster_get_cache(struct ybc_cluster *cluster,
+YBC_API struct ybc *ybc_cluster_get_cache(struct ybc_cluster *cluster,
     const struct ybc_key *key);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  /* YBC_H_INCLUDED */
