@@ -563,9 +563,6 @@ void test_large_cache(struct ybc *const cache)
   ybc_config_set_max_items_count(config, 10 * 1000);
   ybc_config_set_data_file_size(config, 32 * 1024 * 1024);
 
-  /* Disable data syncing for faster speed. */
-  ybc_config_set_sync_chunk_size(config, 0);
-
   if (!ybc_open(cache, config, 1)) {
     assert(0 && "cannot create anonymous cache");
   }

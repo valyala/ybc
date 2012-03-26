@@ -121,28 +121,6 @@ void ybc_config_set_index_file(struct ybc_config *config, const char *filename);
 void ybc_config_set_data_file(struct ybc_config *config, const char *filename);
 
 /*
- * Sets sync chunk size in bytes.
- *
- * Cache items are forcibly synced in data file in chunks each with
- * the given size. Non-synced cache items may be lost after the program
- * crash or restart.
- *
- * While small chunk size minimizes the number of lost items in the event
- * of program crash or exit, it also may slow down the program, because it
- * increases the number of potentially expensive and slow writes to data file.
- *
- * Large chunk size minimizes the number of writes to data file at the cost
- * of potentially higher number of lost items in the event of program crash.
- *
- * Setting sync chunk size to 0 completely disables data syncing.
- * By default syncing is enabled.
- *
- * Default value should work well for almost all cases, so tune this value only
- * if you know what you are doing.
- */
-void ybc_config_set_sync_chunk_size(struct ybc_config *config, size_t size);
-
-/*
  * Sets the expected number of hot (frequently requested) items in the cache.
  *
  * If this number is much smaller than the actual number of hot items,
@@ -190,6 +168,28 @@ void ybc_config_set_hot_items_count(struct ybc_config *config,
 
 void ybc_config_set_hot_data_size(struct ybc_config *config,
     size_t hot_data_size);
+
+/*
+ * Sets interval for cache data syncing in milliseconds.
+ *
+ * Cache items are periodically synced in data file with this interval.
+ * Non-synced cache items may be lost after the program crash or restart.
+ *
+ * While short sync interval reduces the number of lost items in the event
+ * of program crash or exit, it also increases the number of writes to data
+ * file, which may slow down the program.
+ *
+ * Long sync interval minimizes the number of writes to data file at the cost
+ * of potentially higher number of lost items in the event of program crash.
+ *
+ * Setting sync interval to 0 completely disables data syncing.
+ * By default syncing is enabled.
+ *
+ * Default value should work well for almost all cases, so tune this value only
+ * if you know what you are doing.
+ */
+void ybc_config_set_sync_interval(struct ybc_config *config,
+    uint64_t sync_interval);
 
 
 /*******************************************************************************

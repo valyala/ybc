@@ -1463,77 +1463,137 @@ static void m_index_close(struct m_index *const index)
  * Sync API.
  ******************************************************************************/
 
-static void m_sync_fix_chunk_size(size_t *const sync_chunk_size,
-    const size_t storage_size)
+struct m_sync
 {
-  if (*sync_chunk_size > storage_size / 2) {
-    *sync_chunk_size = storage_size / 2;
-  }
+  /*
+   * A pointer to the next unsynced byte in the storage.
+   */
+  struct m_storage_cursor snapshot_cursor;
+
+  /*
+   * Interval between data syncs.
+   */
+  uint64_t sync_interval;
+
+  /*
+   * Time in milliseconds for the last sync.
+   */
+  uint64_t last_sync_time;
+
+  /*
+   * A flag indicating whether syncing is currently running.
+   *
+   * This flag prevents concurrent syncing from multiple threads, because
+   * it has no any benefits.
+   */
+  int is_syncing;
+};
+
+static void m_sync_init(struct m_sync *const sc,
+    const struct m_storage_cursor *const next_cursor,
+    const uint64_t sync_interval)
+{
+  sc->snapshot_cursor = *next_cursor;
+  sc->sync_interval = sync_interval;
+  sc->last_sync_time = 0;
+  sc->is_syncing = 0;
 }
 
-static int m_sync_start(struct m_storage_cursor *const snapshot_cursor,
+static void m_sync_destroy(struct m_sync *const sc)
+{
+  assert(!sc->is_syncing);
+  (void)sc;
+}
+
+static void m_sync_start(struct m_storage_cursor *const snapshot_cursor,
     const struct m_storage *const storage, size_t *const start_offset,
     size_t *const sync_chunk_size)
 {
-  assert(*sync_chunk_size <= storage->size / 2);
-
-  if (*sync_chunk_size == 0) {
-    /* Syncing is disabled. */
-    return 0;
-  }
-
   if (storage->next_cursor.wrap_count == snapshot_cursor->wrap_count) {
+    /*
+     * Storage didn't wrap since the previous sync.
+     * Let's sync data till storage's next_cursor.
+     */
+
     assert(storage->next_cursor.offset >= snapshot_cursor->offset);
 
-    if (storage->next_cursor.offset - snapshot_cursor->offset >=
-        *sync_chunk_size) {
+    *start_offset = snapshot_cursor->offset;
+    *sync_chunk_size = storage->next_cursor.offset - snapshot_cursor->offset;
+    snapshot_cursor->offset = storage->next_cursor.offset;
+  }
+  else {
+    /*
+     * Storage wrapped at least once since the previous sync.
+     * Figure out which parts of storage need to be synced.
+     */
+
+    if (storage->next_cursor.wrap_count - 1 == snapshot_cursor->wrap_count &&
+        storage->next_cursor.offset < snapshot_cursor->offset) {
+      /*
+       * Storage wrapped once since the previous sync.
+       * Let's sync data starting from snapshot_cursor till the end
+       * of the storage. The rest of unsynced data will be synced next time.
+       */
+
+      assert(snapshot_cursor->offset <= storage->size);
 
       *start_offset = snapshot_cursor->offset;
-      *sync_chunk_size = storage->next_cursor.offset - snapshot_cursor->offset;
-      snapshot_cursor->offset = storage->next_cursor.offset;
+      *sync_chunk_size = storage->size - snapshot_cursor->offset;
+      snapshot_cursor->offset = 0;
+    }
+    else {
+      /*
+       * Storage wrapped more than once since the previous sync, i.e. it is full
+       * of unsynced data. Let's sync the whole storage.
+       */
 
-      return 1;
+      *start_offset = 0;
+      *sync_chunk_size = storage->size;
+      snapshot_cursor->offset = storage->next_cursor.offset;
     }
 
+    snapshot_cursor->wrap_count = storage->next_cursor.wrap_count;
+  }
+}
+
+static int m_sync_begin(struct m_sync *const sc,
+    const struct m_storage *const storage, const uint64_t current_time,
+    size_t *const start_offset, size_t *const sync_chunk_size)
+{
+  assert(current_time >= sc->last_sync_time);
+
+  if (sc->sync_interval == 0) {
+    /*
+     * Syncing is disabled.
+     */
     return 0;
   }
 
-  assert(storage->next_cursor.wrap_count != snapshot_cursor->wrap_count);
-  assert(snapshot_cursor->offset <= storage->size);
-
-  if (storage->next_cursor.wrap_count - 1 != snapshot_cursor->wrap_count ||
-      storage->next_cursor.offset > snapshot_cursor->offset) {
-    snapshot_cursor->offset = storage->next_cursor.offset;
+  if (sc->is_syncing) {
+    /*
+     * Another thread is syncing the cache at the moment,
+     * so don't interfere with it.
+     */
+    return 0;
   }
 
-  *start_offset = snapshot_cursor->offset;
-  *sync_chunk_size = storage->size - snapshot_cursor->offset;
-  snapshot_cursor->wrap_count = storage->next_cursor.wrap_count;
-  snapshot_cursor->offset = 0;
+  if (current_time - sc->last_sync_time < sc->sync_interval) {
+    /*
+     * Throttle too frequent syncing.
+     */
+    return 0;
+  }
 
+  m_sync_start(&sc->snapshot_cursor, storage, start_offset, sync_chunk_size);
+
+  sc->last_sync_time = current_time;
+  sc->is_syncing = 1;
   return 1;
 }
 
-static int m_sync_begin(struct m_storage_cursor *const snapshot_cursor,
-    const struct m_storage *const storage, size_t *const start_offset,
-    size_t *const sync_chunk_size, int *const is_syncing)
-{
-  if (m_sync_start(snapshot_cursor, storage, start_offset, sync_chunk_size)) {
-    if (*is_syncing) {
-      /* Another thread is syncing the cache at the moment. */
-      return 0;
-    }
-
-    *is_syncing = 1;
-    return 1;
-  }
-
-  return 0;
-}
-
-static void m_sync_commit(const struct m_storage_cursor *const snapshot_cursor,
+static void m_sync_commit(struct m_sync *const sc,
     const struct m_storage *const storage, struct m_lock *const lock,
-    const size_t start_offset, size_t sync_chunk_size, int *const is_syncing,
+    const size_t start_offset, size_t sync_chunk_size,
     struct m_storage_cursor *const sync_cursor)
 {
   /*
@@ -1559,10 +1619,10 @@ static void m_sync_commit(const struct m_storage_cursor *const snapshot_cursor,
 
   m_lock_lock(lock);
 
-  *sync_cursor = *snapshot_cursor;
+  *sync_cursor = sc->snapshot_cursor;
 
-  assert(*is_syncing);
-  *is_syncing = 0;
+  assert(sc->is_syncing);
+  sc->is_syncing = 0;
 
   m_lock_unlock(lock);
 }
@@ -1667,11 +1727,11 @@ static const size_t M_CONFIG_DEFAULT_MAP_SLOTS_COUNT = 100 * 1000;
 
 static const size_t M_CONFIG_DEFAULT_DATA_SIZE = 64 * 1024 * 1024;
 
-static const size_t M_CONFIG_DEFAULT_SYNC_CHUNK_SIZE = 1024 * 1024;
-
 static const size_t M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT = 10 * 1000;
 
 static const size_t M_CONFIG_DEFAULT_HOT_DATA_SIZE = 8 * 1024 * 1024;
+
+static const size_t M_CONFIG_DEFAULT_SYNC_INTERVAL = 10 * 1000;
 
 struct ybc_config
 {
@@ -1679,9 +1739,9 @@ struct ybc_config
   char *data_file;
   size_t map_slots_count;
   size_t data_file_size;
-  size_t sync_chunk_size;
   size_t map_cache_slots_count;
   size_t hot_data_size;
+  uint64_t sync_interval;
 };
 
 size_t ybc_config_get_size(void)
@@ -1695,9 +1755,9 @@ void ybc_config_init(struct ybc_config *const config)
   config->data_file = NULL;
   config->map_slots_count = M_CONFIG_DEFAULT_MAP_SLOTS_COUNT;
   config->data_file_size = M_CONFIG_DEFAULT_DATA_SIZE;
-  config->sync_chunk_size = M_CONFIG_DEFAULT_SYNC_CHUNK_SIZE;
   config->map_cache_slots_count = M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT;
   config->hot_data_size = M_CONFIG_DEFAULT_HOT_DATA_SIZE;
+  config->sync_interval = M_CONFIG_DEFAULT_SYNC_INTERVAL;
 }
 
 void ybc_config_destroy(struct ybc_config *const config)
@@ -1730,12 +1790,6 @@ void ybc_config_set_data_file(struct ybc_config *const config,
   m_strdup(&config->data_file, filename);
 }
 
-void ybc_config_set_sync_chunk_size(struct ybc_config *const config,
-    const size_t size)
-{
-  config->sync_chunk_size = size;
-}
-
 void ybc_config_set_hot_items_count(struct ybc_config *const config,
     const size_t hot_items_count)
 {
@@ -1748,6 +1802,12 @@ void ybc_config_set_hot_data_size(struct ybc_config *const config,
   config->hot_data_size = hot_data_size;
 }
 
+void ybc_config_set_sync_interval(struct ybc_config *const config,
+    const uint64_t sync_interval)
+{
+  config->sync_interval = sync_interval;
+}
+
 
 /*******************************************************************************
  * Cache management API
@@ -1758,12 +1818,10 @@ struct ybc
   struct m_lock lock;
   struct m_index index;
   struct m_storage storage;
-  struct m_storage_cursor snapshot_cursor;
+  struct m_sync sc;
   struct ybc_item *acquired_items;
   struct m_de_item *de_items;
-  size_t sync_chunk_size;
   size_t hot_data_size;
-  int is_syncing;
 };
 
 int m_open(struct ybc *const cache, const struct ybc_config *const config,
@@ -1797,21 +1855,18 @@ int m_open(struct ybc *const cache, const struct ybc_config *const config,
     return 0;
   }
 
+  m_sync_init(&cache->sc, &cache->storage.next_cursor, config->sync_interval);
+
   /*
    * Do not move initialization of the lock above, because it must be destroyed
    * in the error paths above, i.e. more lines of code is required.
    */
   m_lock_init(&cache->lock);
 
-  cache->snapshot_cursor = cache->storage.next_cursor;
-
   cache->acquired_items = NULL;
   cache->de_items = NULL;
-  cache->sync_chunk_size = config->sync_chunk_size;
-  m_sync_fix_chunk_size(&cache->sync_chunk_size, cache->storage.size);
   cache->hot_data_size = config->hot_data_size;
   m_ws_fix_hot_data_size(&cache->hot_data_size, cache->storage.size);
-  cache->is_syncing = 0;
 
   return 1;
 }
@@ -1837,7 +1892,6 @@ int ybc_open(struct ybc *const cache, const struct ybc_config *const config,
 
 void ybc_close(struct ybc *const cache)
 {
-  assert(!cache->is_syncing);
   assert(cache->acquired_items == NULL);
 
   /*
@@ -1849,6 +1903,8 @@ void ybc_close(struct ybc *const cache)
   m_de_item_destroy_all(cache->de_items);
 
   m_lock_destroy(&cache->lock);
+
+  m_sync_destroy(&cache->sc);
 
   m_storage_close(&cache->storage);
 
@@ -1961,26 +2017,26 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
     const uint64_t ttl)
 {
   struct ybc *const cache = txn->item->cache;
-  size_t sync_chunk_size = cache->sync_chunk_size;
-  size_t start_offset;
+  const uint64_t current_time = m_get_current_time();
+  size_t sync_chunk_size, start_offset;
   int should_sync;
 
-  txn->item->payload.expiration_time = ttl + m_get_current_time();
+  assert(ttl <= UINT64_MAX - current_time);
+  txn->item->payload.expiration_time = ttl + current_time;
 
   m_lock_lock(&cache->lock);
 
   m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &txn->key_digest, &txn->item->payload);
 
-  should_sync = m_sync_begin(&cache->snapshot_cursor, &cache->storage,
-      &start_offset, &sync_chunk_size, &cache->is_syncing);
+  should_sync = m_sync_begin(&cache->sc, &cache->storage, current_time,
+      &start_offset, &sync_chunk_size);
 
   m_lock_unlock(&cache->lock);
 
   if (should_sync) {
-    m_sync_commit(&cache->snapshot_cursor, &cache->storage, &cache->lock,
-        start_offset, sync_chunk_size, &cache->is_syncing,
-        cache->index.sync_cursor);
+    m_sync_commit(&cache->sc, &cache->storage, &cache->lock,
+        start_offset, sync_chunk_size, cache->index.sync_cursor);
   }
 
   txn->item = NULL;
