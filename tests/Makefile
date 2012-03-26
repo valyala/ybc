@@ -6,10 +6,10 @@ LDFLAGS = -lrt
 
 all: functional-32 functional-64
 
-functional-32:  ../ybc.h ../ybc.c
+functional-32: functional.c ../ybc.h ../ybc.c
 	gcc ../ybc.c functional.c -I.. $(CFLAGS) $(LDFLAGS) -g -m32 -o functional-32
 
-functional-64: ../ybc.h ../ybc.c
+functional-64: functional.c ../ybc.h ../ybc.c
 	gcc ../ybc.c functional.c -I.. $(CFLAGS) $(LDFLAGS) -g -m64 -o functional-64
 
 clean:
