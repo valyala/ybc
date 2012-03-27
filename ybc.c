@@ -24,6 +24,8 @@
  * Aux API.
  ******************************************************************************/
 
+#ifndef NDEBUG
+
 /*
  * m_less_* functions are used as a workaround for compiler warnings about
  * limited ranges of arguments.
@@ -40,6 +42,8 @@ static int m_less(const uint64_t a, const uint64_t b)
 {
   return (a < b);
 }
+
+#endif
 
 
 #ifdef YBC_HAVE_LINUX_ERROR_API

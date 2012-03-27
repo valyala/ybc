@@ -1,4 +1,4 @@
-#include "ybc.h"
+#include "../ybc.h"
 
 /* Since tests rely on assert(), NDEBUG must be undefined. */
 #undef NDEBUG
