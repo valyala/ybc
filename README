@@ -6,14 +6,16 @@ It has the following features:
 
 * Huge amounts of data can be cached. The maximum size of cached data
   is limited by free space on backing store. So thousands multi-GB media files
-  can be easily placed into the cache if a backing store can handle such amount
+  can be easily placed into the cache if backing store can handle such amount
   of data.
 
-* Atomic updates. It is safe updating an item when other threads are reading
+* Atomic updates. It is safe updating an item while other threads are reading
   an old value for the item.
 
 * 'Add transaction' support, which allows constructing item's value on the fly
-  without serializing it into a temporary buffer.
+  without serializing it into a temporary buffer. Uncommited transaction can
+  be rolled back at any time. Think of media files streamed from the backend
+  or complex objects, which require serialization from multiple distinct places.
 
 * Multiple threads can simultanously add huge blobs into the cache.
 
@@ -21,13 +23,14 @@ It has the following features:
 
 * Support for sharding of cache data among available backing store devices.
 
-* Instant invalidation of all items in the cache irregardless of cache size.
-
 * Robust recovery from corrupted backing files.
 
-* Optimization for HDD and SSD devices.
-
-* Multithreading support. The library is thread-safe out of the box.
+* Structure of backing files is optimized for HDD and SSD devices. I.e. always
+  prefer sequential I/O instead of random I/O.
 
 * Persistence support. Cache data survives process restart if the cache
   is explicitly backed by files.
+
+* Multithreading support. The library is thread-safe out of the box.
+
+* Instant invalidation of all items in the cache irregardless of cache size.
