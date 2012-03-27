@@ -1,18 +1,33 @@
 YBC - Yet another Blob Cache library.
 
-This library provides support for in-process blob cache.
+This library provides support for in-process blob cache with arbitrary size.
 
 It has the following features:
 
-* Persistence support. Cache data survives process restart if the cache
-  is explicitly backed by files.
-* Automatic recovery from corrupted backing files.
 * Huge amounts of data can be cached. The maximum size of cached data
   is limited by free space on backing store. So thousands multi-GB media files
   can be easily placed into the cache if a backing store can handle such amount
   of data.
-* Optimization for HDD and SSD devices.
-* Atomic updates.
-* Dogpile effect handling support.
-* Automatic sharding of cache data among available backing store devices.
+
+* Atomic updates. It is safe updating an item when other threads are reading
+  an old value for the item.
+
+* 'Add transaction' support, which allows constructing item's value on the fly
+  without serializing it into a temporary buffer.
+
+* Multiple threads can simultanously add huge blobs into the cache.
+
+* Dogpile effect (thundering herd) handling support.
+
+* Support for sharding of cache data among available backing store devices.
+
 * Instant invalidation of all items in the cache irregardless of cache size.
+
+* Automatic recovery from corrupted backing files.
+
+* Optimization for HDD and SSD devices.
+
+* Multithreading support. The library is thread-safe out of the box.
+
+* Persistence support. Cache data survives process restart if the cache
+  is explicitly backed by files.
