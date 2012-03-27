@@ -578,8 +578,14 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * Shards requests among available caches proportional to their max_items_count
  * values. Multiple caches can be useful in the following cases:
  * - As a workaround for filesystem limit on maximum file size.
- * - For speeding up I/O-bound requests if distinct caches are placed onto
- *   distinct physical devices.
+ * - For speeding up I/O-bound cache requests if distinct caches are placed onto
+ *   distinct physical devices. Requests can become I/O-bound only if frequently
+ *   accessed items don't fit available physical RAM (in other words, program's
+ *   working doesn't fit physical RAM). If program's working set is smaller
+ *   than RAM, then there is no any sense in splitting the cache into distinct
+ *   shards irregardless of the total cache size (it may be 1000x larger
+ *   than physical RAM size, but it should contain 99.9% of rarely accessed
+ *   items - 'cold items').
  *
  * All API functions are thread-safe, so no additional locking is required.
  *
