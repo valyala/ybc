@@ -1642,12 +1642,49 @@ static void m_sync_commit(struct m_sync *const sc,
  */
 static const uint64_t M_DE_ITEM_SLEEP_TIME = 100;
 
+/*
+ * Dogpile effect item, which is pending to be added or updated in the cache.
+ */
 struct m_de_item
 {
+  /*
+   * Pointer to the next item in the list.
+   *
+   * List's header is located in the m_de->pending_items.
+   */
   struct m_de_item *next;
+
+  /*
+   * Key digest for pending item.
+   */
   struct m_key_digest key_digest;
+
+  /*
+   * Expiration time for the item.
+   *
+   * The item is automatically removed from the list after it is expired.
+   */
   uint64_t expiration_time;
 };
+
+struct m_de
+{
+  /*
+   * Lock for pending_items list.
+   */
+  struct m_lock lock;
+
+  /*
+   * A list of items, which are pending to be added or updated in the cache.
+   */
+  struct m_de_item *pending_items;
+};
+
+static void m_de_init(struct m_de *const de)
+{
+  m_lock_init(&de->lock);
+  de->pending_items = NULL;
+}
 
 static void m_de_item_destroy_all(struct m_de_item *const de_item)
 {
@@ -1660,10 +1697,17 @@ static void m_de_item_destroy_all(struct m_de_item *const de_item)
   }
 }
 
-static struct m_de_item *m_de_item_get(struct m_de_item **const de_items_ptr,
+static void m_de_destroy(struct m_de *const de)
+{
+  m_de_item_destroy_all(de->pending_items);
+  m_lock_destroy(&de->lock);
+}
+
+static struct m_de_item *m_de_item_get(
+    struct m_de_item **const pending_items_ptr,
     const struct m_key_digest *const key_digest, const uint64_t current_time)
 {
-  struct m_de_item **prev_ptr = de_items_ptr;
+  struct m_de_item **prev_ptr = pending_items_ptr;
 
   for (;;) {
     struct m_de_item *const de_item = *prev_ptr;
@@ -1689,35 +1733,34 @@ static struct m_de_item *m_de_item_get(struct m_de_item **const de_items_ptr,
   return NULL;
 }
 
-static void m_de_item_add(struct m_de_item **const de_items_ptr,
+static void m_de_item_add(struct m_de_item **const pending_items_ptr,
     const struct m_key_digest *const key_digest, const uint64_t expiration_time)
 {
   struct m_de_item *const de_item = m_malloc(sizeof(*de_item));
 
-  de_item->next = *de_items_ptr;
+  de_item->next = *pending_items_ptr;
   de_item->key_digest = *key_digest;
   de_item->expiration_time = expiration_time;
 
-  *de_items_ptr = de_item;
+  *pending_items_ptr = de_item;
 }
 
-static int m_de_item_register(struct m_lock *const lock,
-    struct m_de_item **const de_items_ptr,
+static int m_de_item_register(struct m_de *const de,
     const struct m_key_digest *const key_digest, const uint64_t grace_ttl)
 {
   const uint64_t current_time = m_get_current_time();
 
-  m_lock_lock(lock);
+  m_lock_lock(&de->lock);
 
-  struct m_de_item *const de_item = m_de_item_get(de_items_ptr, key_digest,
-      current_time);
+  struct m_de_item *const de_item = m_de_item_get(&de->pending_items,
+      key_digest, current_time);
 
   if (de_item == NULL) {
     assert(grace_ttl <= UINT64_MAX - current_time);
-    m_de_item_add(de_items_ptr, key_digest, grace_ttl + current_time);
+    m_de_item_add(&de->pending_items, key_digest, grace_ttl + current_time);
   }
 
-  m_lock_unlock(lock);
+  m_lock_unlock(&de->lock);
 
   return (de_item == NULL);
 }
@@ -1823,8 +1866,8 @@ struct ybc
   struct m_index index;
   struct m_storage storage;
   struct m_sync sc;
+  struct m_de de;
   struct ybc_item *acquired_items;
-  struct m_de_item *de_items;
   size_t hot_data_size;
 };
 
@@ -1860,6 +1903,7 @@ int m_open(struct ybc *const cache, const struct ybc_config *const config,
   }
 
   m_sync_init(&cache->sc, &cache->storage.next_cursor, config->sync_interval);
+  m_de_init(&cache->de);
 
   /*
    * Do not move initialization of the lock above, because it must be destroyed
@@ -1868,7 +1912,6 @@ int m_open(struct ybc *const cache, const struct ybc_config *const config,
   m_lock_init(&cache->lock);
 
   cache->acquired_items = NULL;
-  cache->de_items = NULL;
   cache->hot_data_size = config->hot_data_size;
   m_ws_fix_hot_data_size(&cache->hot_data_size, cache->storage.size);
 
@@ -1904,9 +1947,9 @@ void ybc_close(struct ybc *const cache)
    */
   *cache->index.sync_cursor = cache->storage.next_cursor;
 
-  m_de_item_destroy_all(cache->de_items);
-
   m_lock_destroy(&cache->lock);
+
+  m_de_destroy(&cache->de);
 
   m_sync_destroy(&cache->sc);
 
@@ -2157,8 +2200,22 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
   m_key_digest_get(&key_digest, cache->index.hash_seed, key);
 
   while (!m_item_acquire(cache, item, key, &key_digest)) {
-    if (!m_de_item_register(&cache->lock, &cache->de_items,
-        &key_digest, grace_ttl)) {
+    /*
+     * The item is missing in the cache.
+     * Try registering the item in dogpile effect container. If the item
+     * is successfully registered there, then allow the caller adding new item
+     * to the cache. Otherwise wait until either the item is added by another
+     * thread or its' grace ttl expires.
+     */
+    if (!m_de_item_register(&cache->de, &key_digest, grace_ttl)) {
+      /*
+       * Though it looks like waiting on a condition (event) would be better
+       * than periodic sleeping for a fixed amount of time, this isn't true.
+       *
+       * I tried using condition here, but the resulting code was uglier,
+       * more intrusive, slower and less robust than the code based
+       * on periodic sleeping.
+       */
       m_sleep(M_DE_ITEM_SLEEP_TIME);
       continue;
     }
@@ -2167,8 +2224,14 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
   }
 
   if (m_item_get_ttl(item) < grace_ttl) {
-    if (m_de_item_register(&cache->lock, &cache->de_items,
-        &key_digest, grace_ttl)) {
+    /*
+     * The item is about to be expired soon.
+     * Try registering the item in dogpile effect container. If the item
+     * is successfully registered there, then force the caller updating
+     * the item by returning an empty item. Otherwise return not-yet expired
+     * item.
+     */
+    if (m_de_item_register(&cache->de, &key_digest, grace_ttl)) {
       m_item_release(item);
       return 0;
     }
