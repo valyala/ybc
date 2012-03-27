@@ -2,7 +2,9 @@ YBC - Yet another Blob Cache library.
 
 This library provides support for in-process blob cache with arbitrary size.
 
-It has the following features:
+===============================================================================
+
+YBC features.
 
 * Huge amounts of data can be cached. The maximum size of cached data
   is limited by free space on backing store. So thousands multi-GB media files
@@ -34,3 +36,17 @@ It has the following features:
 * Multithreading support. The library is thread-safe out of the box.
 
 * Instant invalidation of all items in the cache irregardless of cache size.
+
+===============================================================================
+
+Use-cases.
+
+* CDN cache.
+
+* File hosting cache.
+
+* Memcache-like cache.
+
+* Web-proxy or web-accelerator cache.
+
+* Web-browser cache.
