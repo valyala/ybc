@@ -23,7 +23,7 @@ It has the following features:
 
 * Instant invalidation of all items in the cache irregardless of cache size.
 
-* Automatic recovery from corrupted backing files.
+* Robust recovery from corrupted backing files.
 
 * Optimization for HDD and SSD devices.
 
