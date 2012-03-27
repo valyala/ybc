@@ -1,5 +1,8 @@
 #include "ybc.h"
 
+/* Since tests rely on assert(), NDEBUG must be undefined. */
+#undef NDEBUG
+
 #include <assert.h>
 #include <stdio.h>   /* printf, fopen, fclose, fwrite */
 #include <stdlib.h>  /* malloc, free */
@@ -8,6 +11,8 @@
 #ifdef YBC_HAVE_NANOSLEEP
 
 #include <time.h>  /* nanosleep */
+
+#define M_ERROR(error_message)  assert(0 && (error_message))
 
 static void m_sleep(const uint64_t sleep_time)
 {
@@ -28,12 +33,12 @@ static void test_anonymous_cache_create(struct ybc *const cache)
 {
   /* Non-forced open must fail. */
   if (ybc_open(cache, NULL, 0)) {
-    assert(0 && "anonymous cache shouldn't be opened without force");
+    M_ERROR("anonymous cache shouldn't be opened without force");
   }
 
   /* Forced open must succeed. */
   if (!ybc_open(cache, NULL, 1)) {
-    assert(0 && "cannot open anonymous cache with force");
+    M_ERROR("cannot open anonymous cache with force");
   }
   ybc_close(cache);
 }
@@ -41,7 +46,7 @@ static void test_anonymous_cache_create(struct ybc *const cache)
 static void m_open_anonymous(struct ybc *const cache)
 {
   if (!ybc_open(cache, NULL, 1)) {
-    assert(0 && "cannot open anonymous cache");
+    M_ERROR("cannot open anonymous cache");
   }
 }
 
@@ -59,19 +64,19 @@ static void test_persistent_cache_create(struct ybc *const cache)
 
   /* Non-forced open must fail. */
   if (ybc_open(cache, config, 0)) {
-    assert(0 && "non-existing persistent cache shouldn't be opened "
+    M_ERROR("non-existing persistent cache shouldn't be opened "
         "without force");
   }
 
   /* Forced open must succeed. */
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create persistent cache");
+    M_ERROR("cannot create persistent cache");
   }
   ybc_close(cache);
 
   /* Non-forced open must succeed now. */
   if (!ybc_open(cache, config, 0)) {
-    assert(0 && "cannot open existing persistent cache");
+    M_ERROR("cannot open existing persistent cache");
   }
   ybc_close(cache);
 
@@ -80,7 +85,7 @@ static void test_persistent_cache_create(struct ybc *const cache)
 
   /* Non-forced open must fail again. */
   if (ybc_open(cache, config, 0)) {
-    assert(0 && "non-existing persistent cache shouldn't be opened "
+    M_ERROR("non-existing persistent cache shouldn't be opened "
         "without force");
   }
 
@@ -107,7 +112,7 @@ static void expect_item_miss(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (ybc_item_acquire(cache, item, key)) {
-    assert(0 && "unexpected item found");
+    M_ERROR("unexpected item found");
   }
 }
 
@@ -119,7 +124,7 @@ static void expect_item_hit(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (!ybc_item_acquire(cache, item, key)) {
-    assert(0 && "cannot find expected item");
+    M_ERROR("cannot find expected item");
   }
   expect_value(item, expected_value);
   ybc_item_release(item);
@@ -132,7 +137,7 @@ static void expect_item_add(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (!ybc_item_add(cache, item, key, value)) {
-    assert(0 && "error when adding item");
+    M_ERROR("error when adding item");
   }
   expect_value(item, value);
   ybc_item_release(item);
@@ -153,7 +158,7 @@ static void expect_item_miss_de(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (ybc_item_acquire_de(cache, item, key, grace_ttl)) {
-    assert(0 && "unexpected item found");
+    M_ERROR("unexpected item found");
   }
 }
 
@@ -165,7 +170,7 @@ static void expect_item_hit_de(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (!ybc_item_acquire_de(cache, item, key, grace_ttl)) {
-    assert(0 && "cannot find expected item");
+    M_ERROR("cannot find expected item");
   }
   expect_value(item, expected_value);
   ybc_item_release(item);
@@ -179,7 +184,7 @@ static void test_add_txn_rollback(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (!ybc_add_txn_begin(cache, txn, item, key, value_size)) {
-    assert(0 && "error when starting add transaction");
+    M_ERROR("error when starting add transaction");
   }
   ybc_item_release(item);
 
@@ -194,7 +199,7 @@ static void test_add_txn_commit(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (!ybc_add_txn_begin(cache, txn, item, key, value->size)) {
-    assert(0 && "error when starting add transaction");
+    M_ERROR("error when starting add transaction");
   }
 
   void *const value_ptr = ybc_add_txn_get_value_ptr(txn);
@@ -217,7 +222,7 @@ static void test_add_txn_failure(struct ybc *const cache,
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
   if (ybc_add_txn_begin(cache, txn, item, key, value_size)) {
-    assert(0 && "unexpected transaction success");
+    M_ERROR("unexpected transaction success");
   }
 }
 
@@ -389,12 +394,12 @@ static void test_cluster_ops(const size_t cluster_size,
 
   /* Unfored open must fail. */
   if (ybc_cluster_open(cluster, configs, cluster_size, 0)) {
-    assert(0 && "cache cluster shouldn't be opened without force");
+    M_ERROR("cache cluster shouldn't be opened without force");
   }
 
   /* Forced open must succeed. */
   if (!ybc_cluster_open(cluster, configs, cluster_size, 1)) {
-    assert(0 && "failed opening cache cluster");
+    M_ERROR("failed opening cache cluster");
   }
 
   /* Configs are no longer needed, so they can be destroyed. */
@@ -431,7 +436,7 @@ static void test_instant_clear(struct ybc *const cache)
   ybc_config_set_data_file_size(config, 128 * 1024);
 
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create anonymous cache");
+    M_ERROR("cannot create anonymous cache");
   }
 
   ybc_config_destroy(config);
@@ -474,7 +479,7 @@ static void test_persistent_survival(struct ybc *const cache)
   ybc_config_set_data_file_size(config, 1024);
 
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create persistent cache");
+    M_ERROR("cannot create persistent cache");
   }
 
   const struct ybc_key key = {
@@ -493,7 +498,7 @@ static void test_persistent_survival(struct ybc *const cache)
   /* Re-open the same cache and make sure the item exists there. */
 
   if (!ybc_open(cache, config, 0)) {
-    assert(0 && "cannot open persistent cache");
+    M_ERROR("cannot open persistent cache");
   }
 
   expect_item_hit(cache, &key, &value);
@@ -519,7 +524,7 @@ static void test_broken_index_handling(struct ybc *const cache)
 
   /* Create index and data files. */
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create persistent cache");
+    M_ERROR("cannot create persistent cache");
   }
 
   ybc_close(cache);
@@ -528,14 +533,14 @@ static void test_broken_index_handling(struct ybc *const cache)
   FILE *const fp = fopen("./tmp_cache.index", "r+");
   for (size_t i = 0; i < 100; ++i) {
     if (fwrite(&i, sizeof(i), 1, fp) != 1) {
-      assert(0 && "cannot write data");
+      M_ERROR("cannot write data");
     }
   }
   fclose(fp);
 
   /* Try reading index file. It must be "empty". */
   if (!ybc_open(cache, config, 0)) {
-    assert(0 && "cannot open persistent cache");
+    M_ERROR("cannot open persistent cache");
   }
 
   struct ybc_key key;
@@ -564,7 +569,7 @@ void test_large_cache(struct ybc *const cache)
   ybc_config_set_data_file_size(config, 32 * 1024 * 1024);
 
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create anonymous cache");
+    M_ERROR("cannot create anonymous cache");
   }
 
   ybc_config_destroy(config);
@@ -605,7 +610,7 @@ static void test_small_sync_interval(struct ybc *const cache)
   ybc_config_set_sync_interval(config, 100);
 
   if (!ybc_open(cache, config, 1)) {
-    assert(0 && "cannot create anonymous cache");
+    M_ERROR("cannot create anonymous cache");
   }
 
   ybc_config_destroy(config);
