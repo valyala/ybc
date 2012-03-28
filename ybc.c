@@ -1467,6 +1467,9 @@ static void m_index_close(struct m_index *const index)
  * Sync API.
  ******************************************************************************/
 
+/*
+ * Data related to storage syncing.
+ */
 struct m_sync
 {
   /*
