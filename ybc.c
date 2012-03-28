@@ -179,6 +179,35 @@ static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
  * Mutex and condition API.
  ******************************************************************************/
 
+#ifdef YBC_SINGLE_THREADED
+
+struct m_lock
+{
+  char dummy;
+};
+
+static void m_lock_init(struct m_lock *const lock)
+{
+  (void)lock;
+}
+
+static void m_lock_destroy(struct m_lock *const lock)
+{
+  (void)lock;
+}
+
+static void m_lock_lock(struct m_lock *const lock)
+{
+  (void)lock;
+}
+
+static void m_lock_unlock(struct m_lock *const lock)
+{
+  (void)lock;
+}
+
+#else  /* !YBC_SINGLE_THREADED */
+
 #ifdef YBC_HAVE_PTHREAD
 
 #include <pthread.h>    /* pthread_* */
@@ -241,6 +270,7 @@ static void m_lock_unlock(struct m_lock *const lock)
   #error "Unsupported thread implementation"
 #endif
 
+#endif  /* !YBC_SINGLE_THREADED */
 
 /*******************************************************************************
  * File API.
