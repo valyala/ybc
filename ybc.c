@@ -1509,6 +1509,15 @@ static void m_sync_destroy(struct m_sync *const sc)
   (void)sc;
 }
 
+/*
+ * Starts data syncing.
+ *
+ * This includes:
+ * - setting *start_offset to the offset in the storage, from where data syncing
+ *   must start.
+ * - setting *sync_chunk_size to the size of data to be synced.
+ * - setting snapshot_cursor to the position next after the data to be synced.
+ */
 static void m_sync_start(struct m_storage_cursor *const snapshot_cursor,
     const struct m_storage *const storage, size_t *const start_offset,
     size_t *const sync_chunk_size)
