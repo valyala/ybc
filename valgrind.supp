@@ -1,0 +1,16 @@
+# Key digest comparisons against uninitialized values are expected.
+# Even though there is non-zero probability that an uninitialized value
+# is matched against the given key digest, the corresponding cache item
+# will be considered invalid after keys comparison.
+
+{
+   Comparison with uninitialized key digest in m_map_lookup_slot_index
+   Memcheck:Cond
+   fun:m_map_lookup_slot_index.*
+}
+
+{
+   Comparison with uninitialized key digest in m_map_add
+   Memcheck:Cond
+   fun:m_map_add.*
+}
