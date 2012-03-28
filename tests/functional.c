@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <stdio.h>   /* printf, fopen, fclose, fwrite */
 #include <stdlib.h>  /* malloc, free */
-#include <string.h>  /* memcmp, memcpy */
+#include <string.h>  /* memcmp, memcpy, memset */
 
 #ifdef YBC_HAVE_NANOSLEEP
 
@@ -639,8 +639,8 @@ void test_large_cache(struct ybc *const cache)
 
   const size_t value_buf_size = 13 * 3457;
 
-  /* Don't care what does this buffer contain. */
   char *const value_buf = malloc(value_buf_size);
+  memset(value_buf, 'q', value_buf_size);
 
   struct ybc_key key;
   const struct ybc_value value = {
