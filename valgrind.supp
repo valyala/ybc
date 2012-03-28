@@ -1,3 +1,6 @@
+# Valgrind suppression rules for YBC.
+# See http://valgrind.org/docs/manual/manual-core.html#manual-core.suppress .
+#
 # Key digest comparisons against uninitialized values are expected.
 # Even though there is non-zero probability that an uninitialized value
 # is matched against the given key digest, the corresponding cache item
