@@ -50,3 +50,5 @@ Use-cases.
 * Web-proxy or web-accelerator cache.
 
 * Web-browser cache.
+
+* Out-of-gc cache for garbage-collected languages.
