@@ -425,6 +425,69 @@ static void test_cluster_ops(const size_t cluster_size,
   ybc_cluster_close(cluster);
 }
 
+static void test_interleaved_adds(struct ybc *const cache)
+{
+  m_open_anonymous(cache);
+
+  char add_txn1_buf[ybc_add_txn_get_size()];
+  char add_txn2_buf[ybc_add_txn_get_size()];
+  struct ybc_add_txn *const txn1 = (struct ybc_add_txn *)add_txn1_buf;
+  struct ybc_add_txn *const txn2 = (struct ybc_add_txn *)add_txn2_buf;
+
+  char item1_buf[ybc_item_get_size()];
+  char item2_buf[ybc_item_get_size()];
+  struct ybc_item *const item1 = (struct ybc_item *)item1_buf;
+  struct ybc_item *const item2 = (struct ybc_item *)item2_buf;
+
+  const struct ybc_key key1 = {
+      .ptr = "foo",
+      .size = 3,
+  };
+  const struct ybc_key key2 = {
+      .ptr = "barz",
+      .size = 4,
+  };
+
+  const struct ybc_value value1 = {
+      .ptr = "123456",
+      .size = 6,
+      .ttl = 1000 * 1000,
+  };
+  const struct ybc_value value2 = {
+      .ptr = "qwert",
+      .size = 4,
+      .ttl = 1000 * 1000,
+  };
+
+  if (!ybc_add_txn_begin(cache, txn1, item1, &key1, value1.size)) {
+    M_ERROR("Cannot start the first add transaction");
+  }
+
+  if (!ybc_add_txn_begin(cache, txn2, item2, &key2, value2.size)) {
+    M_ERROR("Cannot start the second add transaction");
+  }
+
+  memcpy(ybc_add_txn_get_value_ptr(txn1), value1.ptr, value1.size);
+  memcpy(ybc_add_txn_get_value_ptr(txn2), value2.ptr, value2.size);
+
+  expect_item_miss(cache, &key1);
+  expect_item_miss(cache, &key2);
+
+  ybc_add_txn_commit(txn1, value1.ttl);
+  ybc_add_txn_commit(txn2, value2.ttl);
+
+  expect_value(item1, &value1);
+  expect_value(item2, &value2);
+
+  ybc_item_release(item1);
+  ybc_item_release(item2);
+
+  expect_item_hit(cache, &key1, &value1);
+  expect_item_hit(cache, &key2, &value2);
+
+  ybc_close(cache);
+}
+
 static void test_instant_clear(struct ybc *const cache)
 {
   char config_buf[ybc_config_get_size()];
@@ -648,6 +711,7 @@ int main(void)
   test_dogpile_effect_ops(cache);
   test_cluster_ops(5, 1000);
 
+  test_interleaved_adds(cache);
   test_instant_clear(cache);
   test_persistent_survival(cache);
   test_broken_index_handling(cache);
