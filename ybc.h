@@ -27,7 +27,7 @@ extern "C" {
  * ...
  * ybc_config_init(config);
  * ybc_config_set_max_items_count(config, 1000 * 1000);
- * ybc_config_set_data_file_size(config, 8 * 1024 * 1024 * 1024);
+ * ybc_config_set_data_file_size(config, (size_t)8 * 1024 * 1024 * 1024);
  * ...
  * create_and_use_cache(config);
  * ...
@@ -43,7 +43,7 @@ struct ybc_config;
  * Returns size of ybc_config structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc_config structure before passint it into ybc_config_*() functions.
+ * for ybc_config structure before passing it into ybc_config_*() functions.
  */
 YBC_API size_t ybc_config_get_size(void);
 
