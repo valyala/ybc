@@ -582,6 +582,8 @@ static void m_memory_map(void **const ptr, const struct m_file *const file,
   if (*ptr == MAP_FAILED) {
     error(EXIT_FAILURE, errno, "mmap(fd=%d, size=%zu)", file->fd, size);
   }
+
+  assert((uintptr_t)size <= UINTPTR_MAX - (uintptr_t)*ptr);
 }
 
 /*
@@ -676,7 +678,8 @@ struct m_storage_payload
  * Storage for cached items.
  *
  * Storage is a circular buffer. New items are appended in the front
- * of the storage. Items added into the storage become immutable.
+ * of the storage. Items added into the storage become immutable until the next
+ * storage wrap.
  *
  * This layout results in high write speeds on both HDDs and SSDs.
  */
@@ -759,6 +762,7 @@ static int m_storage_open(struct m_storage *const storage,
   }
 
   m_memory_map(&ptr, &file, storage->size);
+  assert((uintptr_t)storage->size <= UINTPTR_MAX - (uintptr_t)ptr);
 
   m_file_close(&file);
 
@@ -776,6 +780,8 @@ static void *m_storage_get_ptr(const struct m_storage *const storage,
     const size_t offset)
 {
   assert(offset <= storage->size);
+  assert((uintptr_t)offset <= UINTPTR_MAX - (uintptr_t)storage->data);
+
   return storage->data + offset;
 }
 
@@ -1508,6 +1514,7 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   m_file_advise_random_access(&file, file_size);
 
   m_memory_map(&ptr, &file, file_size);
+  assert((uintptr_t)file_size <= UINTPTR_MAX - (uintptr_t)ptr);
 
   m_file_close(&file);
 
