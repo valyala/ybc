@@ -1,2 +1,5 @@
+- More tests.
 - Perftest.
 - Documentation.
+- Data corruption detection.
+- Optimistic concurrency control.
