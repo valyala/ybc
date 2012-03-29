@@ -597,12 +597,6 @@ static void m_memory_sync(void *const ptr, const size_t size)
  ******************************************************************************/
 
 /*
- * Minimum size of item in the storage is equivalent to the size of value's
- * length (if key's and value's lengths are equivalent to 0).
- */
-static const size_t M_STORAGE_MIN_ITEM_SIZE = sizeof(size_t);
-
-/*
  * Minimum size of a storage in bytes.
  */
 static const size_t M_STORAGE_MIN_SIZE = 4096;
@@ -708,6 +702,11 @@ struct ybc_item
    * Item's value location.
    */
   struct m_storage_payload payload;
+
+  /*
+   * Key size for the given item.
+   */
+  size_t key_size;
 };
 
 static void m_storage_fix_size(size_t *const size)
@@ -895,13 +894,16 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
     const struct m_storage_payload *const payload,
     const struct ybc_key *const key)
 {
-  const char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
-
-  if (memcmp(ptr, &key->size, sizeof(key->size))) {
-    /* Key sizes mismatch. */
+  if (payload->size < key->size) {
+    /*
+     * Payload's size cannot be smaller than the key's size,
+     * because key contents is stored at the beginning of payload.
+     */
     return 0;
   }
-  if (memcmp(ptr + sizeof(key->size), key->ptr, key->size)) {
+
+  const char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  if (memcmp(ptr, key->ptr, key->size)) {
     /* Key values mismatch. */
     return 0;
   }
@@ -1134,8 +1136,12 @@ static void m_map_fix_slots_count(size_t *const slots_count,
    * is divided by M_MAP_BUCKET_SIZE.
    */
 
-  if (*slots_count > data_file_size / M_STORAGE_MIN_ITEM_SIZE) {
-    *slots_count = data_file_size / M_STORAGE_MIN_ITEM_SIZE;
+  if (*slots_count > data_file_size) {
+    /*
+     * The number of slots cannot exceed the size of data file, because
+     * each slot requires at least one byte in the data file for one-byte key.
+     */
+    *slots_count = data_file_size;
   }
 
   if (*slots_count < M_MAP_BUCKET_SIZE) {
@@ -1255,11 +1261,10 @@ static int m_map_get(
   /*
    * Do not merge m_storage_payload_check() with m_storage_payload_key_check(),
    * because m_storage_payload_check() operates only on map, while
-   * m_storage_payload_key_check() accesses storage.
+   * m_storage_payload_key_check() accesses random location in the storage.
    */
   if (!m_storage_payload_check(storage, payload) ||
-      !m_storage_payload_key_check(storage, payload, key) ||
-      payload->size < key->size + sizeof(key->size)) {
+      !m_storage_payload_key_check(storage, payload, key)) {
     /*
      * Optimization: clear key for invalid payload,
      * so it won't be returned and checked next time.
@@ -2030,8 +2035,27 @@ struct ybc_add_txn
 {
   struct m_key_digest key_digest;
   struct ybc_item *item;
-  void *value_ptr;
 };
+
+static void *m_item_get_value_ptr(const struct ybc_item *const item)
+{
+  assert(item->payload.size >= item->key_size);
+
+  char *const ptr = m_storage_get_ptr(&item->cache->storage,
+      item->payload.cursor.offset);
+  assert((uintptr_t)ptr <= UINTPTR_MAX - item->key_size);
+  return ptr + item->key_size;
+}
+
+static uint64_t m_item_get_ttl(const struct ybc_item *const item)
+{
+  const uint64_t current_time = m_get_current_time();
+  if (item->payload.expiration_time < current_time) {
+    return 0;
+  }
+
+  return item->payload.expiration_time - current_time;
+}
 
 static void m_item_register(struct ybc_item *const item,
     struct ybc_item **const acquired_items_ptr)
@@ -2066,21 +2090,24 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
     struct ybc_item *const item, const struct ybc_key *const key,
     const size_t value_size)
 {
+  if (value_size > SIZE_MAX - key->size) {
+    return 0;
+  }
+
   item->cache = cache;
   txn->item = item;
+  item->key_size = key->size;
 
-  if (key->size > SIZE_MAX - sizeof(key->size)) {
-    return 0;
-  }
-  if (value_size > SIZE_MAX - sizeof(key->size) - key->size) {
-    return 0;
-  }
+  m_key_digest_get(&txn->key_digest, cache->index.hash_seed, key);
 
   struct m_storage_payload *const payload = &item->payload;
 
-  payload->size = key->size + value_size + sizeof(key->size);
-  m_key_digest_get(&txn->key_digest, cache->index.hash_seed, key);
+  assert(value_size <= SIZE_MAX - key->size);
+  payload->size = key->size + value_size;
 
+  /*
+   * Allocate storage space for the new item.
+   */
   m_lock_lock(&cache->lock);
   int is_success = m_storage_allocate(&cache->storage, cache->acquired_items,
       payload->size, &payload->cursor);
@@ -2093,11 +2120,11 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
     return 0;
   }
 
+  /*
+   * Copy key to the beginning of the storage space.
+   */
   char *const ptr = m_storage_get_ptr(&cache->storage, payload->cursor.offset);
-  memcpy(ptr, &key->size, sizeof(key->size));
-  memcpy(ptr + sizeof(key->size), key->ptr, key->size);
-  txn->value_ptr = ptr + key->size + sizeof(key->size);
-  assert(txn->value_ptr > (void *)ptr);
+  memcpy(ptr, key->ptr, key->size);
 
   return 1;
 }
@@ -2133,7 +2160,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
 
 void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *const txn)
 {
-  return txn->value_ptr;
+  return m_item_get_value_ptr(txn->item);
 }
 
 
@@ -2149,6 +2176,7 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
   int is_found;
 
   item->cache = cache;
+  item->key_size = key->size;
 
   m_lock_lock(&cache->lock);
   is_found = m_map_cache_get(&cache->index.map, &cache->index.map_cache,
@@ -2176,16 +2204,6 @@ static void m_item_release(struct ybc_item *const item)
   m_lock_unlock(&cache->lock);
 
   item->cache = NULL;
-}
-
-static uint64_t m_item_get_ttl(const struct ybc_item *const item)
-{
-  const uint64_t current_time = m_get_current_time();
-  if (item->payload.expiration_time < current_time) {
-    return 0;
-  }
-
-  return item->payload.expiration_time - current_time;
 }
 
 size_t ybc_item_get_size(void)
@@ -2290,21 +2308,11 @@ void ybc_item_release(struct ybc_item *const item)
 void ybc_item_get_value(const struct ybc_item *const item,
     struct ybc_value *const value)
 {
-  char *const ptr = m_storage_get_ptr(&item->cache->storage,
-      item->payload.cursor.offset);
-  size_t key_size;
-  memcpy(&key_size, ptr, sizeof(key_size));
+  value->ptr = m_item_get_value_ptr(item);
 
-  /*
-   * These conditions must be already verified in ybc_item_acquire(),
-   * so just use asserts here.
-   */
-  assert(item->payload.size >= sizeof(key_size));
-  assert(key_size <= item->payload.size - sizeof(key_size));
+  assert(item->payload.size >= item->key_size);
+  value->size = item->payload.size - item->key_size;
 
-  value->ptr = ptr + key_size + sizeof(key_size);
-  assert(value->ptr > (void *)ptr);
-  value->size = item->payload.size - key_size - sizeof(key_size);
   value->ttl = m_item_get_ttl(item);
 }
 
@@ -2350,7 +2358,8 @@ size_t ybc_cluster_get_size(const size_t caches_count)
   assert(caches_count > 0);
 
   /*
-   * A cache consists of a cache plus a max_slot_index.
+   * A cache entry consists of ybc structure plus the corresponding
+   * max_slot_index value.
    */
   const size_t cache_size = ybc_get_size() + sizeof(size_t);
   assert(caches_count <= SIZE_MAX / cache_size);

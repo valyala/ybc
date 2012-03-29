@@ -365,12 +365,16 @@ YBC_API size_t ybc_add_txn_get_size(void);
  *
  * Allocates space in the cache for storing an item (key + value).
  *
- * The transaction may be closed either by calling ybc_add_txn_commit().
+ * The caller is responsible for filling up value_size bytes returned
+ * by ybc_add_txn_get_value_ptr() before commiting the transaction.
+ *
+ * The transaction may be closed by calling ybc_add_txn_commit().
+ * It is unsafe using ybc_item_get_value() before transaction commit.
  *
  * Returns non-zero on success, zero on failure.
  *
  * Acquired item must be released via ybc_item_release().
- * The item can be released also without commit. This is equivalent
+ * The item may be released also without commit. This is equivalent
  * to transaction rollback.
  */
 YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
