@@ -1,6 +1,6 @@
 #include "ybc.h"
 
-#include <assert.h>
+#include <assert.h>  /* assert */
 #include <stdarg.h>  /* va_start, va_end, va_list */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
@@ -58,7 +58,7 @@ static int m_less(const uint64_t a, const uint64_t b)
 
 #ifdef YBC_HAVE_CLOCK_GETTIME
 
-#include <time.h>
+#include <time.h>  /* clock_gettime, timespec */
 
 static uint64_t m_get_current_time(void)
 {
@@ -73,7 +73,7 @@ static uint64_t m_get_current_time(void)
 }
 
 #else  /* !YBC_HAVE_CLOCK_GETTIME */
-  #error "Unsupported time implementation"
+#error "Unsupported time implementation"
 #endif
 
 
@@ -266,7 +266,7 @@ static void m_lock_unlock(struct m_lock *const lock)
 }
 
 #else  /* !YBC_HAVE_PTHREAD */
-  #error "Unsupported thread implementation"
+#error "Unsupported thread implementation"
 #endif
 
 #endif  /* !YBC_SINGLE_THREADED */
@@ -462,7 +462,7 @@ static void m_file_cache_in_ram(const struct m_file *const file,
 }
 
 #else  /* !YBC_HAVE_LINUX_FILE_API */
-  #error "Unsupported file implementation"
+#error "Unsupported file implementation"
 #endif
 
 
@@ -587,7 +587,7 @@ static void m_memory_sync(void *const ptr, const size_t size)
 }
 
 #else  /* !YBC_HAVE_LINUX_MMAN_API */
-  #error "Unsupported memory management implementation"
+#error "Unsupported memory management implementation"
 #endif
 
 
