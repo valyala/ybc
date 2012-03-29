@@ -186,11 +186,11 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
 /*
  * Sets interval for cache data syncing in milliseconds.
  *
- * Cache items are periodically synced in data file with this interval.
- * Non-synced cache items may be lost after the program crash or restart.
+ * Cache items are periodically synced to data file with this interval.
+ * Non-synced cache items may be lost after the program crash.
  *
  * While short sync interval reduces the number of lost items in the event
- * of program crash or exit, it also increases the number of writes to data
+ * of program crash, it also increases the number of writes to data
  * file, which may slow down the program.
  *
  * Long sync interval minimizes the number of writes to data file at the cost
@@ -248,7 +248,7 @@ YBC_API size_t ybc_get_size(void);
  * on closing.
  *
  * If force is set, the function can take non-trivial amount of time,
- * because it may pre-allocates and initialize cache files.
+ * because it may by busy pre-allocating and initializing cache files.
  *
  * If force is set, then the function creates missing files and tries fixing
  * any errors found in these files.
@@ -282,6 +282,8 @@ YBC_API void ybc_clear(struct ybc *cache);
 /*
  * Removes files associated with the given cache.
  *
+ * Do not call this function if the corresponding cache is open!
+ *
  * Config must be non-NULL.
  */
 YBC_API void ybc_remove(const struct ybc_config *config);
@@ -290,10 +292,9 @@ YBC_API void ybc_remove(const struct ybc_config *config);
 /*******************************************************************************
  * 'Add' transaction API.
  *
- * The API allows value serialization directly to cache instead of serialization
- * to a temporary buffer before copying serialized contents into cache.
- *
- * All API functions are thread-safe, so there is no need in additional locking.
+ * The API allows serializing item's value directly to cache storage instead
+ * of serializing it to a temporary buffer before copying serialized contents
+ * into the cache.
  *
  *
  * Usage:
@@ -309,7 +310,7 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  *
  * value_size = get_serialized_object_size(obj);
  * if (ybc_add_txn_begin(cache, txn, &key, value_size)) {
- *   void *value_ptr = ybc_add_txn_get_value_ptr(txn);
+ *   void *const value_ptr = ybc_add_txn_get_value_ptr(txn);
  *   if (serialize_object(obj, value_ptr)) {
  *     char item_buf[ybc_item_get_size()];
  *     struct ybc_item *const item = (struct ybc_item *)item_buf;
@@ -372,6 +373,9 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * The caller is responsible for filling up value_size bytes returned
  * by ybc_add_txn_get_value_ptr() before commiting the transaction.
  *
+ * The caller may freely modify key contents after the call to this function,
+ * because the function makes an internal copy of key.
+ *
  * The transaction may be commited by calling ybc_add_txn_commit()
  * or may be rolled back by calling ybc_add_txn_rollback().
  *
@@ -412,6 +416,9 @@ YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
  * The caller must fill the given space with value_size bytes of item's value
  * before calling ybc_add_txn_commit().
  *
+ * DO NOT write to the allocated space returned by this function after
+ * the corresponding is commited or rolled back!
+ *
  * Always returns non-NULL value.
  */
 YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
@@ -420,9 +427,6 @@ YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
 /*******************************************************************************
  * Cache API.
  *
- * This API is built on top of 'add' transaction API.
- *
- * All API functions are thread-safe, i.e. no additional locking is required.
  *
  * Usage:
  *
@@ -509,7 +513,7 @@ YBC_API int ybc_item_add(struct ybc *cache, struct ybc_item *item,
 /*
  * Removes an item with the given key from the cache.
  *
- * Does nothing if the item wan't in the cache.
+ * Does nothing if the item wasn't in the cache.
  */
 YBC_API void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
 
@@ -529,14 +533,14 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
 /*
  * Acquires an item with automatic dogpile effect (de) handling.
  *
- * Dogpile effect is a race condition when multiple execution threads
- * simultaneously obtain or create the same value in order to insert it into
- * the cache under the same key. Only the last thread 'wins' the race -
+ * Dogpile effect is a race condition when multiple execution threads are
+ * simultaneously obtaining or creating the same value in order to insert
+ * it into the cache under the same key. Only the last thread 'wins' the race -
  * i.e. its' value will overwrite all the previous values for the given key.
- * All other threads simply waste computing resources when creating values.
+ * All other threads simply waste resources when creating values.
  *
  * Dogpile effect usually occurs when frequently requested item is missing
- * in the cache or approaches its' expiration in the cache.
+ * in the cache or approaches its' expiration time in the cache.
  *
  * The dogpile effect may result in huge resource waste if item's construction
  * is resource-expensive.
@@ -547,13 +551,14 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * somebody (not necessarily the first thread) will eventually add missing
  * item, so blocked threads will be eventually resumed. If the value isn't
  * added during grace_ttl period of time, then one of suspended threads
- * is resumed with 'item not found' notification and so on until threads
- * are exhasuted or value is successfully added into the cache.
+ * is resumed with 'item not found' notification, while other threads remain
+ * suspended, and so on until threads are exhasuted or value is successfully
+ * added into the cache.
  *
  * When item's ttl becomes smaller than grace_ttl, then the function may notify
  * a thread (by returning 'item not found'), so it can build fresh value
  * for the item, while other threads will receive not-yet-expired value
- * until the item is refreshed.
+ * until the item is refreshed or expired.
  *
  * If zero is returned, then it is expected that an item with the given key
  * will be added or refreshed during grace_ttl period of time.
@@ -586,6 +591,8 @@ YBC_API void ybc_item_release(struct ybc_item *item);
 /*
  * Returns a value for the given item.
  *
+ * The item must be acquired while calling this function!
+ *
  * The returned value may be corrupted if the backing data file is corrupted.
  *
  * If you are unsure in backing data file correctness, then store a checksum
@@ -609,13 +616,12 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * - For speeding up I/O-bound cache requests if distinct caches are placed onto
  *   distinct physical devices. Requests can become I/O-bound only if frequently
  *   accessed items don't fit available physical RAM (in other words, program's
- *   working doesn't fit physical RAM). If program's working set is smaller
+ *   working set doesn't fit physical RAM). If program's working set is smaller
  *   than RAM, then there is no any sense in splitting the cache into distinct
  *   shards irregardless of the total cache size (it may be 1000x larger
  *   than physical RAM size, but it should contain 99.9% of rarely accessed
- *   items - 'cold items').
+ *   items - aka 'cold items').
  *
- * All API functions are thread-safe, so no additional locking is required.
  *
  * Usage:
  *
