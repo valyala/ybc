@@ -8,6 +8,9 @@ DEBUG_FLAGS = -g $(MULTI_THREADED_FLAGS)
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -lrt
 SINGLE_THREADED_TEST_FLAGS = -g $(SINGLE_THREADED_FLAGS) -lrt
 
+YBC_SRCS = ybc.h ybc.c
+TEST_SRCS = tests/functional.c
+
 release: ybc-32-release ybc-64-release
 
 debug: ybc-32-debug ybc-64-debug
@@ -20,31 +23,31 @@ tests: tests-debug tests-release tests-single-threaded
 
 all: release debug tests run-tests
 
-ybc-32-release: ybc.h
+ybc-32-release: $(YBC_SRCS)
 	gcc -c ybc.c $(RELEASE_FLAGS) -m32 -o ybc-32-release.o
 
-ybc-64-release: ybc.h
+ybc-64-release: $(YBC_SRCS)
 	gcc -c ybc.c $(RELEASE_FLAGS) -m64 -o ybc-64-release.o
 
-ybc-32-debug: ybc.h
+ybc-32-debug: $(YBC_SRCS)
 	gcc -c ybc.c $(DEBUG_FLAGS) -m32 -o ybc-32-debug.o
 
-ybc-64-debug: ybc.h
+ybc-64-debug: $(YBC_SRCS)
 	gcc -c ybc.c $(DEBUG_FLAGS) -m64 -o ybc-64-debug.o
 
-tests-32-release: ybc-32-release
+tests-32-release: ybc-32-release $(TEST_SRCS)
 	gcc tests/functional.c ybc-32-release.o $(TEST_FLAGS) -m32 -o tests/functional-32-release
 
-tests-64-release: ybc-64-release
+tests-64-release: ybc-64-release $(TEST_SRCS)
 	gcc tests/functional.c ybc-64-release.o $(TEST_FLAGS) -m64 -o tests/functional-64-release
 
-tests-32-debug: ybc-32-debug
+tests-32-debug: ybc-32-debug $(TEST_SRCS)
 	gcc tests/functional.c ybc-32-debug.o $(TEST_FLAGS) -m32 -o tests/functional-32-debug
 
-tests-64-debug: ybc-64-debug
+tests-64-debug: ybc-64-debug $(TEST_SRCS)
 	gcc tests/functional.c ybc-64-debug.o $(TEST_FLAGS) -m64 -o tests/functional-64-debug
 
-tests-single-threaded: ybc.h
+tests-single-threaded: $(YBC_SRCS) $(TEST_SRCS)
 	gcc ybc.c tests/functional.c $(SINGLE_THREADED_TEST_FLAGS) -o tests/functional-single-threaded
 
 run-tests: tests
