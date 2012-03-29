@@ -4,7 +4,6 @@
 #include <stdarg.h>  /* va_start, va_end, va_list */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
-#include <stdio.h>   /* fprintf, vfprintf */
 #include <stdlib.h>  /* exit, rand, malloc, free */
 #include <string.h>  /* memcpy, memcmp, strdup */
 
