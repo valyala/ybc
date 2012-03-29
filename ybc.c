@@ -681,6 +681,11 @@ struct ybc_item
   struct ybc *cache;
 
   /*
+   * Key size for the given item.
+   */
+  size_t key_size;
+
+  /*
    * All acquired items are linked into a doubly-linked list with the head
    * at ybc->acquired_items.
    *
@@ -702,11 +707,6 @@ struct ybc_item
    * Item's value location.
    */
   struct m_storage_payload payload;
-
-  /*
-   * Key size for the given item.
-   */
-  size_t key_size;
 };
 
 static void m_storage_fix_size(size_t *const size)
