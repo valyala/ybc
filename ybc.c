@@ -1925,8 +1925,8 @@ struct ybc
   size_t hot_data_size;
 };
 
-int m_open(struct ybc *const cache, const struct ybc_config *const config,
-    const int force)
+static int m_open(struct ybc *const cache,
+    const struct ybc_config *const config, const int force)
 {
   int is_index_file_created, is_storage_file_created;
 
