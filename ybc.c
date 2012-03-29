@@ -2082,12 +2082,12 @@ static void m_item_deregister(struct ybc_item *const item)
 }
 
 /*
- * Moves the item from src to dst.
+ * Relocates the item from src to dst.
  *
  * Before the move dst must be uninitialized.
  * After the move src is considered uninitialized.
  */
-static void m_item_move(struct ybc_item *const dst,
+static void m_item_relocate(struct ybc_item *const dst,
     struct ybc_item *const src)
 {
   *dst = *src;
@@ -2165,7 +2165,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
   m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &txn->key_digest, &txn->item.payload);
 
-  m_item_move(item, &txn->item);
+  m_item_relocate(item, &txn->item);
 
   should_sync = m_sync_begin(&cache->sc, &cache->storage, current_time,
       &start_offset, &sync_chunk_size);
