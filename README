@@ -56,10 +56,19 @@ YBC features.
 
 * Instant invalidation of all items in the cache irregardless of cache size.
 
+* The code avoids using dynamic memory allocations as much as possible,
+  so cache performance is almost independent of the efficiency of the provided
+  malloc() implementation.
+
 * The code depends only on OS-supplied libraries.
 
 * The code can be easily ported to new platforms. All platform-specific
   functions and types are hidden behind platform-independent wrappers.
+
+* Public interface (ybc.h) is designed with future versions' compatibility
+  in mind. It doesn't expose private structures' contents, so they can be freely
+  modified in the future versions of the library without breaking applications
+  dynamically linked against older versions.
 
 
 ===============================================================================
