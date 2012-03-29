@@ -3,7 +3,7 @@ COMMON_FLAGS = -Wall -Wextra -pedantic -std=c99 -flto -D_GNU_SOURCE $(YBC_FEATUR
 SINGLE_THREADED_FLAGS = $(COMMON_FLAGS) -DYBC_SINGLE_THREADED
 MULTI_THREADED_FLAGS = $(COMMON_FLAGS) -pthread -D_REENTRANT -D_THREAD_SAFE
 
-RELEASE_FLAGS = -Os -DNDEBUG $(MULTI_THREADED_FLAGS)
+RELEASE_FLAGS = -O2 -DNDEBUG $(MULTI_THREADED_FLAGS)
 DEBUG_FLAGS = -g $(MULTI_THREADED_FLAGS)
 LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
@@ -40,7 +40,7 @@ libybc-debug: $(YBC_SRCS)
 	gcc ybc.c $(DEBUG_FLAGS) $(LIBYBC_FLAGS) -o libybc-debug.so
 
 libybc-release: $(YBC_SRCS)
-	gcc ybc.c $(RELEASE_FLAGS) $(LIBYBC_FLAGS) -o libybc-release.so -m32
+	gcc ybc.c $(RELEASE_FLAGS) $(LIBYBC_FLAGS) -o libybc-release.so
 
 tests-32-release: ybc-32-release $(TEST_SRCS)
 	gcc tests/functional.c ybc-32-release.o $(TEST_FLAGS) -m32 -o tests/functional-32-release
