@@ -1409,7 +1409,7 @@ static int m_map_cache_get(const struct m_map *const map,
   }
 
   /*
-   * Add the found item in the map cache.
+   * Add the found item to the map cache.
    */
   m_map_add(map_cache, storage, key_digest, &item->payload);
   return 1;
