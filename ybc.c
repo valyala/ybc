@@ -1485,6 +1485,12 @@ struct m_index
 
   /*
    * An immutable copy of hash seed from index file.
+   *
+   * It is used instead of *hash_seed_ptr due to the following reasons:
+   * - avoiding a memory dereference in hot paths during key digests'
+   *   calculations.
+   * - protecting from accidental (or malicious) corruption of *hash_seed_ptr
+   *   located directly in index file.
    */
   uint64_t hash_seed;
 };
