@@ -5,8 +5,9 @@ MULTI_THREADED_FLAGS = $(COMMON_FLAGS) -pthread -D_REENTRANT -D_THREAD_SAFE
 
 RELEASE_FLAGS = -O2 -DNDEBUG $(MULTI_THREADED_FLAGS)
 DEBUG_FLAGS = -g $(MULTI_THREADED_FLAGS)
-TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -lrt
-SINGLE_THREADED_TEST_FLAGS = -g $(SINGLE_THREADED_FLAGS) -lrt
+LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
+TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
+SINGLE_THREADED_TEST_FLAGS = -g $(SINGLE_THREADED_FLAGS) -fwhole-program -lrt
 
 YBC_SRCS = ybc.h ybc.c
 TEST_SRCS = tests/functional.c
@@ -36,10 +37,10 @@ ybc-64-debug: $(YBC_SRCS)
 	gcc -c ybc.c $(DEBUG_FLAGS) -m64 -o ybc-64-debug.o
 
 libybc-debug: $(YBC_SRCS)
-	gcc ybc.c $(DEBUG_FLAGS) -shared -fpic -lrt -o libybc-debug.so
+	gcc ybc.c $(DEBUG_FLAGS) $(LIBYBC_FLAGS) -o libybc-debug.so
 
 libybc-release: $(YBC_SRCS)
-	gcc ybc.c $(RELEASE_FLAGS) -shared -fpic -lrt -o libybc-release.so
+	gcc ybc.c $(RELEASE_FLAGS) $(LIBYBC_FLAGS) -o libybc-release.so
 
 tests-32-release: ybc-32-release $(TEST_SRCS)
 	gcc tests/functional.c ybc-32-release.o $(TEST_FLAGS) -m32 -o tests/functional-32-release
