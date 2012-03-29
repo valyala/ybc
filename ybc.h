@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#if defined(YBC_BUILD_LIBRARY) || defined(YBC_USE_LIBRARY)
+#if defined(YBC_BUILD_LIBRARY)
 #define YBC_API  __attribute__((externally_visible))
 #else
 #define YBC_API  /* No special handling for static linkage. */
