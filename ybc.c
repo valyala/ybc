@@ -144,7 +144,7 @@ static void m_strdup(char **const dst, const char *const src)
 }
 
 /*
- * Calculates hash for size bytes starting starting from ptr using
+ * Calculates hash for size bytes starting from ptr using
  * the given seed.
  */
 static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
@@ -175,7 +175,7 @@ static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
 
 
 /*******************************************************************************
- * Mutex and condition API.
+ * Mutex API.
  ******************************************************************************/
 
 #ifdef YBC_SINGLE_THREADED
@@ -535,8 +535,38 @@ static int m_file_open_or_create(struct m_file *const file,
 #ifdef YBC_HAVE_LINUX_MMAN_API
 
 #include <sys/mman.h>   /* mmap, munmap, msync */
+#include <unistd.h>     /* sysconf */
 
-static const size_t M_MEMORY_PAGE_MASK = 4095;
+/*
+ * The page mask is determined at runtime. See m_memory_init().
+ */
+static size_t m_memory_page_mask = 0;
+
+/*
+ * Initializes memory API.
+ *
+ * This function must be called first before using other m_memory_* functions.
+ * This function may be called multiple times.
+ */
+static void m_memory_init(void)
+{
+  if (m_memory_page_mask == 0) {
+    const long rv = sysconf(_SC_PAGESIZE);
+    assert(rv > 0);
+
+    /*
+     * Make sure that the page size is a power of 2.
+     */
+    if ((rv & (rv - 1)) != 0) {
+      error(EXIT_FAILURE, 0, "Unexpected page size=%ld", rv);
+    }
+
+    m_memory_page_mask = (size_t)(rv - 1);
+  }
+  else {
+    assert((m_memory_page_mask & (m_memory_page_mask + 1)) == 0);
+  }
+}
 
 /*
  * Maps size bytes of the given file into memory and stores memory pointer
@@ -572,11 +602,14 @@ static void m_memory_unmap(void *const ptr, const size_t size)
  */
 static void m_memory_sync(void *const ptr, const size_t size)
 {
+  assert(m_memory_page_mask != 0);
+  assert((m_memory_page_mask & (m_memory_page_mask + 1)) == 0);
+
   /*
    * Adjust ptr to the nearest floor page boundary, because msync()
    * accepts only pointers to page boundaries.
    */
-  const size_t delta = ((uintptr_t)ptr) & M_MEMORY_PAGE_MASK;
+  const size_t delta = ((uintptr_t)ptr) & m_memory_page_mask;
   void *const adjusted_ptr = ((char *)ptr) - delta;
   const size_t adjusted_size = size + delta;
 
@@ -1928,6 +1961,8 @@ static int m_open(struct ybc *const cache,
     const struct ybc_config *const config, const int force)
 {
   int is_index_file_created, is_storage_file_created;
+
+  m_memory_init();
 
   cache->storage.size = config->data_file_size;
   m_storage_fix_size(&cache->storage.size);
