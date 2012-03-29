@@ -31,7 +31,8 @@ YBC features.
 
 * Readers and writers don't block each other while reading/writing blobs
   from/into the cache. The speed is actually limited by hardware memory
-  bandwidth.
+  bandwidth (if frequently accessed items fit RAM) or backing store
+  I/O bandwidth (if requently accessed items don't fit RAM).
 
 * Dogpile effect (aka 'thundering herd') handling support.
 
@@ -54,6 +55,11 @@ YBC features.
   is explicitly backed by files.
 
 * Instant invalidation of all items in the cache irregardless of cache size.
+
+* The code depends only on OS-supplied libraries.
+
+* The code can be easily ported to new platforms. All platform-specific
+  functions and types are hidden behind platform-independent wrappers.
 
 
 ===============================================================================
