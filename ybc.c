@@ -1257,9 +1257,18 @@ static void m_map_add(const struct m_map *const map,
 
       if (m_key_digest_is_empty(&map->key_digests[slot_index]) ||
           !m_storage_payload_check(storage, current_payload)) {
+        /* Found an empty slot. */
         break;
       }
 
+      /*
+       * This code determines 'victim' slot, which will be overwritten
+       * in the case all slots in the bucket are occupied.
+       *
+       * 'victim' slot has minimum expiration time, i.e. it contains an item,
+       * which would expire first in the given bucket. We just 'accelerate' its'
+       * expiration if all slots in the bucket are occupied.
+       */
       if (current_payload->expiration_time < min_expiration_time) {
         min_expiration_time = current_payload->expiration_time;
         victim_index = slot_index;
