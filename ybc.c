@@ -967,8 +967,15 @@ static void m_ws_fix_hot_data_size(size_t *const hot_data_size,
 }
 
 /*
- * Defragments the given item, i.e. copies it into the front of storage's
+ * Defragments the given item, i.e. moves it into the front of storage's
  * free space.
+ *
+ * There is a race condition possible when another thread adds new item
+ * with the given key before the defragmentation for this item is complete.
+ * In this case new item will become overwritten by the old item after
+ * the defragmentation is complete. But since this is a cache, not a persistent
+ * storage, this should be OK - subsequent threads should notice old value
+ * and overwrite it with new value.
  *
  * Since this operation can be quite costly, avoid performing it in hot paths.
  */

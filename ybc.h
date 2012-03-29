@@ -383,12 +383,17 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
 /*
  * Commits the given 'add' transaction.
  *
- * The corresponding item instantly appears in the cache after the commit
- * with the given ttl (time to live) set.
- *
  * The allocated space for item's value must be populated with contents
  * before commiting the transaction. See ybc_add_txn_get_value_ptr()
  * for details.
+ *
+ * The corresponding item instantly appears in the cache after the commit
+ * with the given ttl (time to live) set.
+ *
+ * The cache doesn't guarantee that the added item will be available
+ * until its' ttl expiration. The item can be evicted from the cache
+ * at any time, but in most cases the item will remain available until
+ * its' ttl expiration.
  *
  * The function also acquires commited item. The acquired item must be released
  * via ybc_item_release().
@@ -431,7 +436,6 @@ YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
  * size_t item_size;
  * ...
  * if (!ybc_item_acquire(cache, item, &key)) {
- * if (!ybc_item_get_value(item, &value)) {
  *   // The value is missing in the cache.
  *   // Build new value (i.e. obtain it from backends, prepare, serialize, etc.)
  *   // and insert it into the cache.
@@ -485,7 +489,7 @@ YBC_API size_t ybc_item_get_size(void);
  * Adds the given value with the given key to the cache.
  *
  * Both key and value are copied from the provided memory locations,
- * so the caller can freely modify memory under key and value after
+ * so the caller can freely modify memory under the key and the value after
  * returning from the function.
  *
  * The cache doesn't guarantee that the added item will be available
@@ -532,29 +536,33 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * All other threads simply waste computing resources when creating values.
  *
  * Dogpile effect usually occurs when frequently requested item is missing
- * in the cache or expires in the cache.
+ * in the cache or approaches its' expiration in the cache.
  *
  * The dogpile effect may result in huge resource waste if item's construction
  * is resource-expensive.
  *
  * The function automatically suspends all the threads, which are requesting
  * missing value under the same key in the cache, except the first thread,
- * which will return zero. It is expected that somebody will add missing item
- * while other threads are waiting. If the value isn't added during grace_ttl
- * period of time, then threads are suspended again, except the one thread and
- * so on until threads are exhasuted or value is successfully added
- * into the cache.
+ * which will receive 'item not found' notification. It is expected that
+ * somebody (not necessarily the first thread) will eventually add missing
+ * item, so blocked threads will be eventually resumed. If the value isn't
+ * added during grace_ttl period of time, then one of suspended threads
+ * is resumed with 'item not found' notification and so on until threads
+ * are exhasuted or value is successfully added into the cache.
  *
  * When item's ttl becomes smaller than grace_ttl, then the function may notify
- * a thread (by returning zero), so it can build fresh value for the item,
- * while returning not-yet-expired value to other threads until
- * the item will be refreshed.
+ * a thread (by returning 'item not found'), so it can build fresh value
+ * for the item, while other threads will receive not-yet-expired value
+ * until the item is refreshed.
  *
  * If zero is returned, then it is expected that an item with the given key
  * will be added or refreshed during grace_ttl period of time.
+ * The item may be added or refreshed by arbitrary thread, not necessarily
+ * the thread, which called ybc_item_acquire_be().
  *
  * This function introduces additional overhead comparing to ybc_item_acquire(),
- * so use it only for cache items with high probability of dogpile effect.
+ * so use it only for items with high probability of dogpile effect in order
+ * to avoid race conditions described above.
  *
  * Returns non-zero on success.
  * Returns zero if an item with the given key isn't found.
@@ -569,14 +577,24 @@ YBC_API int ybc_item_acquire_de(struct ybc *cache, struct ybc_item *item,
 /*
  * Releases the item acquired by ybc_item_acquire().
  *
- * The underlying value returned by ybc_item_get_value() cannot be used
- * after the item is released.
+ * The value returned by ybc_item_get_value() MUST not be used after the item
+ * is released.
  * The item MUST not be passed to ybc_item_get_value() after it is released.
  */
 YBC_API void ybc_item_release(struct ybc_item *item);
 
 /*
  * Returns a value for the given item.
+ *
+ * The returned value may be corrupted if the backing data file is corrupted.
+ *
+ * If you are unsure in backing data file correctness, then store a checksum
+ * alongside item's value and verify it during each item access.
+ *
+ * The cache doesn't verify value correctess by itself due to performance
+ * reasons - checksum calculation on item addition and checksum verification
+ * on every item access may require a lot of CPU and memory bandwidth.
+ * This is especially true for large blobs (aka multi-GB media files).
  */
 YBC_API void ybc_item_get_value(const struct ybc_item *item,
     struct ybc_value *value);
