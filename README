@@ -25,7 +25,7 @@ YBC features.
 
 * Support for sharding of cache data among available backing store devices.
 
-* Robust recovery from corrupted backing files.
+* Robust recovery from corrupted index files.
 
 * Structure of backing files is optimized for HDD and SSD devices. I.e. always
   prefer sequential I/O instead of random I/O.
