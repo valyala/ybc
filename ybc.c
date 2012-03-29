@@ -1243,7 +1243,7 @@ static void m_map_add(const struct m_map *const map,
   size_t start_index, slot_index;
 
   if (!m_map_lookup_slot_index(map, key_digest, &start_index, &slot_index)) {
-    /* Try occupying the first empty slot. */
+    /* Try occupying the first empty slot in the bucket. */
     size_t i;
     size_t victim_index = start_index;
     uint64_t min_expiration_time = UINT64_MAX;
