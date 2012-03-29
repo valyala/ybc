@@ -304,24 +304,28 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  * };
  * char add_txn_buf[ybc_add_txn_get_size()];
  * struct ybc_add_txn *const txn = (struct ybc_add_txn *)add_txn_buf;
- * char item_buf[ybc_item_get_size()];
- * struct ybc_item *const item = (struct ybc_item *)item_buf;
  *
  * ...
  *
  * value_size = get_serialized_object_size(obj);
- * if (ybc_add_txn_begin(cache, txn, item, &key, value_size)) {
+ * if (ybc_add_txn_begin(cache, txn, &key, value_size)) {
  *   void *value_ptr = ybc_add_txn_get_value_ptr(txn);
  *   if (serialize_object(obj, value_ptr)) {
- *     ybc_add_txn_commit(txn, ttl);
- *
+ *     char item_buf[ybc_item_get_size()];
+ *     struct ybc_item *const item = (struct ybc_item *)item_buf;
  *     struct ybc_value value;
+ *
+ *     ybc_add_txn_commit(txn, item, ttl);
+ *
  *     ybc_item_get_value(item, &value);
  *
  *     use_value(&value);
- *   }
  *
- *   ybc_item_release(item);
+ *     ybc_item_release(item);
+ *   }
+ *   else {
+ *     ybc_add_txn_rollback(txn);
+ *   }
  * }
  *
  ******************************************************************************/
@@ -368,32 +372,34 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * The caller is responsible for filling up value_size bytes returned
  * by ybc_add_txn_get_value_ptr() before commiting the transaction.
  *
- * The transaction may be closed by calling ybc_add_txn_commit().
- * It is unsafe using ybc_item_get_value() before transaction commit.
+ * The transaction may be commited by calling ybc_add_txn_commit()
+ * or may be rolled back by calling ybc_add_txn_rollback().
  *
  * Returns non-zero on success, zero on failure.
- *
- * Acquired item must be released via ybc_item_release().
- * The item may be released also without commit. This is equivalent
- * to transaction rollback.
  */
 YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
-    struct ybc_item *item, const struct ybc_key *key, size_t value_size);
+    const struct ybc_key *key, size_t value_size);
 
 /*
  * Commits the given 'add' transaction.
  *
- * The corresponding item appears in the cache after the commit with the given
- * ttl (time to live) set.
+ * The corresponding item instantly appears in the cache after the commit
+ * with the given ttl (time to live) set.
  *
  * The allocated space for item's value must be populated with contents
  * before commiting the transaction. See ybc_add_txn_get_value_ptr()
  * for details.
  *
- * The item passed to ybc_add_txn_begin() must remain acquired during
- * the call to this function.
+ * The function also acquires commited item. The acquired item must be released
+ * via ybc_item_release().
  */
-YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, uint64_t ttl);
+YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, struct ybc_item *item,
+    uint64_t ttl);
+
+/*
+ * Rolls back the given 'add' transaction.
+ */
+YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
 
 /*
  * Returns a pointer to allocated space for item's value.

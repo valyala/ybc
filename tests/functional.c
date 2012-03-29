@@ -180,25 +180,20 @@ static void test_add_txn_rollback(struct ybc *const cache,
     struct ybc_add_txn *const txn, const struct ybc_key *const key,
     const size_t value_size)
 {
-  char item_buf[ybc_item_get_size()];
-  struct ybc_item *const item = (struct ybc_item *)item_buf;
-
-  if (!ybc_add_txn_begin(cache, txn, item, key, value_size)) {
+  if (!ybc_add_txn_begin(cache, txn, key, value_size)) {
     M_ERROR("error when starting add transaction");
   }
-  ybc_item_release(item);
 
   expect_item_miss(cache, key);
+
+  ybc_add_txn_rollback(txn);
 }
 
 static void test_add_txn_commit(struct ybc *const cache,
     struct ybc_add_txn *const txn, const struct ybc_key *const key,
     const struct ybc_value *const value)
 {
-  char item_buf[ybc_item_get_size()];
-  struct ybc_item *const item = (struct ybc_item *)item_buf;
-
-  if (!ybc_add_txn_begin(cache, txn, item, key, value->size)) {
+  if (!ybc_add_txn_begin(cache, txn, key, value->size)) {
     M_ERROR("error when starting add transaction");
   }
 
@@ -206,7 +201,10 @@ static void test_add_txn_commit(struct ybc *const cache,
   assert(value_ptr != NULL);
   memcpy(value_ptr, value->ptr, value->size);
 
-  ybc_add_txn_commit(txn, value->ttl);
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  ybc_add_txn_commit(txn, item, value->ttl);
 
   expect_value(item, value);
   ybc_item_release(item);
@@ -218,10 +216,7 @@ static void test_add_txn_failure(struct ybc *const cache,
     struct ybc_add_txn *const txn, const struct ybc_key *const key,
     const size_t value_size)
 {
-  char item_buf[ybc_item_get_size()];
-  struct ybc_item *const item = (struct ybc_item *)item_buf;
-
-  if (ybc_add_txn_begin(cache, txn, item, key, value_size)) {
+  if (ybc_add_txn_begin(cache, txn, key, value_size)) {
     M_ERROR("unexpected transaction success");
   }
 }
@@ -459,11 +454,11 @@ static void test_interleaved_adds(struct ybc *const cache)
       .ttl = 1000 * 1000,
   };
 
-  if (!ybc_add_txn_begin(cache, txn1, item1, &key1, value1.size)) {
+  if (!ybc_add_txn_begin(cache, txn1, &key1, value1.size)) {
     M_ERROR("Cannot start the first add transaction");
   }
 
-  if (!ybc_add_txn_begin(cache, txn2, item2, &key2, value2.size)) {
+  if (!ybc_add_txn_begin(cache, txn2, &key2, value2.size)) {
     M_ERROR("Cannot start the second add transaction");
   }
 
@@ -473,8 +468,8 @@ static void test_interleaved_adds(struct ybc *const cache)
   expect_item_miss(cache, &key1);
   expect_item_miss(cache, &key2);
 
-  ybc_add_txn_commit(txn1, value1.ttl);
-  ybc_add_txn_commit(txn2, value2.ttl);
+  ybc_add_txn_commit(txn1, item1, value1.ttl);
+  ybc_add_txn_commit(txn2, item2, value2.ttl);
 
   expect_value(item1, &value1);
   expect_value(item2, &value2);

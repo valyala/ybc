@@ -2034,7 +2034,7 @@ void ybc_remove(const struct ybc_config *const config)
 struct ybc_add_txn
 {
   struct m_key_digest key_digest;
-  struct ybc_item *item;
+  struct ybc_item item;
 };
 
 static void *m_item_get_value_ptr(const struct ybc_item *const item)
@@ -2081,38 +2081,57 @@ static void m_item_deregister(struct ybc_item *const item)
   item->prev_ptr = NULL;
 }
 
+/*
+ * Moves the item from src to dst.
+ *
+ * Before the move dst must be uninitialized.
+ * After the move src is considered uninitialized.
+ */
+static void m_item_move(struct ybc_item *const dst,
+    struct ybc_item *const src)
+{
+  *dst = *src;
+
+  /*
+   * Fix up pointers to the item.
+   */
+  if (dst->next != NULL) {
+    dst->next->prev_ptr = &dst->next;
+  }
+  *dst->prev_ptr = dst;
+
+  src->next = NULL;
+  src->prev_ptr = NULL;
+}
+
 size_t ybc_add_txn_get_size(void)
 {
   return sizeof(struct ybc_add_txn);
 }
 
 int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
-    struct ybc_item *const item, const struct ybc_key *const key,
-    const size_t value_size)
+    const struct ybc_key *const key, const size_t value_size)
 {
   if (value_size > SIZE_MAX - key->size) {
     return 0;
   }
 
-  item->cache = cache;
-  txn->item = item;
-  item->key_size = key->size;
-
   m_key_digest_get(&txn->key_digest, cache->index.hash_seed, key);
 
-  struct m_storage_payload *const payload = &item->payload;
+  txn->item.cache = cache;
+  txn->item.key_size = key->size;
 
   assert(value_size <= SIZE_MAX - key->size);
-  payload->size = key->size + value_size;
+  txn->item.payload.size = key->size + value_size;
 
   /*
    * Allocate storage space for the new item.
    */
   m_lock_lock(&cache->lock);
   int is_success = m_storage_allocate(&cache->storage, cache->acquired_items,
-      payload->size, &payload->cursor);
+      txn->item.payload.size, &txn->item.payload.cursor);
   if (is_success) {
-    m_item_register(item, &cache->acquired_items);
+    m_item_register(&txn->item, &cache->acquired_items);
   }
   m_lock_unlock(&cache->lock);
 
@@ -2123,27 +2142,30 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
   /*
    * Copy key to the beginning of the storage space.
    */
-  char *const ptr = m_storage_get_ptr(&cache->storage, payload->cursor.offset);
+  char *const ptr = m_storage_get_ptr(&cache->storage,
+      txn->item.payload.cursor.offset);
   memcpy(ptr, key->ptr, key->size);
 
   return 1;
 }
 
 void ybc_add_txn_commit(struct ybc_add_txn *const txn,
-    const uint64_t ttl)
+    struct ybc_item *const item, const uint64_t ttl)
 {
-  struct ybc *const cache = txn->item->cache;
+  struct ybc *const cache = txn->item.cache;
   const uint64_t current_time = m_get_current_time();
   size_t sync_chunk_size, start_offset;
   int should_sync;
 
   assert(ttl <= UINT64_MAX - current_time);
-  txn->item->payload.expiration_time = ttl + current_time;
+  txn->item.payload.expiration_time = ttl + current_time;
 
   m_lock_lock(&cache->lock);
 
   m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
-      &txn->key_digest, &txn->item->payload);
+      &txn->key_digest, &txn->item.payload);
+
+  m_item_move(item, &txn->item);
 
   should_sync = m_sync_begin(&cache->sc, &cache->storage, current_time,
       &start_offset, &sync_chunk_size);
@@ -2154,13 +2176,16 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
     m_sync_commit(&cache->sc, &cache->storage, &cache->lock,
         start_offset, sync_chunk_size, cache->index.sync_cursor);
   }
+}
 
-  txn->item = NULL;
+void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
+{
+  m_item_deregister(&txn->item);
 }
 
 void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *const txn)
 {
-  return m_item_get_value_ptr(txn->item);
+  return m_item_get_value_ptr(&txn->item);
 }
 
 
@@ -2216,13 +2241,13 @@ int ybc_item_add(struct ybc *const cache, struct ybc_item *const item,
 {
   struct ybc_add_txn txn;
 
-  if (!ybc_add_txn_begin(cache, &txn, item, key, value->size)) {
+  if (!ybc_add_txn_begin(cache, &txn, key, value->size)) {
     return 0;
   }
 
   void *const dst = ybc_add_txn_get_value_ptr(&txn);
   memcpy(dst, value->ptr, value->size);
-  ybc_add_txn_commit(&txn, value->ttl);
+  ybc_add_txn_commit(&txn, item, value->ttl);
   return 1;
 }
 
