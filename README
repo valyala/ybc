@@ -45,8 +45,9 @@ YBC features.
   files may be left unnoticed due to performance reasons - it may be very
   expensive validating multi-GB blobs on every access.
 
-* Data file structure is optimized for HDD and SSD devices. The code
-  prefers sequential I/O instead of random I/O.
+* Data file layout is optimized for HDD and SSD devices. The code
+  prefers sequential I/O instead of random I/O. If random I/O is inevitable,
+  the code tries hard localizing it in the smallest possible range.
 
 * Optimization for multi-tiered memory hierarchy in modern CPUs. The code avoids
   unnecessary memory accesses and tightly packs frequently accessed data
