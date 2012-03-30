@@ -237,9 +237,10 @@ static void m_lock_init(struct m_lock *const lock)
     error(EXIT_FAILURE, rv, "pthread_mutexattr_init()");
   }
 
-  int type = PTHREAD_MUTEX_DEFAULT;
-#ifndef NDEBUG
-  type = PTHREAD_MUTEX_ERRORCHECK;
+#ifdef NDEBUG
+  const int type = PTHREAD_MUTEX_DEFAULT;
+#else
+  const int type = PTHREAD_MUTEX_ERRORCHECK;
 #endif
 
   rv = pthread_mutexattr_settype(&attr, type);
