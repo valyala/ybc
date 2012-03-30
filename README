@@ -6,7 +6,8 @@ This library provides support for in-process blob cache.
 
 YBC features.
 
-* Huge amounts of data can be cached.
+* Huge amounts of data can be cached. Cache size may be much larger than
+  the available RAM size.
   + Key and value sizes are limited by 2^64 bytes on 64-bit platforms.
   + The maximum number of items in the cache is 2^64 on 64-bit platforms.
   + The maximum size of cached data is limited by 2^64 bytes on 64-bit
