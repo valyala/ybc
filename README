@@ -1,6 +1,6 @@
 YBC - Yet another Blob Cache library.
 
-This library provides support for in-process blob cache.
+This library implements in-process blob cache.
 
 ===============================================================================
 
@@ -21,7 +21,7 @@ YBC features.
   unless it is compiled with YBC_SINGLE_THREADED macro defined.
 
 * Atomic updates. It is safe updating an item while other threads are reading
-  an old value for an item under the same key.
+  an old value for the item under the same key.
 
 * 'Add transaction' support, which allows constructing item's value on the fly
   without serializing it into a temporary buffer before its' addition into
