@@ -15,6 +15,24 @@ extern "C" {
 #define YBC_API  /* No special handling for static linkage. */
 #endif
 
+
+/*
+ * Returns non-zero if the library is built with thread safety support.
+ * Otherwise returns zero.
+ *
+ * If the function return zero, the library functions MUST NOT be called
+ * from concurrent threads.
+ *
+ * The library with disabled thread safety may work faster than the library
+ * with enabled thread safety, when linked with single-threaded applications.
+ * Such applications can achieve concurrency either via asynchronous
+ * event-based architecture or via cooperative multitasking (aka 'fibers',
+ * 'green threads', 'user-space threads'), where tasks switch to each other
+ * at blocking operations.
+ */
+int ybc_is_thread_safe(void);
+
+
 /*******************************************************************************
  * Config API.
  *
