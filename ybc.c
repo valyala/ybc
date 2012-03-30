@@ -1,7 +1,6 @@
 #include "ybc.h"
 
 #include <assert.h>  /* assert */
-#include <stdarg.h>  /* va_start, va_end, va_list */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
 #include <stdlib.h>  /* exit, rand, malloc, free */
