@@ -93,7 +93,7 @@ Use-cases.
 
 * Web-browser cache.
 
-* Out-of-gc blob cache for garbage-collected languages.
+* Out-of-GC blob cache for programming languages with GC support.
 
 
 ================================================================================
