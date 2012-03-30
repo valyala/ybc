@@ -197,7 +197,6 @@ YBC_API void ybc_config_set_hot_items_count(struct ybc_config *config,
  * Default value should work well for almost all cases, so tune this value only
  * if you know what you are doing.
  */
-
 YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
     size_t hot_data_size);
 
