@@ -15,6 +15,15 @@ extern "C" {
 #define YBC_API  /* No special handling for static linkage. */
 #endif
 
+/*
+ * Maximum ttl.
+ *
+ * Use this ttl when adding an item without expiration time. Such item will live
+ * as long as possible. But this doesn't mean the item will stay in the cache
+ * forever. It may be removed from the cache at any time, but usually it lives
+ * longer than items with smaller ttls.
+ */
+#define YBC_MAX_TTL (~(uint64_t)0)
 
 /*
  * Returns non-zero if the library is built with thread safety support.
@@ -30,7 +39,7 @@ extern "C" {
  * 'green threads', 'user-space threads'), where tasks switch to each other
  * at blocking operations.
  */
-int ybc_is_thread_safe(void);
+YBC_API int ybc_is_thread_safe(void);
 
 
 /*******************************************************************************
@@ -64,12 +73,6 @@ struct ybc_config;
  * for ybc_config structure before passing it into ybc_config_*() functions.
  */
 YBC_API size_t ybc_config_get_size(void);
-
-/*
- * Returns a pointer to the config with the given index.
- */
-#define YBC_CONFIG_GET(configs, index)  \
-    ((struct ybc_config *)((char *)(configs) + (index) * ybc_config_get_size()))
 
 /*
  * Initializes the given config and sets all settings to default values.
@@ -409,7 +412,8 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  * for details.
  *
  * The corresponding item instantly appears in the cache after the commit
- * with the given ttl (time to live) set.
+ * with the given ttl (time to live) set. Set ttl to YBC_MAX_TTL for items
+ * without expiration time.
  *
  * The cache doesn't guarantee that the added item will be available
  * until its' ttl expiration. The item can be evicted from the cache
@@ -478,7 +482,7 @@ YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
  ******************************************************************************/
 
 /*
- * Value, which is stored in cache.
+ * Value, which is stored in the cache.
  */
 struct ybc_value
 {
@@ -512,6 +516,8 @@ YBC_API size_t ybc_item_get_size(void);
  * Both key and value are copied from the provided memory locations,
  * so the caller can freely modify memory under the key and the value after
  * returning from the function.
+ *
+ * Set value->ttl to YBC_MAX_TTL for items without expiration time.
  *
  * The cache doesn't guarantee that the added item will be available
  * until its' ttl expiration. The item can be evicted from the cache
@@ -646,18 +652,21 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * const size_t caches_count = 2;
  * char configs_buf[ybc_config_get_size() * caches_count];
  * struct ybc_config *const configs = (struct ybc_config *)configs_buf;
+ * struct ybc_config *config;
  *
- * ybc_config_init(YBC_CONFIG_GET(configs_buf, 0));
- * ybc_config_set_max_items_count(&configs[0], 100 * 1000 * 1000);
- * ybc_config_set_data_file_size(&configs[0], (size_t)128 * 1024 * 1024 * 1024);
- * ybc_config_set_index_file(&configs[0], "/hdd0/cache.index");
- * ybc_config_set_data_file(&configs[0], "/ssd0/cache.data");
+ * config = YBC_CONFIG_GET(configs, 0);
+ * ybc_config_init(config);
+ * ybc_config_set_max_items_count(config, 100 * 1000 * 1000);
+ * ybc_config_set_data_file_size(config, (size_t)128 * 1024 * 1024 * 1024);
+ * ybc_config_set_index_file(config, "/hdd0/cache.index");
+ * ybc_config_set_data_file(config, "/ssd0/cache.data");
  *
- * ybc_config_init(YBC_CONFIG_GET(configs_buf, 1));
- * ybc_config_set_max_items_count(&configs[1], 200 * 1000 * 1000);
- * ybc_config_set_data_file_size(&configs[1], (size_t)256 * 1024 * 1024 * 1024);
- * ybc_config_set_index_file(&configs[1], "/hdd1/cache.index");
- * ybc_config_set_data_file(&configs[1], "/ssd1/cache.data");
+ * config = YBC_CONFIG_GET(configs, 1);
+ * ybc_config_init(config);
+ * ybc_config_set_max_items_count(config, 200 * 1000 * 1000);
+ * ybc_config_set_data_file_size(config, (size_t)256 * 1024 * 1024 * 1024);
+ * ybc_config_set_index_file(config, "/hdd1/cache.index");
+ * ybc_config_set_data_file(config, "/ssd1/cache.data");
  *
  * ...
  *
@@ -671,8 +680,8 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * }
  *
  * // Destroy configs, since they are no longer needed.
- * ybc_config_destroy(YBC_CONFIG_GET(configs_buf, 0));
- * ybc_config_destroy(YBC_CONFIG_GET(configs_buf, 1));
+ * ybc_config_destroy(YBC_CONFIG_GET(configs, 0));
+ * ybc_config_destroy(YBC_CONFIG_GET(configs, 1));
  *
  * ...
  *
@@ -691,6 +700,13 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * ...
  * ybc_cluster_close(cluster);
  ******************************************************************************/
+
+/*
+ * Returns a pointer to the config with the given index in the given
+ * array of configs.
+ */
+#define YBC_CONFIG_GET(configs, index)  \
+    ((struct ybc_config *)((char *)(configs) + (index) * ybc_config_get_size()))
 
 /*
  * Cache cluster handler.

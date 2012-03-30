@@ -2229,8 +2229,8 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
   size_t sync_chunk_size, start_offset;
   int should_sync;
 
-  assert(ttl <= UINT64_MAX - current_time);
-  txn->item.payload.expiration_time = ttl + current_time;
+  txn->item.payload.expiration_time = (ttl > UINT64_MAX - current_time) ?
+      (UINT64_MAX) : (ttl + current_time);
 
   m_lock_lock(&cache->lock);
 

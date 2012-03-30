@@ -236,7 +236,7 @@ static void test_add_txn_ops(struct ybc *const cache)
   struct ybc_value value = {
       .ptr = "qwerty",
       .size = 6,
-      .ttl = 1000 * 1000,
+      .ttl = YBC_MAX_TTL,
   };
 
   test_add_txn_rollback(cache, txn, &key, value.size);
@@ -272,7 +272,7 @@ static void test_item_ops(struct ybc *const cache,
   struct ybc_key key;
   struct ybc_value value;
 
-  value.ttl = 1000 * 1000;
+  value.ttl = YBC_MAX_TTL;
 
   for (size_t i = 0; i < iterations_count; ++i) {
     key.ptr = &i;
@@ -381,7 +381,7 @@ static void test_cluster_ops(const size_t cluster_size,
   struct ybc_config *const configs = (struct ybc_config *)configs_buf;
 
   for (size_t i = 0; i < cluster_size; ++i) {
-    ybc_config_init(YBC_CONFIG_GET(configs_buf, i));
+    ybc_config_init(YBC_CONFIG_GET(configs, i));
   }
 
   char cluster_buf[ybc_cluster_get_size(cluster_size)];
@@ -399,13 +399,13 @@ static void test_cluster_ops(const size_t cluster_size,
 
   /* Configs are no longer needed, so they can be destroyed. */
   for (size_t i = 0; i < cluster_size; ++i) {
-    ybc_config_destroy(YBC_CONFIG_GET(configs_buf, i));
+    ybc_config_destroy(YBC_CONFIG_GET(configs, i));
   }
 
   struct ybc_key key;
   struct ybc_value value;
 
-  value.ttl = 1000 * 1000;
+  value.ttl = YBC_MAX_TTL;
 
   for (size_t i = 0; i < iterations_count; ++i) {
     key.ptr = &i;
@@ -446,12 +446,12 @@ static void test_interleaved_adds(struct ybc *const cache)
   const struct ybc_value value1 = {
       .ptr = "123456",
       .size = 6,
-      .ttl = 1000 * 1000,
+      .ttl = YBC_MAX_TTL,
   };
   const struct ybc_value value2 = {
       .ptr = "qwert",
       .size = 4,
-      .ttl = 1000 * 1000,
+      .ttl = YBC_MAX_TTL,
   };
 
   if (!ybc_add_txn_begin(cache, txn1, &key1, value1.size)) {
@@ -503,7 +503,7 @@ static void test_instant_clear(struct ybc *const cache)
   struct ybc_value value;
 
   /* Add a lot of items to the cache */
-  value.ttl = 1000 * 1000;
+  value.ttl = YBC_MAX_TTL;
   for (size_t i = 0; i < 1000; ++i) {
     key.ptr = &i;
     key.size = sizeof(i);
@@ -547,7 +547,7 @@ static void test_persistent_survival(struct ybc *const cache)
   const struct ybc_value value = {
       .ptr = "qwert",
       .size = 5,
-      .ttl = 1000 * 1000,
+      .ttl = YBC_MAX_TTL,
   };
   expect_item_add(cache, &key, &value);
 
@@ -641,7 +641,7 @@ void test_large_cache(struct ybc *const cache)
   const struct ybc_value value = {
     .ptr = value_buf,
     .size = value_buf_size,
-    .ttl = 1000 * 1000,
+    .ttl = YBC_MAX_TTL,
   };
 
   /* Test handling of cache data size wrapping. */
@@ -677,7 +677,7 @@ static void test_small_sync_interval(struct ybc *const cache)
   const struct ybc_value value = {
       .ptr = "1234567890a",
       .size = 11,
-      .ttl = 1000 * 1000,
+      .ttl = YBC_MAX_TTL,
   };
 
   for (size_t i = 0; i < 10; ++i) {
