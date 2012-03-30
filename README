@@ -85,7 +85,7 @@ Use-cases.
 
 * Memcache-like shared cache.
 
-* Per-process local cache.
+* Per-process local cache in web-servers.
 
 * Web-proxy or web-accelerator cache.
 
