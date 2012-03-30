@@ -92,3 +92,11 @@ Use-cases.
 * Web-browser cache.
 
 * Out-of-gc blob cache for garbage-collected languages.
+
+
+================================================================================
+
+Credits.
+
+YBC design is inspired by Varnish's "Notes from the Architect" -
+https://www.varnish-cache.org/trac/wiki/ArchitectNotes .
