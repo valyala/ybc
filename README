@@ -56,9 +56,11 @@ YBC features.
 
 * Instant invalidation of all items in the cache irregardless of cache size.
 
-* The code avoids using dynamic memory allocations as much as possible,
+* The code avoids using dynamic memory allocations in frequently executed paths,
   so cache performance is almost independent of the efficiency of the provided
   malloc() implementation.
+
+* The code avoids using system calls in frequently executed paths.
 
 * The code depends only on OS-supplied libraries.
 
