@@ -13,8 +13,8 @@ YBC features.
     platforms. In practice it is limited by free space on backing store.
     So millions multi-GB media files can be easily placed into the cache
     if backing store can handle such amount of data.
-  32-bit platforms have much smaller limits (2^32), so try avoiding them
-  even if the code supports 32-bit builds.
+  32-bit platforms have much smaller limits (2^32), so use 32-bit builds
+  only if your cache fits 4GB.
 
 * Multithreading support. The library is thread-safe out of the box
   unless it is compiled with YBC_SINGLE_THREADED macro defined.
@@ -83,10 +83,12 @@ Use-cases.
 
 * File hosting cache.
 
-* Memcache-like cache.
+* Memcache-like shared cache.
+
+* Per-process local cache.
 
 * Web-proxy or web-accelerator cache.
 
 * Web-browser cache.
 
-* Out-of-gc cache for garbage-collected languages.
+* Out-of-gc blob cache for garbage-collected languages.
