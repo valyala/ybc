@@ -11,6 +11,8 @@ LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 SINGLE_THREADED_TEST_FLAGS = -g $(SINGLE_THREADED_FLAGS) -fwhole-program -lrt
 
+VALGRIND_FLAGS = --suppressions=valgrind.supp
+
 YBC_SRCS = ybc.h ybc.c
 TEST_SRCS = tests/functional.c
 
@@ -73,6 +75,10 @@ run-tests: tests
 	tests/functional-shared-debug
 	tests/functional-shared-release
 	tests/functional-single-threaded
+
+run-valgrind-tests: tests-shared-debug tests-single-threaded
+	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
+	valgrind $(VALGRIND_FLAGS) tests/functional-single-threaded
 
 clean:
 	rm -f ybc-32-release.o
