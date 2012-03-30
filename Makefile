@@ -26,7 +26,7 @@ tests-debug: tests-32-debug tests-64-debug tests-shared-debug
 
 tests: tests-debug tests-release tests-single-threaded
 
-all: release debug tests run-tests
+all: release debug tests run-tests run-valgrind-tests
 
 ybc-32-release: $(YBC_SRCS)
 	$(CC) -c ybc.c $(RELEASE_FLAGS) -m32 -o ybc-32-release.o
