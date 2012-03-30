@@ -434,7 +434,7 @@ YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
  * before calling ybc_add_txn_commit().
  *
  * DO NOT write to the allocated space returned by this function after
- * the corresponding is commited or rolled back!
+ * the corresponding transaction is commited or rolled back!
  *
  * Always returns non-NULL value.
  */
