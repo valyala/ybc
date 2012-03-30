@@ -1,3 +1,5 @@
+CC = gcc
+
 YBC_FEATURE_FLAGS = -DYBC_HAVE_CLOCK_GETTIME -DYBC_HAVE_LINUX_FILE_API -DYBC_HAVE_LINUX_MMAN_API -DYBC_HAVE_PTHREAD -DYBC_HAVE_NANOSLEEP -DYBC_HAVE_LINUX_ERROR_API
 COMMON_FLAGS = -Wall -Wextra -pedantic -std=c99 -flto -D_GNU_SOURCE $(YBC_FEATURE_FLAGS)
 SINGLE_THREADED_FLAGS = $(COMMON_FLAGS) -DYBC_SINGLE_THREADED
@@ -25,43 +27,43 @@ tests: tests-debug tests-release tests-single-threaded
 all: release debug tests run-tests
 
 ybc-32-release: $(YBC_SRCS)
-	gcc -c ybc.c $(RELEASE_FLAGS) -m32 -o ybc-32-release.o
+	$(CC) -c ybc.c $(RELEASE_FLAGS) -m32 -o ybc-32-release.o
 
 ybc-64-release: $(YBC_SRCS)
-	gcc -c ybc.c $(RELEASE_FLAGS) -m64 -o ybc-64-release.o
+	$(CC) -c ybc.c $(RELEASE_FLAGS) -m64 -o ybc-64-release.o
 
 ybc-32-debug: $(YBC_SRCS)
-	gcc -c ybc.c $(DEBUG_FLAGS) -m32 -o ybc-32-debug.o
+	$(CC) -c ybc.c $(DEBUG_FLAGS) -m32 -o ybc-32-debug.o
 
 ybc-64-debug: $(YBC_SRCS)
-	gcc -c ybc.c $(DEBUG_FLAGS) -m64 -o ybc-64-debug.o
+	$(CC) -c ybc.c $(DEBUG_FLAGS) -m64 -o ybc-64-debug.o
 
 libybc-debug: $(YBC_SRCS)
-	gcc ybc.c $(DEBUG_FLAGS) $(LIBYBC_FLAGS) -o libybc-debug.so
+	$(CC) ybc.c $(DEBUG_FLAGS) $(LIBYBC_FLAGS) -o libybc-debug.so
 
 libybc-release: $(YBC_SRCS)
-	gcc ybc.c $(RELEASE_FLAGS) $(LIBYBC_FLAGS) -o libybc-release.so
+	$(CC) ybc.c $(RELEASE_FLAGS) $(LIBYBC_FLAGS) -o libybc-release.so
 
 tests-32-release: ybc-32-release $(TEST_SRCS)
-	gcc tests/functional.c ybc-32-release.o $(TEST_FLAGS) -m32 -o tests/functional-32-release
+	$(CC) tests/functional.c ybc-32-release.o $(TEST_FLAGS) -m32 -o tests/functional-32-release
 
 tests-64-release: ybc-64-release $(TEST_SRCS)
-	gcc tests/functional.c ybc-64-release.o $(TEST_FLAGS) -m64 -o tests/functional-64-release
+	$(CC) tests/functional.c ybc-64-release.o $(TEST_FLAGS) -m64 -o tests/functional-64-release
 
 tests-32-debug: ybc-32-debug $(TEST_SRCS)
-	gcc tests/functional.c ybc-32-debug.o $(TEST_FLAGS) -m32 -o tests/functional-32-debug
+	$(CC) tests/functional.c ybc-32-debug.o $(TEST_FLAGS) -m32 -o tests/functional-32-debug
 
 tests-64-debug: ybc-64-debug $(TEST_SRCS)
-	gcc tests/functional.c ybc-64-debug.o $(TEST_FLAGS) -m64 -o tests/functional-64-debug
+	$(CC) tests/functional.c ybc-64-debug.o $(TEST_FLAGS) -m64 -o tests/functional-64-debug
 
 tests-shared-debug: libybc-debug $(TEST_SRCS)
-	gcc tests/functional.c libybc-debug.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-debug
+	$(CC) tests/functional.c libybc-debug.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-debug
 
 tests-shared-release: libybc-release $(TEST_SRCS)
-	gcc tests/functional.c libybc-release.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-release
+	$(CC) tests/functional.c libybc-release.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-release
 
 tests-single-threaded: $(YBC_SRCS) $(TEST_SRCS)
-	gcc ybc.c tests/functional.c $(SINGLE_THREADED_TEST_FLAGS) -o tests/functional-single-threaded
+	$(CC) ybc.c tests/functional.c $(SINGLE_THREADED_TEST_FLAGS) -o tests/functional-single-threaded
 
 run-tests: tests
 	tests/functional-32-debug
