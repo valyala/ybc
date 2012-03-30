@@ -72,7 +72,7 @@ YBC features.
   modified in the future versions of the library without breaking applications
   dynamically linked against older versions.
 
-* Built library size is only at 18Kb.
+* Small library size. Built library weights only 18Kb.
 
 
 ===============================================================================
