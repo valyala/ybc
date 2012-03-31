@@ -321,7 +321,11 @@ static void m_file_dup(int *const dst_fd, const int src_fd)
   }
 }
 
-static void m_file_create_temporary(struct m_file *const file)
+/*
+ * Creates an anonymous temporary file, which will be automatically deleted
+ * after the file is closed.
+ */
+static void m_file_create_anonymous(struct m_file *const file)
 {
   for (;;) {
     FILE *const fp = tmpfile();
@@ -440,6 +444,10 @@ static void m_file_get_size(const struct m_file *const file, size_t *const size)
   *size = st.st_size;
 }
 
+/*
+ * Resizes the file to the given size and makes sure the underlying space
+ * in the file is actually allocated (i.e. avoids creating sparse files).
+ */
 static void m_file_resize_and_preallocate(const struct m_file *const file,
     const size_t size)
 {
@@ -489,7 +497,8 @@ static void m_file_remove_if_exists(const char *const filename)
  * If force is set, then creates new file with the given size if it doesn't
  * exist. Force also leads to file size adjustment on its' mismatch.
  *
- * If filename is NULL and force is set, then creates an anonymous file.
+ * If filename is NULL and force is set, then creates an anonymous file,
+ * which will be automatically deleted after the file is closed.
  *
  * Returns non-zero on success, zero on failre.
  * Sets is_file_created to 1 if new file has been created.
@@ -506,7 +515,20 @@ static int m_file_open_or_create(struct m_file *const file,
     if (!force) {
       return 0;
     }
-    m_file_create_temporary(file);
+    /*
+     * Though we could just dynamically allocate memory
+     * with expected_file_size instead of creating an anonymous file,
+     * memory mapped from anonymous file is better than dynamically allocated
+     * memory due to the following reasons:
+     * - The memory backed by anonymous file doesn't increase process'
+     *   commit charge ( http://en.wikipedia.org/wiki/Commit_charge ).
+     * - Sequential VM pages backed by anonymous file are mapped to sequential
+     *   pages in the anonymous file. This eliminates random I/O during
+     *   sequential access to the mapped memory. Of course this is true only
+     *   if the file isn't fragmented. See m_file_resize_and_preallocate() call,
+     *   which is aimed towards reducing file fragmentation.
+     */
+    m_file_create_anonymous(file);
   }
   else if (!m_file_exists(filename)) {
     if (!force) {
@@ -531,6 +553,10 @@ static int m_file_open_or_create(struct m_file *const file,
       return 0;
     }
 
+    /*
+     * Pre-allocate file space at the moment in order to minimize file
+     * fragmentation in the future.
+     */
     m_file_resize_and_preallocate(file, expected_file_size);
   }
 
@@ -770,6 +796,11 @@ static int m_storage_open(struct m_storage *const storage,
       is_file_created)) {
     return 0;
   }
+
+  /*
+   * Do not cache storage file contents into RAM at the moment, because it can
+   * be much bigger than RAM size. Allow OS managing storage file caching.
+   */
 
   m_memory_map(&ptr, &file, storage->size);
   assert((uintptr_t)storage->size <= UINTPTR_MAX - (uintptr_t)ptr);
@@ -1531,11 +1562,20 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   }
 
   /*
-   * Cache the index file in memory and then set
-   * random-access advise on it.
+   * Cache index file contents in RAM in order to minimize random I/O during
+   * cache warm-up.
+   *
+   * Since index file is usually not too big, it can be quickly cached into RAM
+   * with sustained speed at hundreds MB/s on modern HDDs and SSDs. Of course,
+   * if the index file's fragmentation is low. The code tries hard achieving low
+   * fragmentation by pre-allocating file contents at creation time.
+   * See m_file_open_or_create() for details.
    */
-
   m_file_cache_in_ram(&file, file_size);
+
+  /*
+   * Hint OS that the access to index file contents is random.
+   */
   m_file_advise_random_access(&file, file_size);
 
   m_memory_map(&ptr, &file, file_size);
