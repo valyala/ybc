@@ -78,6 +78,7 @@ run-tests: tests
 
 run-valgrind-tests: tests-shared-debug tests-single-threaded
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
+	valgrind $(VALGRIND_FLAGS) tests/functional-shared-release
 	valgrind $(VALGRIND_FLAGS) tests/functional-single-threaded
 
 clean:

@@ -1,19 +1,5 @@
 # Valgrind suppression rules for YBC.
 # See http://valgrind.org/docs/manual/manual-core.html#manual-core.suppress .
 #
-# Key digest comparisons against uninitialized values are expected.
-# Even though there is non-zero probability that an uninitialized value
-# is matched against the given key digest, the corresponding cache item
-# will be considered invalid after keys comparison.
-
-{
-   Comparison with uninitialized key digest in m_map_lookup_slot_index
-   Memcheck:Cond
-   fun:m_map_lookup_slot_index.*
-}
-
-{
-   Comparison with uninitialized key digest in m_map_add
-   Memcheck:Cond
-   fun:m_map_add.*
-}
+# Currently YBC doesn't need suppression rules for valgrind. Add them here
+# if they will appear in the future.

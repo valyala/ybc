@@ -4,7 +4,7 @@
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
 #include <stdlib.h>  /* exit, rand, malloc, free */
-#include <string.h>  /* memcpy, memcmp, strdup */
+#include <string.h>  /* memcpy, memcmp, strdup, memset */
 
 
 /*******************************************************************************
@@ -799,7 +799,8 @@ static int m_storage_open(struct m_storage *const storage,
 
   /*
    * Do not cache storage file contents into RAM at the moment, because it can
-   * be much bigger than RAM size. Allow OS managing storage file caching.
+   * be much bigger than RAM size. Allow the OS dealing with storage file
+   * caching.
    */
 
   m_memory_map(&ptr, &file, storage->size);
@@ -808,6 +809,19 @@ static int m_storage_open(struct m_storage *const storage,
   m_file_close(&file);
 
   storage->data = ptr;
+
+  /*
+   * Do not verify correctness of storage data at the moment due
+   * to the following reasons:
+   * - It can take a lot of time if storage file is too big.
+   * - The cache invalidates items with incorrect keys on the fly.
+   * - The cache code is designed in the way, which prevents inconsistencies
+   *   in data file under normal mode of operation and even under unexpected
+   *   process termination.
+   *
+   * Library users can verify data correctness by embedding and verifiyng
+   * checksums into item's values.
+   */
 
   return 1;
 }
@@ -915,7 +929,7 @@ static int m_storage_allocate(struct m_storage *const storage,
  * Checks payload correctness.
  *
  * Doesn't check item's key, which is stored in the storage, due to performance
- * reasons (avoids random memory accesses).
+ * reasons (avoids random memory access).
  *
  * See also m_storage_payload_key_check().
  *
@@ -1414,10 +1428,14 @@ static void m_map_cache_init(struct m_map *const map_cache)
       map_cache->slots_count);
 
   /*
-   * There is no need in clearing up map_cache->key_digests and
-   * map_cache->payloads, because the map algorithms gracefully handle
-   * invalid key digests and payloads.
+   * Though the code can gracefully handle invalid key digests and payloads,
+   * let's fill them with zeroes. This has the following benefits:
+   * - It will shut up valgrind regarding comparison with uninitialized memory.
+   * - It will force the OS attaching physical RAM to the allocated region
+   *   of memory. This eliminates possible minor pagefaults during the cache
+   *   warm-up ( http://en.wikipedia.org/wiki/Page_fault#Minor ).
    */
+  memset(map_cache->key_digests, 0, map_cache_size);
 }
 
 static void m_map_cache_destroy(struct m_map *const map_cache)
@@ -1566,15 +1584,16 @@ static int m_index_open(struct m_index *const index, const char *const filename,
    * cache warm-up.
    *
    * Since index file is usually not too big, it can be quickly cached into RAM
-   * with sustained speed at hundreds MB/s on modern HDDs and SSDs. Of course,
-   * if the index file's fragmentation is low. The code tries hard achieving low
+   * with sustained speed at hundreds MB/s (which is equivalent to millions
+   * of key slots per second) on modern HDDs and SSDs. Of course, if the index
+   * file's fragmentation is low. The code tries hard achieving low
    * fragmentation by pre-allocating file contents at creation time.
    * See m_file_open_or_create() for details.
    */
   m_file_cache_in_ram(&file, file_size);
 
   /*
-   * Hint OS that the access to index file contents is random.
+   * Hint the OS about random access pattern to index file contents.
    */
   m_file_advise_random_access(&file, file_size);
 
@@ -1593,6 +1612,11 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   index->map.key_digests = (struct m_key_digest *)(index->hash_seed_ptr + 1);
   index->map.payloads = (struct m_storage_payload *)
       (index->map.key_digests + index->map.slots_count);
+
+  /*
+   * Do not verify correctness of loaded index file now, because the cache
+   * discovers and fixes errors in the index file on the fly.
+   */
 
   m_map_cache_init(&index->map_cache);
 
