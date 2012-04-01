@@ -524,7 +524,8 @@ static void test_instant_clear(struct ybc *const cache)
   ybc_close(cache);
 }
 
-static void test_persistent_survival(struct ybc *const cache)
+static void expect_persistent_survival(struct ybc *const cache,
+    const uint64_t sync_interval)
 {
   char config_buf[ybc_config_get_size()];
   struct ybc_config *const config = (struct ybc_config *)config_buf;
@@ -535,6 +536,7 @@ static void test_persistent_survival(struct ybc *const cache)
   ybc_config_set_data_file(config, "./tmp_cache.data");
   ybc_config_set_max_items_count(config, 10);
   ybc_config_set_data_file_size(config, 1024);
+  ybc_config_set_sync_interval(config, sync_interval);
 
   if (!ybc_open(cache, config, 1)) {
     M_ERROR("cannot create persistent cache");
@@ -566,6 +568,19 @@ static void test_persistent_survival(struct ybc *const cache)
   ybc_remove(config);
 
   ybc_config_destroy(config);
+}
+
+static void test_persistent_survival(struct ybc *const cache)
+{
+  /*
+   * Test persistence with enabled data syncing.
+   */
+  expect_persistent_survival(cache, 10 * 1000);
+
+  /*
+   * Test persistence with disabled data syncing.
+   */
+  expect_persistent_survival(cache, 0);
 }
 
 static void test_broken_index_handling(struct ybc *const cache)
@@ -692,6 +707,105 @@ static void test_small_sync_interval(struct ybc *const cache)
   ybc_close(cache);
 }
 
+static int is_item_exists(struct ybc *const cache,
+    const struct ybc_key *const key)
+{
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  if (!ybc_item_acquire(cache, item, key)) {
+    return 0;
+  }
+  ybc_item_release(item);
+  return 1;
+}
+
+static void expect_cache_works(struct ybc *const cache,
+    const size_t items_count, const size_t expected_hits_count,
+    const size_t hot_items_count, const size_t hot_data_size,
+    const uint64_t sync_interval)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  assert(items_count <= SIZE_MAX / 100);
+  ybc_config_set_max_items_count(config, items_count * 2);
+  ybc_config_set_data_file_size(config, items_count * 100);
+  ybc_config_set_hot_items_count(config, hot_items_count);
+  ybc_config_set_hot_data_size(config, hot_data_size);
+  ybc_config_set_sync_interval(config, sync_interval);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  struct ybc_key key;
+  const struct ybc_value value = {
+      .ptr = "qwerty",
+      .size = 6,
+      .ttl = YBC_MAX_TTL,
+  };
+
+  for (size_t i = 0; i < items_count; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    expect_item_add(cache, &key, &value);
+  }
+
+  size_t hits_count = 0;
+  for (size_t i = 0; i < items_count; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    if (is_item_exists(cache, &key)) {
+      ++hits_count;
+    }
+  }
+
+  assert(hits_count > expected_hits_count);
+
+  ybc_close(cache);
+}
+
+static void test_disabled_hot_items_cache(struct ybc *const cache)
+{
+  const size_t items_count = 1000;
+  const size_t expected_hits_count = 900;
+  const size_t hot_items_count = 0;
+  const size_t hot_data_size = 100 * 1024;
+  const uint64_t sync_interval = 10 * 1000;
+
+  expect_cache_works(cache, items_count, expected_hits_count, hot_items_count,
+      hot_data_size, sync_interval);
+}
+
+static void test_disabled_data_compaction(struct ybc *const cache)
+{
+  const size_t items_count = 1000;
+  const size_t expected_hits_count = 900;
+  const size_t hot_items_count = 100;
+  const size_t hot_data_size = 0;
+  const uint64_t sync_interval = 10 * 1000;
+
+  expect_cache_works(cache, items_count, expected_hits_count, hot_items_count,
+      hot_data_size, sync_interval);
+}
+
+static void test_disabled_syncing(struct ybc *const cache)
+{
+  const size_t items_count = 1000;
+  const size_t expected_hits_count = 900;
+  const size_t hot_items_count = 100;
+  const size_t hot_data_size = 10 * 1024;
+  const uint64_t sync_interval = 0;
+
+  expect_cache_works(cache, items_count, expected_hits_count, hot_items_count,
+      hot_data_size, sync_interval);
+}
+
 int main(void)
 {
   char cache_buf[ybc_get_size()];
@@ -712,6 +826,9 @@ int main(void)
   test_broken_index_handling(cache);
   test_large_cache(cache);
   test_small_sync_interval(cache);
+  test_disabled_hot_items_cache(cache);
+  test_disabled_data_compaction(cache);
+  test_disabled_syncing(cache);
 
   printf("All functional tests done\n");
   return 0;
