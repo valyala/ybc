@@ -1404,6 +1404,11 @@ static int m_map_get(
 static void m_map_cache_fix_slots_count(size_t *const slots_count,
     const size_t map_slots_count)
 {
+  if (map_cache->slots_count == 0) {
+    /* Map cache is disabled. */
+    return;
+  }
+
   if (*slots_count > map_slots_count / 2) {
     *slots_count = map_slots_count / 2;
   }
@@ -1417,6 +1422,7 @@ static void m_map_cache_init(struct m_map *const map_cache)
   map_cache->payloads = NULL;
 
   if (map_cache->slots_count == 0) {
+    /* Map cache is disabled. */
     return;
   }
 
@@ -1479,7 +1485,7 @@ static void m_map_cache_add(const struct m_map *const map,
     const struct m_key_digest *const key_digest,
     const struct m_storage_payload *const payload)
 {
-  if (map_cache->slots_count > 0) {
+  if (map_cache->slots_count != 0) {
     m_map_remove(map_cache, key_digest);
   }
   m_map_add(map, storage, key_digest, payload);
@@ -1489,7 +1495,7 @@ static void m_map_cache_remove(const struct m_map *const map,
     const struct m_map *const map_cache,
     const struct m_key_digest *const key_digest)
 {
-  if (map_cache->slots_count > 0) {
+  if (map_cache->slots_count != 0) {
     m_map_remove(map_cache, key_digest);
   }
   m_map_remove(map, key_digest);
