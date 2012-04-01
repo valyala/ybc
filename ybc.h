@@ -235,6 +235,12 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
  *
  * Default value should work well for almost all cases, so tune this value only
  * if you know what you are doing.
+ *
+ * Periodic data syncing has also a nice side-effect - it minimizes the number
+ * of dirty VM pages behind the cache using fast sequential write to backing
+ * store. If periodic data syncing is disabled, then the Operating System should
+ * decide when to sync those dirty pages to backing store. This may be much
+ * slower if the OS syncs those dirty pages in random order.
  */
 YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
     uint64_t sync_interval);
