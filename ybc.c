@@ -1020,6 +1020,9 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
  *
  * The defragmentation won't help for caches containing a lot of large items
  * with sizes much larger than VM page size (hundreds of KBs or larger).
+ *
+ * TODO: automatically adjust estimated working set size in runtime. Currently
+ * it can be set only at cache opening.
  ******************************************************************************/
 
 /*
@@ -1399,6 +1402,9 @@ static int m_map_get(
 
 /*******************************************************************************
  * Map cache API.
+ *
+ * TODO: automatically adjust map cache size in runtime. Currently it can be set
+ * only at cache opening.
  ******************************************************************************/
 
 static void m_map_cache_fix_slots_count(size_t *const slots_count,
