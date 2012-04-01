@@ -50,7 +50,7 @@ YBC features.
   the code tries hard localizing it in the smallest possible range.
 
 * Optimization for multi-tiered memory hierarchy in modern CPUs. The code avoids
-  unnecessary memory accesses and tightly packs frequently accessed data
+  unnecessary random memory accesses and tightly packs frequently accessed data
   in order to reduce working set size.
 
 * Persistence support. Cache data survives process restart if the cache
@@ -74,7 +74,7 @@ YBC features.
   modified in the future versions of the library without breaking applications
   dynamically linked against older versions.
 
-* Small library size. Built library weights only 18Kb.
+* Small library size. Built library weighs only 18Kb.
 
 
 ===============================================================================
