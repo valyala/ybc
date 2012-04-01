@@ -1404,7 +1404,7 @@ static int m_map_get(
 static void m_map_cache_fix_slots_count(size_t *const slots_count,
     const size_t map_slots_count)
 {
-  if (map_cache->slots_count == 0) {
+  if (*slots_count == 0) {
     /* Map cache is disabled. */
     return;
   }
