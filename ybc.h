@@ -38,6 +38,16 @@ extern "C" {
  * event-based architecture or via cooperative multitasking (aka 'fibers',
  * 'green threads', 'user-space threads'), where tasks switch to each other
  * at blocking operations.
+ *
+ * Single-threaded concurrency has the following drawbacks comparing
+ * to real multithreading:
+ * - It doesn't scale on multiple CPUs, because a thread cannot be executed
+ *   simultaneously on multiple CPUs by definition.
+ * - Major pagefault ( http://en.wikipedia.org/wiki/Page_fault#Major )
+ *   effectively blocks all the tasks in the thread. Major pagefaults are common
+ *   if frequently accessed items in the cache don't fit available physical RAM.
+ *   So single-threaded applications will work slower than multithreaded apps
+ *   under these conditions.
  */
 YBC_API int ybc_is_thread_safe(void);
 
@@ -67,10 +77,10 @@ YBC_API int ybc_is_thread_safe(void);
 struct ybc_config;
 
 /*
- * Returns size of ybc_config structure in bytes.
+ * Returns the size of ybc_config structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc_config structure before passing it into ybc_config_*() functions.
+ * for the structure before passing it into ybc_config_*() functions.
  */
 YBC_API size_t ybc_config_get_size(void);
 
@@ -89,10 +99,8 @@ YBC_API void ybc_config_destroy(struct ybc_config *config);
 /*
  * Sets the maximum number of items in the cache.
  *
- * This number can be arbitrary large, but in reality it should be equivalent
- * to data file size / avg_item_size, where avg_item_size is the average size
- * of cached item. The size of cached item is roughly equivalent to the size
- * of its' key plus the size of its' value.
+ * The cache works best if this number is set to 2x of the expected total number
+ * of items in the cache.
  *
  * Index file size will be proportional to this number.
  */
@@ -101,6 +109,9 @@ YBC_API void ybc_config_set_max_items_count(struct ybc_config *config,
 
 /*
  * Sets data file size in bytes.
+ *
+ * Keys and blobs are stored in the data file, so the size must be large enough
+ * for storing the maximum expected number of items in the cache.
  *
  * The size can be arbitrary large. The only limit on the size is filesystem's
  * free space.
@@ -114,15 +125,15 @@ YBC_API void ybc_config_set_data_file_size(struct ybc_config *config,
  * The file contains index for fast lookup of item's value in data file
  * by item's key.
  *
- * Defragmented index file may lead to faster startup times, when the index
- * is loaded in memory.
- *
  * If index file is not set or set to NULL, then it is automatically created
  * when the cache is opened and automatically deleted when the cache is closed.
  * This effectively disables cache persistence - i.e. the cache
  * will be flushed on the next opening even if data file is non-NULL.
  *
- * It is safe removing the string pointed by filename after the call.
+ * It is safe modifying the string pointed by filename after the call.
+ *
+ * Defragmented index file may lead to faster startup times, while the cache
+ * is loading index data into memory.
  */
 YBC_API void ybc_config_set_index_file(struct ybc_config *config,
     const char *filename);
@@ -131,6 +142,13 @@ YBC_API void ybc_config_set_index_file(struct ybc_config *config,
  * Sets path to the data file for the given config.
  *
  * Data file contains items' values.
+ *
+ * If data file is not set or set to NULL, then it is automatically created
+ * when the cache is opened and automatically deleted when the cache is closed.
+ * This effectively disables cache persistence - i.e. the cache
+ * will be flushed on the next opening even if index file is non-NULL.
+ *
+ * It is safe modifying the string pointed by filename after the call.
  *
  * Data file has the following access pattern:
  * - almost sequential writes.
@@ -143,14 +161,8 @@ YBC_API void ybc_config_set_index_file(struct ybc_config *config,
  * if frequently requested items don't fit OS file cache. Otherwise SSD
  * will be on par with HDD.
  *
- * Defragmented data file usually leads to higher cache performance.
- *
- * If data file is not set or set to NULL, then it is automatically created
- * when the cache is opened and automatically deleted when the cache is closed.
- * This effectively disables cache persistence - i.e. the cache
- * will be flushed on the next opening even if index file is non-NULL.
- *
- * It is safe removing the string pointed by filename after the call.
+ * Defragmented data file usually leads to higher cache performance, because
+ * it minimizes random I/O.
  */
 YBC_API void ybc_config_set_data_file(struct ybc_config *config,
     const char *filename);
@@ -251,10 +263,10 @@ YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
 struct ybc;
 
 /*
- * Returns size of ybc structure in bytes.
+ * Returns the size of ybc structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc structure before passing it into ybc_*() functions.
+ * for the structure before passing it into ybc_*() functions.
  */
 YBC_API size_t ybc_get_size(void);
 
@@ -380,10 +392,10 @@ struct ybc_key
 };
 
 /*
- * Returns size of ybc_add_txn structure in bytes.
+ * Returns the size of ybc_add_txn structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc_add_txn structure before passing it into ybc_add_txn_*() functions.
+ * for the structure before passing it into ybc_add_txn_*() functions.
  *
  * Since the size of ybc_add_txn structure never exceeds a few hundred bytes,
  * it is usually safe allocating space for the structure on the stack.
@@ -508,10 +520,10 @@ struct ybc_value
 };
 
 /*
- * Returns size of ybc_item structure in bytes.
+ * Returns the size of ybc_item structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc_item structure before passing it into ybc_item_*() functions.
+ * for the structure before passing it into ybc_item_*() functions.
  *
  * Since the size of ybc_item structure never exceeds a few hundred bytes,
  * it is usually safe allocating space for the structure on the stack.
@@ -722,10 +734,10 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
 struct ybc_cluster;
 
 /*
- * Returns size of ybc_cluster structure in bytes.
+ * Returns the size of ybc_cluster structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
- * for ybc_cluster structure before passing it into ybc_cluster_*() functions.
+ * for the structure before passing it into ybc_cluster_*() functions.
  */
 YBC_API size_t ybc_cluster_get_size(size_t caches_count);
 
