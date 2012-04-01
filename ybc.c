@@ -1657,7 +1657,7 @@ struct m_sync
   /*
    * A pointer to the next unsynced byte in the storage.
    */
-  struct m_storage_cursor snapshot_cursor;
+  struct m_storage_cursor checkpoint_cursor;
 
   /*
    * Interval between data syncs.
@@ -1682,7 +1682,7 @@ static void m_sync_init(struct m_sync *const sc,
     const struct m_storage_cursor *const next_cursor,
     const uint64_t sync_interval)
 {
-  sc->snapshot_cursor = *next_cursor;
+  sc->checkpoint_cursor = *next_cursor;
   sc->sync_interval = sync_interval;
   sc->last_sync_time = m_get_current_time();
   sc->is_syncing = 0;
@@ -1701,23 +1701,23 @@ static void m_sync_destroy(struct m_sync *const sc)
  * - setting *start_offset to the offset in the storage, from where data syncing
  *   must start.
  * - setting *sync_chunk_size to the size of data to be synced.
- * - setting snapshot_cursor to the position next after the data to be synced.
+ * - setting checkpoint_cursor to the position next after the data to be synced.
  */
-static void m_sync_start(struct m_storage_cursor *const snapshot_cursor,
+static void m_sync_start(struct m_storage_cursor *const checkpoint_cursor,
     const struct m_storage *const storage, size_t *const start_offset,
     size_t *const sync_chunk_size)
 {
-  if (storage->next_cursor.wrap_count == snapshot_cursor->wrap_count) {
+  if (storage->next_cursor.wrap_count == checkpoint_cursor->wrap_count) {
     /*
      * Storage didn't wrap since the previous sync.
      * Let's sync data till storage's next_cursor.
      */
 
-    assert(storage->next_cursor.offset >= snapshot_cursor->offset);
+    assert(storage->next_cursor.offset >= checkpoint_cursor->offset);
 
-    *start_offset = snapshot_cursor->offset;
-    *sync_chunk_size = storage->next_cursor.offset - snapshot_cursor->offset;
-    snapshot_cursor->offset = storage->next_cursor.offset;
+    *start_offset = checkpoint_cursor->offset;
+    *sync_chunk_size = storage->next_cursor.offset - checkpoint_cursor->offset;
+    checkpoint_cursor->offset = storage->next_cursor.offset;
   }
   else {
     /*
@@ -1725,19 +1725,19 @@ static void m_sync_start(struct m_storage_cursor *const snapshot_cursor,
      * Figure out which parts of storage need to be synced.
      */
 
-    if (storage->next_cursor.wrap_count - 1 == snapshot_cursor->wrap_count &&
-        storage->next_cursor.offset < snapshot_cursor->offset) {
+    if (storage->next_cursor.wrap_count - 1 == checkpoint_cursor->wrap_count &&
+        storage->next_cursor.offset < checkpoint_cursor->offset) {
       /*
        * Storage wrapped once since the previous sync.
-       * Let's sync data starting from snapshot_cursor till the end
+       * Let's sync data starting from checkpoint_cursor till the end
        * of the storage. The rest of unsynced data will be synced next time.
        */
 
-      assert(snapshot_cursor->offset <= storage->size);
+      assert(checkpoint_cursor->offset <= storage->size);
 
-      *start_offset = snapshot_cursor->offset;
-      *sync_chunk_size = storage->size - snapshot_cursor->offset;
-      snapshot_cursor->offset = 0;
+      *start_offset = checkpoint_cursor->offset;
+      *sync_chunk_size = storage->size - checkpoint_cursor->offset;
+      checkpoint_cursor->offset = 0;
     }
     else {
       /*
@@ -1747,10 +1747,10 @@ static void m_sync_start(struct m_storage_cursor *const snapshot_cursor,
 
       *start_offset = 0;
       *sync_chunk_size = storage->size;
-      snapshot_cursor->offset = storage->next_cursor.offset;
+      checkpoint_cursor->offset = storage->next_cursor.offset;
     }
 
-    snapshot_cursor->wrap_count = storage->next_cursor.wrap_count;
+    checkpoint_cursor->wrap_count = storage->next_cursor.wrap_count;
   }
 }
 
@@ -1782,7 +1782,7 @@ static int m_sync_begin(struct m_sync *const sc,
     return 0;
   }
 
-  m_sync_start(&sc->snapshot_cursor, storage, start_offset, sync_chunk_size);
+  m_sync_start(&sc->checkpoint_cursor, storage, start_offset, sync_chunk_size);
 
   sc->last_sync_time = current_time;
   sc->is_syncing = 1;
@@ -1817,7 +1817,7 @@ static void m_sync_commit(struct m_sync *const sc,
 
   m_lock_lock(lock);
 
-  *sync_cursor = sc->snapshot_cursor;
+  *sync_cursor = sc->checkpoint_cursor;
 
   assert(sc->is_syncing);
   sc->is_syncing = 0;
