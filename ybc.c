@@ -1544,6 +1544,7 @@ struct m_index
    * Hash seed is used for key digest calculations. It serves the following
    * purposes:
    * - Security. It reduces chances for successful hash table collision attack.
+   *   (Though this attack is harmless for the current m_map implementation)
    * - Fast cache data invalidation. See ybc_clear().
    */
   uint64_t *hash_seed_ptr;
