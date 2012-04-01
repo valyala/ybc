@@ -15,6 +15,12 @@
  * - public macros and constants start with YBC_
  * - private functions and structures start with m_
  * - private macros and constants start with M_
+ *
+ * Coding rules:
+ * - All variables, which are expected to be immutable in the given code block,
+ *   MUST be declared as constants! This provides the following benefits:
+ *   + It prevents from accidental modification of the given variable.
+ *   + It may help dumb compilers with 'constant propagation' optimizations.
  ******************************************************************************/
 
 
