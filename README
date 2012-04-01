@@ -33,7 +33,7 @@ YBC features.
 * Readers and writers don't block each other while reading/writing blobs
   from/into the cache. The speed is actually limited by hardware memory
   bandwidth (if frequently accessed items fit RAM) or backing store
-  I/O bandwidth (if requently accessed items don't fit RAM).
+  random I/O bandwidth (if requently accessed items don't fit RAM).
 
 * Dogpile effect (aka 'thundering herd') handling support.
 
