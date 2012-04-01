@@ -216,7 +216,9 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
  * Long sync interval minimizes the number of writes to data file at the cost
  * of potentially higher number of lost items in the event of program crash.
  *
- * Setting sync interval to 0 completely disables data syncing.
+ * Setting sync interval to 0 completely disables data syncing. Even if syncing
+ * is disabled, the cache is persisted at ybc_close() call. The cache won't
+ * persist only in the event of program crash before ybc_close() call.
  * By default syncing is enabled.
  *
  * Default value should work well for almost all cases, so tune this value only
@@ -382,6 +384,9 @@ struct ybc_key
  *
  * The caller is responsible for allocating this amount of memory
  * for ybc_add_txn structure before passing it into ybc_add_txn_*() functions.
+ *
+ * Since the size of ybc_add_txn structure never exceeds a few hundred bytes,
+ * it is usually safe allocating space for the structure on the stack.
  */
 YBC_API size_t ybc_add_txn_get_size(void);
 
@@ -507,6 +512,9 @@ struct ybc_value
  *
  * The caller is responsible for allocating this amount of memory
  * for ybc_item structure before passing it into ybc_item_*() functions.
+ *
+ * Since the size of ybc_item structure never exceeds a few hundred bytes,
+ * it is usually safe allocating space for the structure on the stack.
  */
 YBC_API size_t ybc_item_get_size(void);
 
