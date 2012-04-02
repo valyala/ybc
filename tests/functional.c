@@ -744,15 +744,15 @@ static void expect_cache_works(struct ybc *const cache,
   ybc_config_destroy(config);
 
   struct ybc_key key;
-  const struct ybc_value value = {
-      .ptr = "qwerty",
-      .size = 6,
-      .ttl = YBC_MAX_TTL,
-  };
+  struct ybc_value value;
+
+  value.ttl = YBC_MAX_TTL;
 
   for (size_t i = 0; i < items_count; ++i) {
     key.ptr = &i;
     key.size = sizeof(i);
+    value.ptr = &i;
+    value.size = sizeof(i);
     expect_item_add(cache, &key, &value);
   }
 
@@ -761,6 +761,9 @@ static void expect_cache_works(struct ybc *const cache,
     key.ptr = &i;
     key.size = sizeof(i);
     if (is_item_exists(cache, &key)) {
+      value.ptr = &i;
+      value.size = sizeof(i);
+      expect_item_hit(cache, &key, &value);
       ++hits_count;
     }
   }
