@@ -1,6 +1,7 @@
 YBC - Yet another Blob Cache library.
 
-This library implements in-process blob cache.
+This library implements fast in-process blob cache.
+
 
 ===============================================================================
 
@@ -8,14 +9,28 @@ YBC features.
 
 * Huge amounts of data can be cached. Cache size may be much larger than
   the available RAM size.
-  + Key and value sizes are limited by 2^64 bytes on 64-bit platforms.
-  + The maximum number of items in the cache is 2^64 on 64-bit platforms.
-  + The maximum size of cached data is limited by 2^64 bytes on 64-bit
-    platforms. In practice it is limited by free space on backing store.
-    So millions multi-GB media files can be easily placed into the cache
-    if backing store can handle such amount of data.
+  + Very large keys and values are supported (up to 2^64 bytes each).
+  + Very large cache size is supported (up to 2^64 items and up to 2^64 bytes).
+    In practice cache size is limited by free space on backing store.
   32-bit platforms have much smaller limits (2^32), so use 32-bit builds
   only if your cache fits 4GB.
+
+* Data file layout is optimized for HDD and SSD devices. The code
+  prefers sequential I/O instead of random I/O. If random I/O is inevitable,
+  the code tries hard localizing it in the smallest possible range.
+
+* Persistence support. Cache data survives process restart if the cache
+  is explicitly backed by files.
+
+* Automatic robust recovery from corrupted index files. Corruptions in data
+  files may be left unnoticed due to performance reasons - it may be very
+  expensive validating multi-GB blobs on every access.
+
+* Dogpile effect (aka 'thundering herd') handling support.
+
+* Cache data may be sharded among available backing store devices.
+  Such sharding may linearly increase cache performance if frequently accessed
+  items don't fit available physical RAM.
 
 * Multithreading support. The library is thread-safe out of the box
   unless it is compiled with YBC_SINGLE_THREADED macro defined.
@@ -35,28 +50,11 @@ YBC features.
   bandwidth (if frequently accessed items fit RAM) or backing store
   random I/O bandwidth (if requently accessed items don't fit RAM).
 
-* Dogpile effect (aka 'thundering herd') handling support.
-
-* Cache data may be sharded among available backing store devices.
-  Such sharding may linearly increase cache performance if frequently accessed
-  items don't fit available physical RAM.
-
-* Automatic robust recovery from corrupted index files. Corruptions in data
-  files may be left unnoticed due to performance reasons - it may be very
-  expensive validating multi-GB blobs on every access.
-
-* Data file layout is optimized for HDD and SSD devices. The code
-  prefers sequential I/O instead of random I/O. If random I/O is inevitable,
-  the code tries hard localizing it in the smallest possible range.
+* Instant invalidation of all items in the cache irregardless of cache size.
 
 * Optimization for multi-tiered memory hierarchy in modern CPUs. The code avoids
   unnecessary random memory accesses and tightly packs frequently accessed data
-  in order to reduce working set size.
-
-* Persistence support. Cache data survives process restart if the cache
-  is explicitly backed by files.
-
-* Instant invalidation of all items in the cache irregardless of cache size.
+  in order to reduce working set size and increase CPU cache hit ratio.
 
 * The code avoids using dynamic memory allocations in frequently executed paths,
   so cache performance is almost independent of the efficiency of the provided
@@ -74,7 +72,7 @@ YBC features.
   modified in the future versions of the library without breaking applications
   dynamically linked against older versions.
 
-* Small library size. Built library weighs only 18Kb.
+* Small library size (can be packed to 18Kb with -Os).
 
 
 ===============================================================================
