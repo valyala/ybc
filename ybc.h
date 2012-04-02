@@ -204,8 +204,10 @@ YBC_API void ybc_config_set_hot_items_count(struct ybc_config *config,
  * then the cache may waste additional memory due to fragmented hot cache data.
  *
  * Setting this number to 0 disables hot data compaction.
- * This may be useful if the size of hot data is close to the data file size
- * set via ybc_config_set_data_file_size().
+ * This may be useful in the following cases:
+ * - if only large blobs with more than 100Kb sizes are stored in the cache;
+ * - if the size of hot data is close to the data file size
+ *   set via ybc_config_set_data_file_size().
  *
  * By default hot data compaction is enabled.
  *
