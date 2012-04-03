@@ -1032,11 +1032,6 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
  ******************************************************************************/
 
 /*
- * Minimum size of hot data in the storage.
- */
-static const size_t M_WS_MIN_HOT_DATA_SIZE = 32 * 1024;
-
-/*
  * Items with sizes larger than the given value aren't defragmented.
  *
  * There is no reason in moving large items, which span across many VM pages.
@@ -1059,11 +1054,6 @@ static void m_ws_fix_hot_data_size(size_t *const hot_data_size,
 {
   if (*hot_data_size > storage_size / 2) {
     *hot_data_size = storage_size / 2;
-  }
-
-  if (*hot_data_size < M_WS_MIN_HOT_DATA_SIZE) {
-    /* Completely disable defragmentation if hot_data_size is too small. */
-    *hot_data_size = 0;
   }
 }
 
