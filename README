@@ -60,7 +60,7 @@ YBC features.
   so cache performance is almost independent of the efficiency of the provided
   malloc() implementation.
 
-* The code avoids using system calls in frequently executed paths.
+* The code avoids using expensive system calls in frequently executed paths.
 
 * The code depends only on OS-supplied libraries.
 
