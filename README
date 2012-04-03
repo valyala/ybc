@@ -132,6 +132,8 @@ A: Because this is stupid idea due to the following reasons:
      space on storage devices.
    - Automatic file size adjustment may significantly increase file
      fragmentation, which will lead to performance degradation.
+   - File size adjustment may lead to arbitrary long delays in requests'
+     serving.
    - This will complicate the implementation, which may result in more bugs.
 
 Q: What's the purpose of cache persistence?
