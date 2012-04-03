@@ -341,7 +341,7 @@ static void test_dogpile_effect_ops(struct ybc *const cache)
   const struct ybc_value value = {
       .ptr = "bar",
       .size = 3,
-      .ttl = 1000 * 1000,
+      .ttl = 2 * 1000,
   };
 
   /*
@@ -360,16 +360,16 @@ static void test_dogpile_effect_ops(struct ybc *const cache)
   /*
    * If grace ttl is smaller than item's ttl, then the item should be returned.
    */
-  expect_item_hit_de(cache, &key, &value, value.ttl / 100);
+  expect_item_hit_de(cache, &key, &value, value.ttl / 10);
 
   /*
    * If grace ttl is larger than item's ttl, then an empty item
    * should be returned on the first try and the item itself should be returned
    * on subsequent tries irregardless of grace ttl value.
    */
-  expect_item_miss_de(cache, &key, value.ttl * 100);
-  expect_item_hit_de(cache, &key, &value, value.ttl * 100);
-  expect_item_hit_de(cache, &key, &value, value.ttl / 100);
+  expect_item_miss_de(cache, &key, value.ttl * 10);
+  expect_item_hit_de(cache, &key, &value, value.ttl * 10);
+  expect_item_hit_de(cache, &key, &value, value.ttl / 10);
 
   ybc_close(cache);
 }

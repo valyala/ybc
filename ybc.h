@@ -616,9 +616,14 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * The item may be added or refreshed by arbitrary thread, not necessarily
  * the thread, which called ybc_item_acquire_be().
  *
+ * Grace_ttl is set in milliseconds. It shouldn't exceed few minutes - this time
+ * should be enough for fetching and constructing new blob from the slowest
+ * possible backend on the slowest possible computer.
+ * Grace_ttl should be greater than zero milliseconds.
+ * Typical grace_ttl should be in the 10ms - 1s range.
+ *
  * This function introduces additional overhead comparing to ybc_item_acquire(),
- * so use it only for items with high probability of dogpile effect in order
- * to avoid race conditions described above.
+ * so use it only for items with high probability of dogpile effect.
  *
  * Returns non-zero on success.
  * Returns zero if an item with the given key isn't found.

@@ -1827,8 +1827,22 @@ static void m_sync_commit(struct m_sync *const sc,
  ******************************************************************************/
 
 /*
+ * Minimum grace ttl, which can be passed to ybc_item_acquire_de().
+ *
+ * There is no sense in grace ttl, which is smaller than 1 millisecond.
+ */
+static const uint64_t M_DE_ITEM_MIN_GRACE_TTL = 1;
+
+/*
+ * Maximum grace ttl, which can be passed to ybc_item_acquire_de().
+ *
+ * 10 minutes should be enough for any practical purposes ;)
+ */
+static const uint64_t M_DE_ITEM_MAX_GRACE_TTL = 10 * 60 * 1000;
+
+/*
  * Time to sleep in milliseconds before the next try on obtaining
- * non-yet-existing item.
+ * not-yet-existing item.
  */
 static const uint64_t M_DE_ITEM_SLEEP_TIME = 100;
 
@@ -1938,6 +1952,9 @@ static void m_de_item_add(struct m_de_item **const pending_items_ptr,
 static int m_de_item_register(struct m_de *const de,
     const struct m_key_digest *const key_digest, const uint64_t grace_ttl)
 {
+  assert(grace_ttl >= M_DE_ITEM_MIN_GRACE_TTL);
+  assert(grace_ttl <= M_DE_ITEM_MAX_GRACE_TTL);
+
   const uint64_t current_time = m_get_current_time();
 
   m_lock_lock(&de->lock);
@@ -1946,7 +1963,9 @@ static int m_de_item_register(struct m_de *const de,
       key_digest, current_time);
 
   if (de_item == NULL) {
+    /* This assertion will break in very far future. */
     assert(grace_ttl <= UINT64_MAX - current_time);
+
     m_de_item_add(&de->pending_items, key_digest, grace_ttl + current_time);
   }
 
@@ -2427,6 +2446,14 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
 {
   struct m_key_digest key_digest;
 
+  uint64_t adjusted_grace_ttl = grace_ttl;
+  if (adjusted_grace_ttl < M_DE_ITEM_MIN_GRACE_TTL) {
+    adjusted_grace_ttl = M_DE_ITEM_MIN_GRACE_TTL;
+  }
+  else if (adjusted_grace_ttl > M_DE_ITEM_MAX_GRACE_TTL) {
+    adjusted_grace_ttl = M_DE_ITEM_MAX_GRACE_TTL;
+  }
+
   m_key_digest_get(&key_digest, cache->index.hash_seed, key);
 
   while (!m_item_acquire(cache, item, key, &key_digest)) {
@@ -2437,7 +2464,7 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
      * to the cache. Otherwise wait until either the item is added by another
      * thread or its' grace ttl expires.
      */
-    if (!m_de_item_register(&cache->de, &key_digest, grace_ttl)) {
+    if (!m_de_item_register(&cache->de, &key_digest, adjusted_grace_ttl)) {
       /*
        * Though it looks like waiting on a condition (event) would be better
        * than periodic sleeping for a fixed amount of time, this isn't true.
@@ -2453,7 +2480,7 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
     return 0;
   }
 
-  if (m_item_get_ttl(item) < grace_ttl) {
+  if (m_item_get_ttl(item) < adjusted_grace_ttl) {
     /*
      * The item is about to be expired soon.
      * Try registering the item in dogpile effect container. If the item
@@ -2461,7 +2488,7 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
      * the item by returning an empty item. Otherwise return not-yet expired
      * item.
      */
-    if (m_de_item_register(&cache->de, &key_digest, grace_ttl)) {
+    if (m_de_item_register(&cache->de, &key_digest, adjusted_grace_ttl)) {
       m_item_release(item);
       return 0;
     }
