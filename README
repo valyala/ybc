@@ -38,9 +38,9 @@ YBC features.
 * Atomic updates. It is safe updating an item while other threads are reading
   an old value for the item under the same key.
 
-* 'Add transaction' support, which allows constructing item's value on the fly
-  without serializing it into a temporary buffer before its' addition into
-  the cache. Uncommited transaction can be rolled back at any time.
+* 'Add transaction' support allows constructing item's value on the fly
+  without serializing it into a temporary buffer (aka 'zero-copy').
+  Uncommited transaction can be rolled back at any time.
   Think of media files streamed from the backend or complex objects, which
   require serialization from multiple distinct places before storing into
   the cache.
