@@ -114,11 +114,14 @@ A: No. YBC is designed for modern OSes running on modern hardware. It takes
 
 Q: Why recently added items may disappear from the cache, while their ttl isn't
    expired yet?
-A: Because YBC is a cache, not a storage. Cache doesn't guarantee that added
-   items will exist until they are explicitly deleted. YBC may delete any item
-   at any time due to various reasons, which depend on implementation details.
-   So always expect that the added item may disappear at any time during
-   subsequent requests.
+A: Because YBC is a cache, not a storage. They serve different pruposes:
+   - Storage is used for items' persistence. It guarantees that added items
+     exist until they are explicitly deleted.
+   - Cache is used as a performance booster. It doesn't guarantee that added
+     items exist until they are explicitly deleted.
+   YBC may delete any item at any time due to various reasons, which depend
+   on implementation details. So always expect that the added item may disappear
+   at any time during subsequent requests.
 
 Q: Can YBC cache small items, not large blobs?
 A: Yes. YBC works well with small items - it even supports zero-byte keys and
