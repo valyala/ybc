@@ -671,42 +671,6 @@ void test_large_cache(struct ybc *const cache)
   ybc_close(cache);
 }
 
-static void test_small_sync_interval(struct ybc *const cache)
-{
-  char config_buf[ybc_config_get_size()];
-  struct ybc_config *const config = (struct ybc_config *)config_buf;
-
-  ybc_config_init(config);
-
-  ybc_config_set_max_items_count(config, 100);
-  ybc_config_set_data_file_size(config, 4000);
-  ybc_config_set_sync_interval(config, 100);
-
-  if (!ybc_open(cache, config, 1)) {
-    M_ERROR("cannot create anonymous cache");
-  }
-
-  ybc_config_destroy(config);
-
-  struct ybc_key key;
-  const struct ybc_value value = {
-      .ptr = "1234567890a",
-      .size = 11,
-      .ttl = YBC_MAX_TTL,
-  };
-
-  for (size_t i = 0; i < 10; ++i) {
-    for (size_t j = 0; j < 100; ++j) {
-      key.ptr = &j;
-      key.size = sizeof(j);
-      expect_item_add(cache, &key, &value);
-    }
-    m_sleep(31);
-  }
-
-  ybc_close(cache);
-}
-
 static int is_item_exists(struct ybc *const cache,
     const struct ybc_key *const key)
 {
@@ -718,6 +682,25 @@ static int is_item_exists(struct ybc *const cache,
   }
   ybc_item_release(item);
   return 1;
+}
+
+static void expect_cache_with_data(struct ybc *const cache,
+    const size_t items_count, const size_t expected_hits_count,
+    struct ybc_key *const key, struct ybc_value *const value)
+{
+  size_t hits_count = 0;
+  for (size_t i = 0; i < items_count; ++i) {
+    key->ptr = &i;
+    key->size = sizeof(i);
+    if (is_item_exists(cache, key)) {
+      value->ptr = &i;
+      value->size = sizeof(i);
+      expect_item_hit(cache, key, value);
+      ++hits_count;
+    }
+  }
+
+  assert(hits_count > expected_hits_count);
 }
 
 static void expect_cache_works(struct ybc *const cache,
@@ -756,19 +739,70 @@ static void expect_cache_works(struct ybc *const cache,
     expect_item_add(cache, &key, &value);
   }
 
-  size_t hits_count = 0;
-  for (size_t i = 0; i < items_count; ++i) {
-    key.ptr = &i;
-    key.size = sizeof(i);
-    if (is_item_exists(cache, &key)) {
-      value.ptr = &i;
-      value.size = sizeof(i);
-      expect_item_hit(cache, &key, &value);
-      ++hits_count;
-    }
+  /*
+   * Verify twice that the cache contains added data.
+   * The second verification checks correctness of internal cache algorithms,
+   * which may re-arrange data when reading it during the first check
+   * (for instance, cache compaction algorithms).
+   */
+  expect_cache_with_data(cache, items_count, expected_hits_count, &key, &value);
+  expect_cache_with_data(cache, items_count, expected_hits_count, &key, &value);
+
+  ybc_close(cache);
+}
+
+static void test_data_compaction(struct ybc *const cache)
+{
+  /*
+   * The cache will compact data on items' retrieval,
+   * because items_count * item_size is greater than hot_data_size.
+   * It is assumed that item_size is equal to 2*sizeof(size_t)
+   * (8 bytes on 32-bit builds and 16 bytes on 64-bit builds).
+   * See expect_cache_works() sources for details.
+   */
+
+  const size_t items_count = 1000;
+  const size_t expected_hits_count = 900;
+  const size_t hot_items_count = 1000;
+  const size_t hot_data_size = items_count * sizeof(size_t) * 3;
+  const uint64_t sync_interval = 10 * 1000;
+
+  expect_cache_works(cache, items_count, expected_hits_count, hot_items_count,
+      hot_data_size, sync_interval);
+}
+
+static void test_small_sync_interval(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 100);
+  ybc_config_set_data_file_size(config, 4000);
+  ybc_config_set_sync_interval(config, 100);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create anonymous cache");
   }
 
-  assert(hits_count > expected_hits_count);
+  ybc_config_destroy(config);
+
+  struct ybc_key key;
+  const struct ybc_value value = {
+      .ptr = "1234567890a",
+      .size = 11,
+      .ttl = YBC_MAX_TTL,
+  };
+
+  for (size_t i = 0; i < 10; ++i) {
+    for (size_t j = 0; j < 100; ++j) {
+      key.ptr = &j;
+      key.size = sizeof(j);
+      expect_item_add(cache, &key, &value);
+    }
+    m_sleep(31);
+  }
 
   ybc_close(cache);
 }
@@ -828,7 +862,9 @@ int main(void)
   test_persistent_survival(cache);
   test_broken_index_handling(cache);
   test_large_cache(cache);
+  test_data_compaction(cache);
   test_small_sync_interval(cache);
+
   test_disabled_hot_items_cache(cache);
   test_disabled_data_compaction(cache);
   test_disabled_syncing(cache);
