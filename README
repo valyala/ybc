@@ -100,3 +100,44 @@ Credits.
 
 YBC design is inspired by Varnish's "Notes from the Architect" -
 https://www.varnish-cache.org/trac/wiki/ArchitectNotes .
+
+
+================================================================================
+
+FAQ.
+
+Q: Is this yet another boring cache implementation?
+A: No. YBC is designed for modern OSes running on modern hardware. It takes
+   advantage of OS's and computer's hardware features, while simultaneouly
+   avoiding their weaknesses. This results in high performance and low resource
+   usage. Read 'Features' chapter for more details.
+
+Q: Why recently added items may disappear from the cache, while their ttl isn't
+   expired yet?
+A: Because YBC is a cache, not a storage. Cache doesn't guarantee that added
+   items will exist until they are explicitly deleted. YBC may delete any item
+   at any time due to various reasons, which depend on implementation details.
+   So always expect that the added item may disappear at any time during
+   subsequent requests.
+
+Q: Can YBC cache small items, not large blobs?
+A: Yes. YBC works well with small items - it even supports zero-byte keys and
+   zero-byte values.
+
+Q: Why YBC cannot adjust backing files' size on-demand? I.e. automatically
+   shrink files when the number of items in the cache is small and automatically
+   expand files when the number of items exceeds current files' capacity.
+A: Because this is stupid idea due to the following reasons:
+   - If cache size isn't bound, then backing files may eat all the available
+     space on storage devices.
+   - Automatic file size adjustment may significantly increase file
+     fragmentation, which will lead to performance degradation.
+   - This will complicate the implementation, which may result in more bugs.
+
+Q: What's the purpose of cache persistence?
+A: Cache persistence allows skipping cache warm-up step ater the application
+   restart. This step can be very expensive and time-consuming for large caches
+   and slow backends. You can also make a 'golden' copy of a persistent cache
+   and start every node in the application cluster using their own copy
+   of the 'golden' cache, thus avoiding warm-up step on all nodes
+   in the cluster.
