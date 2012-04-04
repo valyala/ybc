@@ -1903,7 +1903,12 @@ static void m_de_item_destroy_all(struct m_de_item *const de_item)
 
 static void m_de_destroy(struct m_de *const de)
 {
+  /*
+   * de->pending_items can contain not-yet-expired items at destruction time.
+   * It is safe removing them now.
+   */
   m_de_item_destroy_all(de->pending_items);
+
   m_lock_destroy(&de->lock);
 }
 
