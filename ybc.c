@@ -99,11 +99,11 @@ static uint64_t m_get_current_time(void)
 /*
  * Suspends the current thread for the given number of milliseconds.
  */
-static void m_sleep(const uint64_t sleep_time)
+static void m_sleep(const uint64_t milliseconds)
 {
   struct timespec req = {
-      .tv_sec = sleep_time / 1000,
-      .tv_nsec = (sleep_time % 1000) * 1000 * 1000,
+      .tv_sec = milliseconds / 1000,
+      .tv_nsec = (milliseconds % 1000) * 1000 * 1000,
   };
   struct timespec rem;
 
@@ -113,7 +113,7 @@ static void m_sleep(const uint64_t sleep_time)
     }
 
     if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "nanosleep(milliseconds=%d)", (int)sleep_time);
+      error(EXIT_FAILURE, errno, "nanosleep(milliseconds=%d)", (int)milliseconds);
     }
 
     req = rem;
