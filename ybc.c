@@ -3,7 +3,7 @@
 #include <assert.h>  /* assert */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
-#include <stdlib.h>  /* exit, rand, malloc, free */
+#include <stdlib.h>  /* rand, malloc, free */
 #include <string.h>  /* memcpy, memcmp, strdup, memset */
 
 
