@@ -1024,6 +1024,10 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
  * compact frequently accessed items (aka 'working set') into a contiguous
  * memory area, which will occupy only 1/32s (~3%) of initial VM space.
  *
+ * The defragmentation also may prolong life for frequently requested small
+ * items. Such items are always maintained in the front of storage, so they
+ * won't be deleted on storage space wrap.
+ *
  * The defragmentation won't help for caches containing a lot of large items
  * with sizes much larger than VM page size (hundreds of KBs or larger).
  *
