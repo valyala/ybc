@@ -229,6 +229,8 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
  *
  * Long sync interval minimizes the number of writes to data file at the cost
  * of potentially higher number of lost items in the event of program crash.
+ * Long sync interval also may result in high latency spikes while syncing huge
+ * amounts of new data.
  *
  * Setting sync interval to 0 completely disables data syncing. Even if syncing
  * is disabled, the cache is persisted at ybc_close() call. The cache won't
