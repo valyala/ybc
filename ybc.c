@@ -812,6 +812,10 @@ static int m_storage_open(struct m_storage *const storage,
   m_memory_map(&ptr, &file, storage->size);
   assert((uintptr_t)storage->size <= UINTPTR_MAX - (uintptr_t)ptr);
 
+  /*
+   * It is assumed that memory mapping of the file remains active after the file
+   * is closed.
+   */
   m_file_close(&file);
 
   storage->data = ptr;
@@ -1613,6 +1617,10 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   m_memory_map(&ptr, &file, file_size);
   assert((uintptr_t)file_size <= UINTPTR_MAX - (uintptr_t)ptr);
 
+  /*
+   * It is assumed that memory mapping of the file remains active after the file
+   * is closed.
+   */
   m_file_close(&file);
 
   index->sync_cursor = ptr;
