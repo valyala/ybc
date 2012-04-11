@@ -1,4 +1,4 @@
-""" Estimates eviction rates for a cache model depending on cache fill rate.
+""" Estimates eviction rates for a cache model depending on cache fill ratio.
 
 The model is built using the following rules.
 - Items are hashed into buckets using a hash function with uniform output

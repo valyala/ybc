@@ -1630,7 +1630,7 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   m_file_close(&file);
 
   /*
-   * Key digests must be aligned on CPU cache line size for faster lookups.
+   * Key digests must be aligned to CPU cache line size for faster lookups.
    * Assume the ptr is VM page-aligned, so there are high chances it is aligned
    * to CPU cache line size. So, index file must start with key digests.
    *
