@@ -1184,7 +1184,12 @@ static void m_key_digest_get(struct m_key_digest *const key_digest,
  * The size of bucket containing key digests:
  *   (M_MAP_BUCKET_SIZE * sizeof(struct m_key_digest))
  * must be aligned (and probably fit) to CPU cache line for high performance,
- * because all keys in a bucket may be accessed during a lookup operation.
+ * because all keys in a bucket may be accessed during each lookup operation.
+ *
+ * Cache's eviction rate depends on the number of slots per bucket.
+ * For instance, 8 slots per bucket result in ~5% eviction rate for half-full
+ * cache - quite cool number ;).
+ * See tests/eviction_rate_estimator.py for details.
  */
 #define M_MAP_BUCKET_MASK ((((size_t)1) << 3) - 1)
 static const size_t M_MAP_BUCKET_SIZE = M_MAP_BUCKET_MASK + 1;
@@ -1602,9 +1607,10 @@ static int m_index_open(struct m_index *const index, const char *const filename,
    *
    * Since index file is usually not too big, it can be quickly cached into RAM
    * with sustained speed at hundreds MB/s (which is equivalent to millions
-   * of key slots per second) on modern HDDs and SSDs. Of course, if the index
-   * file's fragmentation is low. The code tries hard achieving low
-   * fragmentation by pre-allocating file contents at creation time.
+   * of key slots per second) on modern HDDs and SSDs. Of course, this is true
+   * only if the index file's fragmentation is low. The code tries hard
+   * achieving low fragmentation by pre-allocating file contents
+   * at creation time.
    * See m_file_open_or_create() for details.
    */
   m_file_cache_in_ram(&file, file_size);
@@ -1623,16 +1629,24 @@ static int m_index_open(struct m_index *const index, const char *const filename,
    */
   m_file_close(&file);
 
-  index->sync_cursor = ptr;
+  /*
+   * Key digests must be aligned on CPU cache line size for faster lookups.
+   * Assume the ptr is VM page-aligned, so there are high chances it is aligned
+   * to CPU cache line size. So, index file must start with key digests.
+   *
+   * See M_MAP_BUCKET_SIZE description for more details.
+   */
+  index->map.key_digests = ptr;
+  index->map.payloads = (struct m_storage_payload *)
+      (index->map.key_digests + index->map.slots_count);
+
+  index->sync_cursor = (struct m_storage_cursor *)
+      (index->map.payloads + index->map.slots_count);
   index->hash_seed_ptr = (uint64_t *)(index->sync_cursor + 1);
   if (*is_file_created) {
     *index->hash_seed_ptr = m_get_current_time();
   }
   index->hash_seed = *index->hash_seed_ptr;
-
-  index->map.key_digests = (struct m_key_digest *)(index->hash_seed_ptr + 1);
-  index->map.payloads = (struct m_storage_payload *)
-      (index->map.key_digests + index->map.slots_count);
 
   /*
    * Do not verify correctness of loaded index file now, because the cache
@@ -1650,7 +1664,7 @@ static void m_index_close(struct m_index *const index)
 
   const size_t file_size = m_index_get_file_size(index->map.slots_count);
 
-  m_memory_unmap(index->sync_cursor, file_size);
+  m_memory_unmap(index->map.key_digests, file_size);
 }
 
 /*******************************************************************************
