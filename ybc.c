@@ -1021,8 +1021,8 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
  * frequently accessed items into a contiguous memory area.
  *
  * The defragmentation can reduce working set size for caches containing
- * a lot of items with sizes smaller than VM page size (4KB). For instance,
- * a VM page can contain up to 32 items each with 128 bytes. Suppose each
+ * a lot of items with sizes smaller than VM page size. For instance, a VM page
+ * can contain up to 32 items each with 128 bytes size. Suppose each
  * page contains only one frequently requested item. Then the storage
  * effectively wastes 31*128 bytes per VM page. The defragmentation would
  * compact frequently accessed items (aka 'working set') into a contiguous
@@ -1138,7 +1138,7 @@ static int m_ws_should_defragment(const struct m_storage *const storage,
  ******************************************************************************/
 
 /*
- * A digest of cache key from ybc_key structure.
+ * A digest of cache key.
  */
 struct m_key_digest
 {
@@ -1181,9 +1181,9 @@ static void m_key_digest_get(struct m_key_digest *const key_digest,
 
 /*
  * The map is split into buckets each with size M_MAP_BUCKET_SIZE.
- * The size of bucket containing key digests:
+ * The size of bucket containing key digests is:
  *   (M_MAP_BUCKET_SIZE * sizeof(struct m_key_digest))
- * must be aligned (and probably fit) to CPU cache line for high performance,
+ * It must be aligned (and probably fit) to CPU cache line for high performance,
  * because all keys in a bucket may be accessed during each lookup operation.
  *
  * Cache's eviction rate depends on the number of slots per bucket.
