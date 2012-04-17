@@ -1781,8 +1781,6 @@ static int m_sync_begin(struct m_sync *const sc,
     const struct m_storage *const storage, const uint64_t current_time,
     size_t *const start_offset, size_t *const sync_chunk_size)
 {
-  assert(current_time >= sc->last_sync_time);
-
   if (sc->sync_interval == 0) {
     /*
      * Syncing is disabled.
@@ -1794,6 +1792,14 @@ static int m_sync_begin(struct m_sync *const sc,
     /*
      * Another thread is syncing the cache at the moment,
      * so don't interfere with it.
+     */
+    return 0;
+  }
+
+  if (sc->last_sync_time > current_time) {
+    /*
+     * It looks like another fast thread already performed the sync while
+     * we were slow like a crawl :)
      */
     return 0;
   }

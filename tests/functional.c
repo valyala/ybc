@@ -5,7 +5,7 @@
 
 #include <assert.h>
 #include <stdio.h>   /* printf, fopen, fclose, fwrite */
-#include <stdlib.h>  /* malloc, free */
+#include <stdlib.h>  /* malloc, free, rand */
 #include <string.h>  /* memcmp, memcpy, memset */
 
 #ifdef YBC_HAVE_NANOSLEEP
@@ -28,6 +28,38 @@ static void m_sleep(const uint64_t sleep_time)
 #else  /* !YBC_HAVE_NANOSLEEP */
 #error "Unsupported sleep implementation"
 #endif
+
+
+#ifdef YBC_HAVE_PTHREAD
+
+#include <pthread.h>
+
+struct thread
+{
+  pthread_t t;
+};
+
+static void start_thread(struct thread *const t, void *(*func)(void *),
+    void *const ctx)
+{
+  if (pthread_create(&t->t, NULL, func, ctx) != 0) {
+    M_ERROR("Cannot create new thread");
+  }
+}
+
+static void *join_thread(struct thread *const t)
+{
+  void *retval;
+  if (pthread_join(t->t, &retval) != 0) {
+    M_ERROR("Cannot join thread");
+  }
+  return retval;
+}
+
+#else  /* !YBC_HAVE_PTHREAD */
+#error "Unsupported thread implementation"
+#endif
+
 
 static void test_anonymous_cache_create(struct ybc *const cache)
 {
@@ -843,6 +875,77 @@ static void test_disabled_syncing(struct ybc *const cache)
       hot_data_size, sync_interval);
 }
 
+struct thread_task
+{
+  struct ybc *const cache;
+  size_t requests_count;
+};
+
+static void *thread_func(void *const ctx)
+{
+  const struct thread_task *const task = ctx;
+
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  struct ybc_key key;
+  struct ybc_value value;
+  int tmp;
+
+  key.size = sizeof(tmp);
+  value.size = sizeof(tmp);
+  value.ttl = YBC_MAX_TTL;
+
+  for (size_t i = 0; i < task->requests_count; ++i) {
+    tmp = rand() % 100;
+    key.ptr = &tmp;
+    value.ptr = &tmp;
+    switch (i % 5) {
+    case 0: case 1:
+      if (!ybc_item_add(task->cache, item, &key, &value)) {
+        M_ERROR("error when adding item");
+      }
+      expect_value(item, &value);
+      ybc_item_release(item);
+      break;
+    case 2:
+      ybc_item_remove(task->cache, &key);
+      break;
+    default:
+      if (ybc_item_acquire(task->cache, item, &key)) {
+        value.ptr = key.ptr;
+        expect_value(item, &value);
+        ybc_item_release(item);
+      }
+    }
+  }
+
+  return NULL;
+}
+
+static void test_multithreaded_access(struct ybc *const cache,
+    const size_t threads_count, const size_t requests_count)
+{
+  m_open_anonymous(cache);
+
+  struct thread threads[threads_count];
+  struct thread_task task = {
+      .cache = cache,
+      .requests_count = requests_count,
+  };
+
+  for (size_t i = 0; i < threads_count; ++i) {
+    start_thread(&threads[i], thread_func, &task);
+  }
+
+  for (size_t i = 0; i < threads_count; ++i) {
+    void *const retval = join_thread(&threads[i]);
+    assert(retval == NULL);
+  }
+
+  ybc_close(cache);
+}
+
 int main(void)
 {
   char cache_buf[ybc_get_size()];
@@ -868,6 +971,10 @@ int main(void)
   test_disabled_hot_items_cache(cache);
   test_disabled_data_compaction(cache);
   test_disabled_syncing(cache);
+
+  if (ybc_is_thread_safe()) {
+    test_multithreaded_access(cache, 10, 10 * 1000);
+  }
 
   printf("All functional tests done\n");
   return 0;
