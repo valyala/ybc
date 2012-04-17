@@ -1004,9 +1004,10 @@ static int m_storage_payload_key_check(const struct m_storage *const storage,
     return 0;
   }
 
-  const char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  const char *const ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  assert(((uintptr_t)ptr) <= UINTPTR_MAX - key->size);
   if (memcmp(ptr, key->ptr, key->size)) {
-    /* Key values mismatch. */
+    /* Key data mismatch. */
     return 0;
   }
 
@@ -2339,6 +2340,7 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
    */
   char *const ptr = m_storage_get_ptr(&cache->storage,
       txn->item.payload.cursor.offset);
+  assert(((uintptr_t)ptr) <= UINTPTR_MAX - key->size);
   memcpy(ptr, key->ptr, key->size);
 
   return 1;
