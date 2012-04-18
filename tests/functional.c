@@ -1,3 +1,7 @@
+/*
+ * Functional tests.
+ */
+
 #include "../ybc.h"
 
 /* Since tests rely on assert(), NDEBUG must be undefined. */
@@ -897,6 +901,9 @@ static void *thread_func(void *const ctx)
   value.ttl = YBC_MAX_TTL;
 
   while (!task->should_exit) {
+    /*
+     * It is OK using non-threadsafe rand() function here.
+     */
     tmp = rand() % 100;
     key.ptr = &tmp;
     value.ptr = &tmp;
