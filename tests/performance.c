@@ -228,6 +228,7 @@ static void measure_simple_ops(struct ybc *const cache,
       requests_count, items_count, hot_items_count, max_item_size);
 
   start_time = m_get_current_time();
+  const double first_start_time = start_time;
   simple_add(cache, requests_count, items_count, max_item_size);
   end_time = m_get_current_time();
 
@@ -242,6 +243,9 @@ static void measure_simple_ops(struct ybc *const cache,
 
   qps = requests_count / (end_time - start_time);
   printf("  simple_get: %.02f qps\n", qps);
+
+  qps = 2 * requests_count / (end_time - first_start_time);
+  printf("  avg %.02f qps\n", qps);
 
   ybc_close(cache);
 }
