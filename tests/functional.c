@@ -878,7 +878,7 @@ static void test_disabled_syncing(struct ybc *const cache)
 struct thread_task
 {
   struct ybc *const cache;
-  size_t requests_count;
+  int should_exit;
 };
 
 static void *thread_func(void *const ctx)
@@ -896,11 +896,11 @@ static void *thread_func(void *const ctx)
   value.size = sizeof(tmp);
   value.ttl = YBC_MAX_TTL;
 
-  for (size_t i = 0; i < task->requests_count; ++i) {
+  while (!task->should_exit) {
     tmp = rand() % 100;
     key.ptr = &tmp;
     value.ptr = &tmp;
-    switch (i % 5) {
+    switch (rand() % 5) {
     case 0: case 1:
       if (!ybc_item_add(task->cache, item, &key, &value)) {
         M_ERROR("error when adding item");
@@ -924,19 +924,22 @@ static void *thread_func(void *const ctx)
 }
 
 static void test_multithreaded_access(struct ybc *const cache,
-    const size_t threads_count, const size_t requests_count)
+    const size_t threads_count)
 {
   m_open_anonymous(cache);
 
   struct thread threads[threads_count];
   struct thread_task task = {
       .cache = cache,
-      .requests_count = requests_count,
+      .should_exit = 0,
   };
 
   for (size_t i = 0; i < threads_count; ++i) {
     start_thread(&threads[i], thread_func, &task);
   }
+
+  m_sleep(300);
+  task.should_exit = 1;
 
   for (size_t i = 0; i < threads_count; ++i) {
     void *const retval = join_thread(&threads[i]);
@@ -973,7 +976,7 @@ int main(void)
   test_disabled_syncing(cache);
 
   if (ybc_is_thread_safe()) {
-    test_multithreaded_access(cache, 10, 10 * 1000);
+    test_multithreaded_access(cache, 10);
   }
 
   printf("All functional tests done\n");
