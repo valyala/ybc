@@ -883,7 +883,7 @@ struct thread_task
 
 static void *thread_func(void *const ctx)
 {
-  const struct thread_task *const task = ctx;
+  struct thread_task *const task = ctx;
 
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
