@@ -75,9 +75,24 @@ static int m_less(const uint64_t a, const uint64_t b)
 
 #include <time.h>  /* clock_gettime, timespec */
 
+/*
+ * Returns current time in milliseconds since the Epoch.
+ *
+ * The caller must be aware that the returned time can jump backwards
+ * in the event of NTP adjustment ( http://www.ntp.org/ ) or manual adjustment
+ * of system-wide clock.
+ */
 static uint64_t m_get_current_time(void)
 {
   struct timespec t;
+
+  /*
+   * Though CLOCK_MONOTONIC cannot jump backwards unlike CLOCK_REALTIME,
+   * it may be inconsistent between system reboots or between distinct systems.
+   * Such inconsistency makes cache persistence a joke, since all expiration
+   * times in persistent cache may become arbitrarily skewed after system reboot
+   * or cache files' migration to another system.
+   */
   const int rv = clock_gettime(CLOCK_REALTIME, &t);
   assert(rv == 0);
   (void)rv;
@@ -1801,7 +1816,10 @@ static int m_sync_begin(struct m_sync *const sc,
   if (sc->last_sync_time > current_time) {
     /*
      * It looks like another fast thread already performed the sync while
-     * we were slow like a crawl :)
+     * we were slow like a crawl.
+     *
+     * There is another reason for this condition - system time may be adjusted
+     * by NTP ( http://www.ntp.org/ ) or by hands.
      */
     return 0;
   }
@@ -1871,6 +1889,14 @@ static const uint64_t M_DE_ITEM_MIN_GRACE_TTL = 1;
 /*
  * Maximum grace ttl, which can be passed to ybc_item_acquire_de().
  *
+ * Too low maximum grace ttl won't prevent from dogpile effect, when multiple
+ * threads are busy with creation of the same item.
+ *
+ * Too high maximum grace ttl may result in too long m_de->pending_items list
+ * if many distinct items are requested via ybc_item_acquire_de() with high
+ * grace ttls. So the maximum grace ttl effectively limits the size
+ * of m_de->pending_items list.
+ *
  * 10 minutes should be enough for any practical purposes ;)
  */
 static const uint64_t M_DE_ITEM_MAX_GRACE_TTL = 10 * 60 * 1000;
@@ -1878,6 +1904,14 @@ static const uint64_t M_DE_ITEM_MAX_GRACE_TTL = 10 * 60 * 1000;
 /*
  * Time to sleep in milliseconds before the next try on obtaining
  * not-yet-existing item.
+ *
+ * The amount of sleep time should be enough for creating an average item,
+ * which is subject to dogpile effect.
+ *
+ * Too low sleep time may result in many unsuccessful tries on obtaining
+ * not-yet-existing item, i.e. CPU time waste.
+ *
+ * Too high sleep time may result in high ybc_item_acquire_be() latencies.
  */
 static const uint64_t M_DE_ITEM_SLEEP_TIME = 100;
 
@@ -2003,7 +2037,7 @@ static int m_de_item_register(struct m_de *const de,
       key_digest, current_time);
 
   if (de_item == NULL) {
-    /* This assertion will break in very far future. */
+    /* This assertion may break in very far future. */
     assert(grace_ttl <= UINT64_MAX - current_time);
 
     m_de_item_add(&de->pending_items, key_digest, grace_ttl + current_time);
