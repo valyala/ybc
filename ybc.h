@@ -99,9 +99,6 @@ YBC_API void ybc_config_destroy(struct ybc_config *config);
 /*
  * Sets the maximum number of items in the cache.
  *
- * The cache works best if this number is set to 2x of the expected total number
- * of items in the cache.
- *
  * Index file size will be proportional to this number.
  */
 YBC_API void ybc_config_set_max_items_count(struct ybc_config *config,
@@ -175,9 +172,6 @@ YBC_API void ybc_config_set_data_file(struct ybc_config *config,
  *
  * If this number is much higher than the actual number of hot items,
  * then the cache may waste some memory.
- *
- * The optimal number should be slightly higher than the actual number
- * of hot items in the cache.
  *
  * Setting this number to 0 disables hot items' cache.
  * This may be useful if the number of hot items is close to the maximum number

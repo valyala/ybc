@@ -1213,6 +1213,18 @@ static void m_key_digest_get(struct m_key_digest *const key_digest,
 static const size_t M_MAP_BUCKET_SIZE = M_MAP_BUCKET_MASK + 1;
 
 /*
+ * Optimal fill ratio for map slots.
+ *
+ * This number must be in the range (0.0 .. 1.0].
+ * 1.0 means the map performs best when all slots are full.
+ * 0.1 means the map performs best when only 10% of slots are full.
+ *
+ * 50% fill ratio results in 5% eviction rate for 8 slots per bucket.
+ * See tests/eviction_rate_estimator.py for details.
+ */
+static const double M_MAP_OPTIMAL_FILL_RATIO = 0.5;
+
+/*
  * The size of a compound map item, which consists of key digest
  * and storage payload.
  */
@@ -2099,7 +2111,7 @@ void ybc_config_destroy(struct ybc_config *const config)
 void ybc_config_set_max_items_count(struct ybc_config *const config,
     const size_t max_items_count)
 {
-  config->map_slots_count = max_items_count;
+  config->map_slots_count = max_items_count / M_MAP_OPTIMAL_FILL_RATIO;
 }
 
 void ybc_config_set_data_file_size(struct ybc_config *const config,
@@ -2123,7 +2135,7 @@ void ybc_config_set_data_file(struct ybc_config *const config,
 void ybc_config_set_hot_items_count(struct ybc_config *const config,
     const size_t hot_items_count)
 {
-  config->map_cache_slots_count = hot_items_count;
+  config->map_cache_slots_count = hot_items_count / M_MAP_OPTIMAL_FILL_RATIO;
 }
 
 void ybc_config_set_hot_data_size(struct ybc_config *const config,
