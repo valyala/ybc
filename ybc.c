@@ -2213,15 +2213,20 @@ void ybc_clear(struct ybc *const cache)
 {
   /*
    * New hash seed automatically invalidates all the items stored in the cache.
+   *
+   * Use linear congruental generator for creating new hash seed.
+   * See http://en.wikipedia.org/wiki/Linear_congruential_generator .
    */
 
   /*
-   * Use addition operation instead of xor for calculation new hash seed,
-   * because xor may result in very low entropy if the previous hash seed
-   * has been generated recently.
+   * These magic numbers are stolen from the table 'Parameters in common use'
+   * at http://en.wikipedia.org/wiki/Linear_congruential_generator .
    */
-  *cache->index.hash_seed_ptr += m_get_current_time();
-  cache->index.hash_seed = *cache->index.hash_seed_ptr;
+  static const uint64_t a = 6364136223846793005;
+  static const uint64_t c = 1442695040888963407;
+
+  cache->index.hash_seed = cache->index.hash_seed * a + c;
+  *cache->index.hash_seed_ptr = cache->index.hash_seed;
 }
 
 void ybc_remove(const struct ybc_config *const config)
