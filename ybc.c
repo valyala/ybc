@@ -507,7 +507,8 @@ static void m_file_remove_if_exists(const char *const filename)
  * which will be automatically deleted after the file is closed.
  *
  * Returns non-zero on success, zero on failre.
- * Sets is_file_created to 1 if new file has been created.
+ * Sets is_file_created to 1 if new file has been created (including
+ * anonymous file).
  */
 static int m_file_open_or_create(struct m_file *const file,
     const char *const filename, const size_t expected_file_size,
@@ -535,6 +536,7 @@ static int m_file_open_or_create(struct m_file *const file,
      *   which is aimed towards reducing file fragmentation.
      */
     m_file_create_anonymous(file);
+    *is_file_created = 1;
   }
   else if (!m_file_exists(filename)) {
     if (!force) {
@@ -553,7 +555,7 @@ static int m_file_open_or_create(struct m_file *const file,
     if (!force) {
       m_file_close(file);
       if (*is_file_created) {
-        m_file_remove(filename);
+        m_file_remove_if_exists(filename);
         *is_file_created = 0;
       }
       return 0;
@@ -2146,7 +2148,7 @@ static int m_open(struct ybc *const cache,
       &is_storage_file_created)) {
     m_index_close(&cache->index);
     if (is_index_file_created) {
-      m_file_remove(config->index_file);
+      m_file_remove_if_exists(config->index_file);
     }
     return 0;
   }
