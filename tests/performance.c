@@ -299,21 +299,21 @@ static void *thread_func(void *const ctx)
   static const size_t batch_requests_count = 10000;
 
   struct thread_task *const task = ctx;
-  size_t requests_count;
 
   for (;;) {
+    size_t requests_count;
+
     /*
      * Grab and process requests in batches.
      */
     m_lock_lock(&task->lock);
     if (task->requests_count > batch_requests_count) {
       requests_count = batch_requests_count;
-      task->requests_count -= batch_requests_count;
     }
     else {
       requests_count = task->requests_count;
-      task->requests_count = 0;
     }
+    task->requests_count -= requests_count;
     m_lock_unlock(&task->lock);
 
     if (requests_count == 0) {
