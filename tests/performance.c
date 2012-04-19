@@ -40,6 +40,7 @@ static double m_get_current_time(void)
 #ifdef YBC_HAVE_PTHREAD
 
 #include <pthread.h>
+#include <sys/types.h>  /* pthread_*_t */
 
 struct thread
 {
@@ -61,6 +62,39 @@ static void *join_thread(struct thread *const t)
     M_ERROR("Cannot join thread");
   }
   return retval;
+}
+
+struct m_lock
+{
+  pthread_mutex_t mutex;
+};
+
+static void m_lock_init(struct m_lock *const lock)
+{
+  if (pthread_mutex_init(&lock->mutex, NULL) != 0) {
+    M_ERROR("pthread_mutex_init()");
+  }
+}
+
+static void m_lock_destroy(struct m_lock *const lock)
+{
+  const int rv = pthread_mutex_destroy(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
+}
+
+static void m_lock_lock(struct m_lock *const lock)
+{
+  const int rv = pthread_mutex_lock(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
+}
+
+static void m_lock_unlock(struct m_lock *const lock)
+{
+  const int rv = pthread_mutex_unlock(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
 }
 
 #else  /* !YBC_HAVE_PTHREAD */
@@ -252,6 +286,7 @@ static void measure_simple_ops(struct ybc *const cache,
 
 struct thread_task
 {
+  struct m_lock lock;
   struct ybc *cache;
   size_t requests_count;
   size_t items_count;
@@ -261,13 +296,36 @@ struct thread_task
 
 static void *thread_func(void *const ctx)
 {
-  const struct thread_task *const task = ctx;
+  static const size_t batch_requests_count = 10000;
 
-  simple_add(task->cache, task->requests_count, task->items_count,
-      task->max_item_size);
+  struct thread_task *const task = ctx;
+  size_t requests_count;
 
-  simple_get(task->cache, task->requests_count, task->get_items_count,
-      task->max_item_size);
+  for (;;) {
+    /*
+     * Grab and process requests in batches.
+     */
+    m_lock_lock(&task->lock);
+    if (task->requests_count > batch_requests_count) {
+      requests_count = batch_requests_count;
+      task->requests_count -= batch_requests_count;
+    }
+    else {
+      requests_count = task->requests_count;
+      task->requests_count = 0;
+    }
+    m_lock_unlock(&task->lock);
+
+    if (requests_count == 0) {
+      break;
+    }
+
+    simple_add(task->cache, requests_count, task->items_count,
+        task->max_item_size);
+
+    simple_get(task->cache, requests_count, task->get_items_count,
+        task->max_item_size);
+  }
 
   return NULL;
 }
@@ -286,11 +344,13 @@ static void measure_multithreaded_ops(struct ybc *const cache,
 
   struct thread_task task = {
       .cache = cache,
-      .requests_count = requests_count / threads_count,
+      .requests_count = requests_count,
       .items_count = items_count,
       .get_items_count = hot_items_count ? hot_items_count : items_count,
       .max_item_size = max_item_size,
   };
+
+  m_lock_init(&task.lock);
 
   start_time = m_get_current_time();
   for (size_t i = 0; i < threads_count; ++i) {
@@ -301,6 +361,8 @@ static void measure_multithreaded_ops(struct ybc *const cache,
     join_thread(&threads[i]);
   }
   end_time = m_get_current_time();
+
+  m_lock_destroy(&task.lock);
 
   qps = 2 * requests_count / (end_time - start_time);
   printf("multithreaded_ops(threads_count=%zu, requests_count=%zu, "
