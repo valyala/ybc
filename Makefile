@@ -11,6 +11,7 @@ LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 PERFTEST_FLAGS = $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 SINGLE_THREADED_TEST_FLAGS = -g $(SINGLE_THREADED_FLAGS) -fwhole-program -lrt
+SINGLE_THREADED_PERFTEST_FLAGS = -O2 -DNDEBUG $(SINGLE_THREADED_FLAGS) -fwhole-program -lrt
 
 VALGRIND_FLAGS = --suppressions=valgrind.supp
 
@@ -32,7 +33,7 @@ perftests-release: perftests-32-release perftests-64-release
 
 perftests-debug: perftests-32-debug perftests-64-debug
 
-perftests: perftests-debug perftests-release
+perftests: perftests-debug perftests-release perftests-single-threaded
 
 all: release debug tests run-tests run-valgrind-tests run-perftests
 
@@ -79,7 +80,7 @@ tests-shared-release: libybc-release $(TEST_SRCS)
 	$(CC) $(TEST_SRCS) libybc-release.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-release
 
 tests-single-threaded: $(YBC_SRCS) $(TEST_SRCS)
-	$(CC) $(YBC_SRCS) $(TEST_SRCS) $(SINGLE_THREADED_TEST_FLAGS) -o tests/functional-single-threaded
+	$(CC) $(TEST_SRCS) $(YBC_SRCS) $(SINGLE_THREADED_TEST_FLAGS) -o tests/functional-single-threaded
 
 perftests-32-release: ybc-32-release $(PERFTEST_SRCS)
 	$(CC) $(PERFTEST_SRCS) ybc-32-release.o $(PERFTEST_FLAGS) -O2 -DNDEBUG -m32 -o tests/performance-32-release
@@ -92,6 +93,9 @@ perftests-32-debug: ybc-32-debug $(PERFTEST_SRCS)
 
 perftests-64-debug: ybc-64-debug $(PERFTEST_SRCS)
 	$(CC) $(PERFTEST_SRCS) ybc-64-debug.o $(PERFTEST_FLAGS) -g -m64 -o tests/performance-64-debug
+
+perftests-single-threaded: $(YBC_SRCS) $(PERFTEST_SRCS)
+	$(CC) $(PERFTEST_SRCS) $(YBC_SRCS) $(SINGLE_THREADED_PERFTEST_FLAGS) -o tests/performance-single-threaded
 
 run-tests: tests
 	tests/functional-32-debug
@@ -112,6 +116,7 @@ run-perftests:
 	tests/performance-64-debug
 	tests/performance-32-release
 	tests/performance-64-release
+	tests/performance-single-threaded
 
 clean:
 	rm -f ybc-32-release.o
@@ -131,3 +136,4 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
+	rm -f tests/performance-single-threaded
