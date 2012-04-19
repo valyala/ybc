@@ -2613,9 +2613,38 @@ static const uint64_t M_CLUSTER_INITIAL_HASH_SEED = 0xDEADBEEFDEADBEEF;
 
 struct ybc_cluster
 {
+  /*
+   * The number of caches in the cluster.
+   */
   size_t caches_count;
+
+  /*
+   * The total number of slots in all caches.
+   */
   size_t total_slots_count;
+
+  /*
+   * Hash seed, which is used for selecting a cache from the cluster
+   * for the given key.
+   *
+   * This seed mustn't match seeds used inside caches. If it will match caches'
+   * seeds, then caches may suffer from uneven distribution of items
+   * inside their internal hash maps.
+   */
   uint64_t hash_seed;
+
+  /*
+   * The ybc_cluster structure contains also the following two 'virtual' arrays:
+   *
+   * struct ybc caches[caches_count];
+   * size_t slot_indexes[caches_count];
+   *
+   * Since caches_count is determined in runtime, it is impossible declaring
+   * these arrays here in plain C.
+   *
+   * Use m_cluster_get_caches() and m_cluster_get_max_slot_indexes() functions
+   * for quick access to the corresponding arrays.
+   */
 };
 
 static struct ybc *m_cluster_get_caches(struct ybc_cluster *const cluster)
