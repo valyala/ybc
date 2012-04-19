@@ -2260,8 +2260,11 @@ void ybc_clear(struct ybc *const cache)
   /*
    * New hash seed automatically invalidates all the items stored in the cache.
    *
-   * Use linear congruental generator for creating new hash seed.
-   * See http://en.wikipedia.org/wiki/Linear_congruential_generator .
+   * There is non-zero probability that certain keys will have identical digests
+   * for new and old hash seeds. This means that items with such keys may remain
+   * active in the cache after its' clearance.
+   * TODO: think about how to get rid of such items. For example, store and
+   * verify key digests alongside keys in data file.
    */
 
   /*
