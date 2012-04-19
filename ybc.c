@@ -2261,8 +2261,8 @@ void ybc_clear(struct ybc *const cache)
    * New hash seed automatically invalidates all the items stored in the cache.
    *
    * There is non-zero probability that certain keys will have identical digests
-   * for new and old hash seeds. This means that items with such keys may remain
-   * active in the cache after its' clearance.
+   * for new and old hash seeds. This means that items with such keys may
+   * survive cache clearance.
    * TODO: think about how to get rid of such items. For example, store and
    * verify key digests alongside keys in data file.
    */
@@ -2274,8 +2274,11 @@ void ybc_clear(struct ybc *const cache)
   static const uint64_t a = 6364136223846793005;
   static const uint64_t c = 1442695040888963407;
 
-  cache->index.hash_seed = cache->index.hash_seed * a + c;
-  *cache->index.hash_seed_ptr = cache->index.hash_seed;
+  const uint64_t new_hash_seed = cache->index.hash_seed * a + c;
+  assert(new_hash_seed != cache->index.hash_seed);
+
+  cache->index.hash_seed = new_hash_seed;
+  *cache->index.hash_seed_ptr = new_hash_seed;
 }
 
 void ybc_remove(const struct ybc_config *const config)
