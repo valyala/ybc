@@ -2718,6 +2718,15 @@ struct ybc *ybc_cluster_get_cache(struct ybc_cluster *const cluster,
   m_key_digest_get(&key_digest, cluster->hash_seed, key);
 
   const size_t slot_index = key_digest.digest % cluster->total_slots_count;
+
+  /*
+   * Prefer linear search over binary search here due to the following reasons:
+   * - It is simpler.
+   * - It works faster on relatively short arrays.
+   *
+   * Linear search should be OK, since it is unlikely cache cluster will contain
+   * more than 100 distinct caches.
+   */
   size_t i = 0;
   while (slot_index >= max_slot_indexes[i]) {
     ++i;
