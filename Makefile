@@ -35,7 +35,7 @@ perftests-debug: perftests-32-debug perftests-64-debug
 
 perftests: perftests-debug perftests-release perftests-single-threaded
 
-all: release debug tests run-tests run-valgrind-tests run-perftests
+all: release debug tests perftests run-tests run-valgrind-tests run-perftests
 
 ybc.c: ybc.h
 
