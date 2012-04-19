@@ -2265,20 +2265,13 @@ void ybc_clear(struct ybc *const cache)
    * survive cache clearance.
    * TODO: think about how to get rid of such items. For example, store and
    * verify key digests alongside keys in data file.
+   * Also estimate the probability of keys' survival. If it is too small (
+   * i.e. close to 1/(2^64)), then there is no need in special handling for
+   * this case.
    */
 
-  /*
-   * These magic numbers are stolen from the table 'Parameters in common use'
-   * at http://en.wikipedia.org/wiki/Linear_congruential_generator .
-   */
-  static const uint64_t a = 6364136223846793005;
-  static const uint64_t c = 1442695040888963407;
-
-  const uint64_t new_hash_seed = cache->index.hash_seed * a + c;
-  assert(new_hash_seed != cache->index.hash_seed);
-
-  cache->index.hash_seed = new_hash_seed;
-  *cache->index.hash_seed_ptr = new_hash_seed;
+  ++cache->index.hash_seed;
+  *cache->index.hash_seed_ptr = cache->index.hash_seed;
 }
 
 void ybc_remove(const struct ybc_config *const config)
