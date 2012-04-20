@@ -215,10 +215,10 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
  * Sets interval for cache data syncing in milliseconds.
  *
  * Cache items are periodically synced to data file with this interval.
- * Non-synced cache items may be lost after the program crash.
+ * Non-synced cache items may be lost after the program or system crash.
  *
  * While short sync interval reduces the number of lost items in the event
- * of program crash, it also increases the number of writes to data
+ * of program or system crash, it also increases the number of writes to data
  * file, which may slow down the program.
  *
  * Long sync interval minimizes the number of writes to data file at the cost
@@ -415,7 +415,7 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * by ybc_add_txn_get_value_ptr() before commiting the transaction.
  *
  * The caller may freely modify key contents after the call to this function,
- * because the function makes an internal copy of key.
+ * because the function makes an internal copy of the key.
  *
  * The transaction may be commited by calling ybc_add_txn_commit()
  * or may be rolled back by calling ybc_add_txn_rollback().
