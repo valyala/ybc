@@ -1,6 +1,8 @@
 - More tests.
-- Perftest.
+- Perftests.
 - Documentation.
+- Ports to other platforms (Windows, MacOS).
 - Killer app.
+- API bindings for popular programming languages (Java, Python, PHP, C#, Lua).
 - Data corruption detection.
 - Optimistic concurrency control.
