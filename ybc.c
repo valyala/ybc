@@ -205,8 +205,126 @@ static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
 
 
 /*******************************************************************************
+ * Thread API.
+ ******************************************************************************/
+
+typedef void (*m_thread_func)(void *);
+
+#ifdef YBC_HAVE_PTHREAD
+
+#include <pthread.h>    /* pthread_* */
+#include <sys/types.h>  /* pthread_*_t */
+
+struct m_thread
+{
+  pthread_t t;
+  m_thread_func func;
+  void *ctx;
+};
+
+static void *m_thread_main_func(void *const ctx)
+{
+  struct m_thread *const t = ctx;
+
+  t->func(t->ctx);
+
+  return NULL;
+}
+
+static void m_thread_init_and_start(struct m_thread *const t,
+    const m_thread_func func, void *const ctx)
+{
+  t->func = func;
+  t->ctx = ctx;
+
+  const int rv = pthread_create(&t->t, NULL, m_thread_main_func, t);
+  if (rv != 0) {
+    error(EXIT_FAILURE, rv, "pthread_create()");
+  }
+}
+
+static void m_thread_join_and_destroy(struct m_thread *const t)
+{
+  const int rv = pthread_join(t->t, NULL);
+  assert(rv == 0);
+  (void)rv;
+}
+
+#else  /* !YBC_HAVE_PTHREAD */
+#error "Unsupported thread implementation"
+#endif
+
+
+/*******************************************************************************
  * Mutex API.
  ******************************************************************************/
+
+#ifdef YBC_HAVE_PTHREAD
+
+#include <pthread.h>    /* pthread_* */
+#include <sys/types.h>  /* pthread_*_t */
+
+/*
+ * Real lock exists even under YBC_SINGLE_THREADED config.
+ */
+struct m_real_lock
+{
+  pthread_mutex_t mutex;
+};
+
+static void m_real_lock_init(struct m_real_lock *const lock)
+{
+  pthread_mutexattr_t attr;
+  int rv;
+
+  rv = pthread_mutexattr_init(&attr);
+  if (rv != 0) {
+    error(EXIT_FAILURE, rv, "pthread_mutexattr_init()");
+  }
+
+#ifdef NDEBUG
+  const int type = PTHREAD_MUTEX_DEFAULT;
+#else
+  const int type = PTHREAD_MUTEX_ERRORCHECK;
+#endif
+
+  rv = pthread_mutexattr_settype(&attr, type);
+  assert(rv == 0);
+
+  rv = pthread_mutex_init(&lock->mutex, &attr);
+  if (rv != 0) {
+    error(EXIT_FAILURE, rv, "pthread_mutex_init()");
+  }
+
+  rv = pthread_mutexattr_destroy(&attr);
+  assert(rv == 0);
+}
+
+static void m_real_lock_destroy(struct m_real_lock *const lock)
+{
+  const int rv = pthread_mutex_destroy(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
+}
+
+static void m_real_lock_lock(struct m_real_lock *const lock)
+{
+  const int rv = pthread_mutex_lock(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
+}
+
+static void m_real_lock_unlock(struct m_real_lock *const lock)
+{
+  const int rv = pthread_mutex_unlock(&lock->mutex);
+  assert(rv == 0);
+  (void)rv;
+}
+
+#else  /* !YBC_HAVE_PTHREAD */
+#error "Unsupported lock implementation"
+#endif
+
 
 #ifdef YBC_SINGLE_THREADED
 
@@ -237,70 +355,131 @@ static void m_lock_unlock(struct m_lock *const lock)
 
 #else  /* !YBC_SINGLE_THREADED */
 
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>    /* pthread_* */
-#include <sys/types.h>  /* pthread_*_t */
-
 struct m_lock
 {
-  pthread_mutex_t mutex;
+  struct m_real_lock lock;
 };
 
 static void m_lock_init(struct m_lock *const lock)
 {
-  pthread_mutexattr_t attr;
-  int rv;
-
-  rv = pthread_mutexattr_init(&attr);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_mutexattr_init()");
-  }
-
-#ifdef NDEBUG
-  const int type = PTHREAD_MUTEX_DEFAULT;
-#else
-  const int type = PTHREAD_MUTEX_ERRORCHECK;
-#endif
-
-  rv = pthread_mutexattr_settype(&attr, type);
-  assert(rv == 0);
-
-  rv = pthread_mutex_init(&lock->mutex, &attr);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_mutex_init()");
-  }
-
-  rv = pthread_mutexattr_destroy(&attr);
-  assert(rv == 0);
+  m_real_lock_init(&lock->lock);
 }
 
 static void m_lock_destroy(struct m_lock *const lock)
 {
-  const int rv = pthread_mutex_destroy(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
+  m_real_lock_destroy(&lock->lock);
 }
 
 static void m_lock_lock(struct m_lock *const lock)
 {
-  const int rv = pthread_mutex_lock(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
+  m_real_lock_lock(&lock->lock);
 }
 
 static void m_lock_unlock(struct m_lock *const lock)
 {
-  const int rv = pthread_mutex_unlock(&lock->mutex);
+  m_real_lock_unlock(&lock->lock);
+}
+
+#endif  /* !YBC_SINGLE_THREADED */
+
+
+/*******************************************************************************
+ * Event API.
+ ******************************************************************************/
+
+#ifdef YBC_HAVE_PTHREAD
+
+#include <pthread.h>    /* pthread_* */
+#include <sys/types.h>  /* pthread_*_t */
+#include <time.h>       /* timespec */
+
+struct m_event
+{
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+  int is_set;
+};
+
+static void m_event_init(struct m_event *const e)
+{
+  int rv = pthread_cond_init(&e->cond, NULL);
+  if (rv != 0) {
+    error(EXIT_FAILURE, rv, "pthread_cond_init()");
+  }
+
+  rv = pthread_mutex_init(&e->mutex, NULL);
+  if (rv != 0) {
+    error(EXIT_FAILURE, rv, "pthread_mutex_init()");
+  }
+
+  e->is_set = 0;
+}
+
+static void m_event_destroy(struct m_event *const e)
+{
+  int rv;
+
+  rv = pthread_mutex_destroy(&e->mutex);
   assert(rv == 0);
+
+  rv = pthread_cond_destroy(&e->cond);
+  assert(rv == 0);
+
   (void)rv;
 }
 
+static void m_event_set(struct m_event *const e)
+{
+  int rv;
+
+  rv = pthread_mutex_lock(&e->mutex);
+  assert(rv == 0);
+
+  e->is_set = 1;
+  rv = pthread_cond_broadcast(&e->cond);
+  assert(rv == 0);
+
+  rv = pthread_mutex_unlock(&e->mutex);
+  assert(rv == 0);
+
+  (void)rv;
+}
+
+static int m_event_wait_with_timeout(struct m_event *const e,
+    const uint64_t timeout)
+{
+  int rv;
+  int is_set;
+
+  rv = pthread_mutex_lock(&e->mutex);
+  assert(rv == 0);
+
+  if (!e->is_set) {
+    const uint64_t current_time = m_get_current_time();
+    assert(timeout <= UINT64_MAX - current_time);
+    const uint64_t exp_time = current_time + timeout;
+
+    struct timespec t = {
+        .tv_sec = exp_time / 1000,
+        .tv_nsec = (exp_time % 1000) * 1000 * 1000,
+    };
+    rv = pthread_cond_timedwait(&e->cond, &e->mutex, &t);
+    if (rv != ETIMEDOUT) {
+      assert(rv == 0);
+    }
+  }
+  is_set = e->is_set;
+
+  rv = pthread_mutex_unlock(&e->mutex);
+  assert(rv == 0);
+
+  return is_set;
+}
+
 #else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported thread implementation"
+#error "Unsupported event implementation"
 #endif
 
-#endif  /* !YBC_SINGLE_THREADED */
 
 /*******************************************************************************
  * File API.
@@ -745,6 +924,15 @@ struct m_storage_payload
 struct m_storage
 {
   /*
+   * A lock for next_cursor.
+   *
+   * This lock should be real even under YBC_SINGLE_THREADED config in order
+   * to synchronize access to next_cursor between m_sync->sync_thread and
+   * main thread.
+   */
+  struct m_real_lock next_cursor_lock;
+
+  /*
    * A pointer to the next free memory in the storage.
    */
   struct m_storage_cursor next_cursor;
@@ -815,6 +1003,8 @@ static int m_storage_open(struct m_storage *const storage,
   struct m_file file;
   void *ptr;
 
+  m_real_lock_init(&storage->next_cursor_lock);
+
   if (!m_file_open_or_create(&file, filename, storage->size, force,
       is_file_created)) {
     return 0;
@@ -856,6 +1046,7 @@ static int m_storage_open(struct m_storage *const storage,
 static void m_storage_close(struct m_storage *const storage)
 {
   m_memory_unmap(storage->data, storage->size);
+  m_real_lock_destroy(&storage->next_cursor_lock);
 }
 
 static void *m_storage_get_ptr(const struct m_storage *const storage,
@@ -865,6 +1056,32 @@ static void *m_storage_get_ptr(const struct m_storage *const storage,
   assert((uintptr_t)offset <= UINTPTR_MAX - (uintptr_t)storage->data);
 
   return storage->data + offset;
+}
+
+/*
+ * This function must be called only if ybc->lock isn't acquired.
+ *
+ * Otherwise storage->next_cursor can be obtained directly from storage.
+ */
+static void m_storage_atomic_get_next_cursor(struct m_storage *const storage,
+    struct m_storage_cursor *const next_cursor)
+{
+  m_real_lock_lock(&storage->next_cursor_lock);
+  *next_cursor = storage->next_cursor;
+  m_real_lock_unlock(&storage->next_cursor_lock);
+}
+
+/*
+ * All storage->next_cursor updates must be performed via this function.
+ *
+ * This function can be called only if ybc->lock is acquired.
+ */
+static void m_storage_atomic_set_next_cursor(struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor)
+{
+  m_real_lock_lock(&storage->next_cursor_lock);
+  storage->next_cursor = *next_cursor;
+  m_real_lock_unlock(&storage->next_cursor_lock);
 }
 
 /*
@@ -885,30 +1102,30 @@ static int m_storage_allocate(struct m_storage *const storage,
     return 0;
   }
 
-  size_t next_offset = storage->next_cursor.offset;
-  assert(next_offset <= storage_size);
+  struct m_storage_cursor next_cursor = storage->next_cursor;
+  assert(next_cursor.offset <= storage_size);
 
   /*
    * This loop has O(n^2) worst-case performance, where n is the number
    * of items in the acquired_items list. But this is unlikely case.
    * Amortized performance is O(n), when acquired items don't interfere
-   * with [next_offset ... next_offset + size) region.
+   * with [next_cursor.offset ... next_cursor.offset + size) region.
    * Since acquired_items list is usually small enough (it contains only
    * currently acquired items), this loop should be quite fast in general case.
    */
-  const size_t initial_offset = next_offset;
+  const size_t initial_offset = next_cursor.offset;
   int is_storage_wrapped = 0;
   for (;;) {
-    if (next_offset > storage_size - size) {
-      ++storage->next_cursor.wrap_count;
-      next_offset = 0;
+    if (next_cursor.offset > storage_size - size) {
+      ++next_cursor.wrap_count;
+      next_cursor.offset = 0;
       is_storage_wrapped = 1;
     }
 
    /*
     * Make sure currently acquired items don't interfere with a region
-    * of size bytes starting from next_offset.
-    * Move next_offset forward if required.
+    * of size bytes starting from next_cursor.offset.
+    * Move next_cursor.offset forward if required.
     */
     const struct ybc_item *item = acquired_items;
     while (item != NULL) {
@@ -921,13 +1138,13 @@ static int m_storage_allocate(struct m_storage *const storage,
       assert(payload->size <= storage_size);
       assert(payload->cursor.offset <= storage_size - payload->size);
 
-      if ((next_offset < payload->cursor.offset + payload->size) &&
-          (payload->cursor.offset < next_offset + size)) {
+      if ((next_cursor.offset < payload->cursor.offset + payload->size) &&
+          (payload->cursor.offset < next_cursor.offset + size)) {
         /*
-         * next_offset interferes with the item. Move next_offset
+         * next_cursor.offset interferes with the item. Move next_cursor.offset
          * to the end of the item and restart the search.
          */
-        next_offset = payload->cursor.offset + payload->size;
+        next_cursor.offset = payload->cursor.offset + payload->size;
         break;
       }
       item = item->next;
@@ -938,16 +1155,18 @@ static int m_storage_allocate(struct m_storage *const storage,
       break;
     }
 
-    if (is_storage_wrapped && next_offset >= initial_offset) {
+    if (is_storage_wrapped && next_cursor.offset >= initial_offset) {
       /* Couldn't find a hole with appropriate size. */
       return 0;
     }
   }
 
-  storage->next_cursor.offset = next_offset + size;
+  *item_cursor = next_cursor;
 
-  item_cursor->wrap_count = storage->next_cursor.wrap_count;
-  item_cursor->offset = next_offset;
+  assert(next_cursor.offset <= storage->size);
+  assert(size <= storage->size - next_cursor.offset);
+  next_cursor.offset += size;
+  m_storage_atomic_set_next_cursor(storage, &next_cursor);
 
   return 1;
 }
@@ -1575,13 +1794,6 @@ struct m_index
   struct m_map map_cache;
 
   /*
-   * A pointer to the next free memory in storage file.
-   *
-   * This pointer points to the corresponding location in index file.
-   */
-  struct m_storage_cursor *sync_cursor;
-
-  /*
    * A pointer to hash seed.
    *
    * This pointer points to the corresponding location in index file.
@@ -1619,7 +1831,8 @@ static size_t m_index_get_file_size(const size_t slots_count)
 }
 
 static int m_index_open(struct m_index *const index, const char *const filename,
-    const int force, int *const is_file_created)
+    const int force, int *const is_file_created,
+    struct m_storage_cursor **const next_cursor)
 {
   struct m_file file;
   void *ptr;
@@ -1670,9 +1883,9 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   index->map.payloads = (struct m_storage_payload *)
       (index->map.key_digests + index->map.slots_count);
 
-  index->sync_cursor = (struct m_storage_cursor *)
+  *next_cursor = (struct m_storage_cursor *)
       (index->map.payloads + index->map.slots_count);
-  index->hash_seed_ptr = (uint64_t *)(index->sync_cursor + 1);
+  index->hash_seed_ptr = (uint64_t *)(*next_cursor + 1);
   if (*is_file_created) {
     *index->hash_seed_ptr = m_get_current_time();
   }
@@ -1707,156 +1920,39 @@ static void m_index_close(struct m_index *const index)
 struct m_sync
 {
   /*
-   * A pointer to the next unsynced byte in the storage.
-   */
-  struct m_storage_cursor checkpoint_cursor;
-
-  /*
    * Interval between data syncs.
    */
   uint64_t sync_interval;
 
   /*
-   * Time in milliseconds for the last sync.
+   * Start pointer for unsynced storage data.
    */
-  uint64_t last_sync_time;
+  struct m_storage_cursor *sync_cursor;
 
   /*
-   * A flag indicating whether syncing is currently running.
-   *
-   * This flag prevents concurrent syncing from multiple threads, because
-   * it has no any benefits.
+   * A pointer to ybc->storage.
    */
-  int is_syncing;
+  struct m_storage *storage;
+
+  /*
+   * An event for indicating when the sync_thread should be stopped.
+   */
+  struct m_event stop_event;
+
+  /*
+   * A thread responsible for data syncing.
+   */
+  struct m_thread sync_thread;
 };
 
-static void m_sync_init(struct m_sync *const sc,
-    const struct m_storage_cursor *const next_cursor,
-    const uint64_t sync_interval)
+static void m_sync_commit(const struct m_storage *const storage,
+    const size_t start_offset, const size_t end_offset)
 {
-  sc->checkpoint_cursor = *next_cursor;
-  sc->sync_interval = sync_interval;
-  sc->last_sync_time = m_get_current_time();
-  sc->is_syncing = 0;
-}
+  assert(start_offset <= end_offset);
+  assert(end_offset <= storage->size);
 
-static void m_sync_destroy(struct m_sync *const sc)
-{
-  assert(!sc->is_syncing);
-  (void)sc;
-}
-
-/*
- * Starts data syncing.
- *
- * This includes:
- * - setting *start_offset to the offset in the storage, from where data syncing
- *   must start.
- * - setting *sync_chunk_size to the size of data to be synced.
- * - setting checkpoint_cursor to the position next after the data to be synced.
- */
-static void m_sync_start(struct m_storage_cursor *const checkpoint_cursor,
-    const struct m_storage *const storage, size_t *const start_offset,
-    size_t *const sync_chunk_size)
-{
-  if (storage->next_cursor.wrap_count == checkpoint_cursor->wrap_count) {
-    /*
-     * Storage didn't wrap since the previous sync.
-     * Let's sync data till storage's next_cursor.
-     */
-
-    assert(storage->next_cursor.offset >= checkpoint_cursor->offset);
-
-    *start_offset = checkpoint_cursor->offset;
-    *sync_chunk_size = storage->next_cursor.offset - checkpoint_cursor->offset;
-    checkpoint_cursor->offset = storage->next_cursor.offset;
-  }
-  else {
-    /*
-     * Storage wrapped at least once since the previous sync.
-     * Figure out which parts of storage need to be synced.
-     */
-
-    if (storage->next_cursor.wrap_count - 1 == checkpoint_cursor->wrap_count &&
-        storage->next_cursor.offset < checkpoint_cursor->offset) {
-      /*
-       * Storage wrapped once since the previous sync.
-       * Let's sync data starting from checkpoint_cursor till the end
-       * of the storage. The rest of unsynced data will be synced next time.
-       */
-
-      assert(checkpoint_cursor->offset <= storage->size);
-
-      *start_offset = checkpoint_cursor->offset;
-      *sync_chunk_size = storage->size - checkpoint_cursor->offset;
-      checkpoint_cursor->offset = 0;
-    }
-    else {
-      /*
-       * Storage wrapped more than once since the previous sync, i.e. it is full
-       * of unsynced data. Let's sync the whole storage.
-       */
-
-      *start_offset = 0;
-      *sync_chunk_size = storage->size;
-      checkpoint_cursor->offset = storage->next_cursor.offset;
-    }
-
-    checkpoint_cursor->wrap_count = storage->next_cursor.wrap_count;
-  }
-}
-
-static int m_sync_begin(struct m_sync *const sc,
-    const struct m_storage *const storage, const uint64_t current_time,
-    size_t *const start_offset, size_t *const sync_chunk_size)
-{
-  if (sc->sync_interval == 0) {
-    /*
-     * Syncing is disabled.
-     */
-    return 0;
-  }
-
-  if (sc->is_syncing) {
-    /*
-     * Another thread is syncing the cache at the moment,
-     * so don't interfere with it.
-     */
-    return 0;
-  }
-
-  if (sc->last_sync_time > current_time) {
-    /*
-     * It looks like another fast thread already performed the sync while
-     * we were slow like a crawl.
-     *
-     * There is another reason for this condition - system time may be adjusted
-     * by NTP ( http://www.ntp.org/ ) or by hands.
-     */
-    return 0;
-  }
-
-  if (current_time - sc->last_sync_time < sc->sync_interval) {
-    /*
-     * Throttle too frequent syncing.
-     */
-    return 0;
-  }
-
-  m_sync_start(&sc->checkpoint_cursor, storage, start_offset, sync_chunk_size);
-
-  sc->last_sync_time = current_time;
-  sc->is_syncing = 1;
-  return 1;
-}
-
-static void m_sync_commit(struct m_sync *const sc,
-    const struct m_storage *const storage, struct m_lock *const lock,
-    const size_t start_offset, size_t sync_chunk_size,
-    struct m_storage_cursor *const sync_cursor)
-{
   /*
-   * Persist only storage contents into data file.
+   * Persist only storage contents.
    * If storage contents is synced, then the cache is guaranteed to contain
    * only valid items after program crash or restart.
    *
@@ -1869,21 +1965,92 @@ static void m_sync_commit(struct m_sync *const sc,
    * corruptions by clearing corrupted slots.
    */
 
-  void *const ptr = m_storage_get_ptr(storage, start_offset);
+  const size_t sync_chunk_size = end_offset - start_offset;
+  if (sync_chunk_size > 0) {
+    void *const ptr = m_storage_get_ptr(storage, start_offset);
+    m_memory_sync(ptr, sync_chunk_size);
+  }
+}
 
-  assert(sync_chunk_size <= storage->size);
-  assert(start_offset <= storage->size - sync_chunk_size);
+static void m_sync_flush_data(struct m_sync *const sc)
+{
+  struct m_storage_cursor next_cursor;
+  struct m_storage_cursor sync_cursor = *sc->sync_cursor;
 
-  m_memory_sync(ptr, sync_chunk_size);
+  m_storage_atomic_get_next_cursor(sc->storage, &next_cursor);
 
-  m_lock_lock(lock);
+  if (next_cursor.wrap_count == sync_cursor.wrap_count) {
+    /*
+     * Storage didn't wrap since the previous sync.
+     * Let's sync data till next_cursor.
+     */
 
-  *sync_cursor = sc->checkpoint_cursor;
+    assert(sync_cursor.offset <= next_cursor.offset);
 
-  assert(sc->is_syncing);
-  sc->is_syncing = 0;
+    m_sync_commit(sc->storage, sync_cursor.offset, next_cursor.offset);
+  }
+  else {
+    /*
+     * Storage wrapped at least once since the previous sync.
+     * Figure out which parts of storage need to be synced.
+     */
 
-  m_lock_unlock(lock);
+    if (next_cursor.wrap_count - 1 == sync_cursor.wrap_count &&
+        next_cursor.offset < sync_cursor.offset) {
+      /*
+       * Storage wrapped once since the previous sync.
+       * Let's sync data in two steps:
+       * - from sync_cursor till the end of the storage.
+       * - from the beginning of the storage till next_cursor.
+       */
+
+      assert(sync_cursor.offset <= sc->storage->size);
+
+      m_sync_commit(sc->storage, sync_cursor.offset, sc->storage->size);
+      m_sync_commit(sc->storage, 0, next_cursor.offset);
+    }
+    else {
+      /*
+       * Storage wrapped more than once since the previous sync, i.e. it is full
+       * of unsynced data. Let's sync the whole storage.
+       */
+
+      m_sync_commit(sc->storage, 0, sc->storage->size);
+    }
+  }
+
+  *sc->sync_cursor = next_cursor;
+}
+
+static void m_sync_thread_func(void *const ctx)
+{
+  struct m_sync *const sc = ctx;
+
+  while (!m_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
+    m_sync_flush_data(sc);
+  }
+
+  m_sync_flush_data(sc);
+}
+
+static void m_sync_init(struct m_sync *const sc,
+    const uint64_t sync_interval, struct m_storage_cursor *const sync_cursor,
+    struct m_storage *const storage)
+{
+  sc->sync_interval = sync_interval;
+  sc->sync_cursor = sync_cursor;
+  sc->storage = storage;
+
+  m_event_init(&sc->stop_event);
+  m_thread_init_and_start(&sc->sync_thread, &m_sync_thread_func, sc);
+}
+
+static void m_sync_destroy(struct m_sync *const sc)
+{
+  m_event_set(&sc->stop_event);
+
+  m_thread_join_and_destroy(&sc->sync_thread);
+  m_event_destroy(&sc->stop_event);
 }
 
 
@@ -2169,6 +2336,7 @@ struct ybc
 static int m_open(struct ybc *const cache,
     const struct ybc_config *const config, const int force)
 {
+  struct m_storage_cursor *next_cursor;
   int is_index_file_created, is_storage_file_created;
 
   m_memory_init();
@@ -2184,11 +2352,11 @@ static int m_open(struct ybc *const cache,
       cache->index.map.slots_count);
 
   if (!m_index_open(&cache->index, config->index_file, force,
-      &is_index_file_created)) {
+      &is_index_file_created, &next_cursor)) {
     return 0;
   }
 
-  cache->storage.next_cursor = *cache->index.sync_cursor;
+  cache->storage.next_cursor = *next_cursor;
 
   if (!m_storage_open(&cache->storage, config->data_file, force,
       &is_storage_file_created)) {
@@ -2199,7 +2367,7 @@ static int m_open(struct ybc *const cache,
     return 0;
   }
 
-  m_sync_init(&cache->sc, &cache->storage.next_cursor, config->sync_interval);
+  m_sync_init(&cache->sc, config->sync_interval, next_cursor, &cache->storage);
   m_de_init(&cache->de);
 
   /*
@@ -2237,12 +2405,6 @@ int ybc_open(struct ybc *const cache, const struct ybc_config *const config,
 void ybc_close(struct ybc *const cache)
 {
   assert(cache->acquired_items == NULL);
-
-  /*
-   * Flush actual cursor to index file in order
-   * to persist recently added items.
-   */
-  *cache->index.sync_cursor = cache->storage.next_cursor;
 
   m_lock_destroy(&cache->lock);
 
@@ -2409,8 +2571,6 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
 {
   struct ybc *const cache = txn->item.cache;
   const uint64_t current_time = m_get_current_time();
-  size_t sync_chunk_size, start_offset;
-  int should_sync;
 
   txn->item.payload.expiration_time = (ttl > UINT64_MAX - current_time) ?
       (UINT64_MAX) : (ttl + current_time);
@@ -2422,15 +2582,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
 
   m_item_relocate(item, &txn->item);
 
-  should_sync = m_sync_begin(&cache->sc, &cache->storage, current_time,
-      &start_offset, &sync_chunk_size);
-
   m_lock_unlock(&cache->lock);
-
-  if (should_sync) {
-    m_sync_commit(&cache->sc, &cache->storage, &cache->lock,
-        start_offset, sync_chunk_size, cache->index.sync_cursor);
-  }
 }
 
 void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
