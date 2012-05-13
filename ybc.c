@@ -2684,11 +2684,8 @@ int ybc_item_acquire(struct ybc *const cache, struct ybc_item *const item,
   return m_item_acquire(cache, item, key, &key_digest);
 }
 
-int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
-    const struct ybc_key *const key, const uint64_t grace_ttl)
+static uint64_t m_item_adjust_grace_ttl(const uint64_t grace_ttl)
 {
-  struct m_key_digest key_digest;
-
   uint64_t adjusted_grace_ttl = grace_ttl;
   if (adjusted_grace_ttl < M_DE_ITEM_MIN_GRACE_TTL) {
     adjusted_grace_ttl = M_DE_ITEM_MIN_GRACE_TTL;
@@ -2696,48 +2693,91 @@ int ybc_item_acquire_de(struct ybc *const cache, struct ybc_item *const item,
   else if (adjusted_grace_ttl > M_DE_ITEM_MAX_GRACE_TTL) {
     adjusted_grace_ttl = M_DE_ITEM_MAX_GRACE_TTL;
   }
+  return adjusted_grace_ttl;
+}
 
-  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
-
-  while (!m_item_acquire(cache, item, key, &key_digest)) {
+static enum ybc_de_status m_item_acquire_de_async(struct ybc *const cache,
+    struct ybc_item *const item, const struct ybc_key *const key,
+    const struct m_key_digest *const key_digest, const uint64_t grace_ttl)
+{
+  if (!m_item_acquire(cache, item, key, key_digest)) {
     /*
      * The item is missing in the cache.
      * Try registering the item in dogpile effect container. If the item
      * is successfully registered there, then allow the caller adding new item
-     * to the cache. Otherwise wait until either the item is added by another
-     * thread or its' grace ttl expires.
+     * by returning YBC_DE_NOTFOUND. Otherwise suggest the caller waiting
+     * for a while by returning YBC_DE_WOULDBLOCK.
      */
-    if (!m_de_item_register(&cache->de, &key_digest, adjusted_grace_ttl)) {
-      /*
-       * Though it looks like waiting on a condition (event) would be better
-       * than periodic sleeping for a fixed amount of time, this isn't true.
-       *
-       * I tried using condition here, but the resulting code was uglier,
-       * more intrusive, slower and less robust than the code based
-       * on periodic sleeping.
-       */
-      m_sleep(M_DE_ITEM_SLEEP_TIME);
-      continue;
+    if (m_de_item_register(&cache->de, key_digest, grace_ttl)) {
+      return YBC_DE_NOTFOUND;
     }
 
-    return 0;
+    return YBC_DE_WOULDBLOCK;
   }
 
-  if (m_item_get_ttl(item) < adjusted_grace_ttl) {
+  if (m_item_get_ttl(item) < grace_ttl) {
     /*
      * The item is about to be expired soon.
      * Try registering the item in dogpile effect container. If the item
      * is successfully registered there, then force the caller updating
-     * the item by returning an empty item. Otherwise return not-yet expired
+     * the item by returning YBC_DE_NOTFOUND. Otherwise return not-yet expired
      * item.
      */
-    if (m_de_item_register(&cache->de, &key_digest, adjusted_grace_ttl)) {
+    if (m_de_item_register(&cache->de, key_digest, grace_ttl)) {
       m_item_release(item);
-      return 0;
+      return YBC_DE_NOTFOUND;
     }
   }
 
-  return 1;
+  return YBC_DE_SUCCESS;
+}
+
+enum ybc_de_status ybc_item_acquire_de_async(struct ybc *const cache,
+    struct ybc_item *const item, const struct ybc_key *const key,
+    const uint64_t grace_ttl)
+{
+  struct m_key_digest key_digest;
+  const uint64_t adjusted_grace_ttl = m_item_adjust_grace_ttl(grace_ttl);
+
+  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+
+  return m_item_acquire_de_async(cache, item, key, &key_digest,
+      adjusted_grace_ttl);
+}
+
+enum ybc_de_status ybc_item_acquire_de(struct ybc *const cache,
+    struct ybc_item *const item, const struct ybc_key *const key,
+    const uint64_t grace_ttl)
+{
+  /*
+   * It's silly to call this function from single-threaded apps,
+   * since it may block for indefinite amount of time - see m_sleep() call
+   * below in the loop.
+   */
+  assert(ybc_is_thread_safe());
+
+  struct m_key_digest key_digest;
+  const uint64_t adjusted_grace_ttl = m_item_adjust_grace_ttl(grace_ttl);
+
+  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+
+  for (;;) {
+    enum ybc_de_status status = m_item_acquire_de_async(cache, item, key,
+        &key_digest, adjusted_grace_ttl);
+    if (status != YBC_DE_WOULDBLOCK) {
+      return status;
+    }
+
+    /*
+     * Though it looks like waiting on a condition (event) would be better
+     * than periodic sleeping for a fixed amount of time, this isn't true.
+     *
+     * I tried using condition here, but the resulting code was uglier,
+     * more intrusive, slower and less robust than the code based
+     * on periodic sleeping.
+     */
+    m_sleep(M_DE_ITEM_SLEEP_TIME);
+  }
 }
 
 void ybc_item_release(struct ybc_item *const item)

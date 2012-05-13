@@ -524,6 +524,16 @@ struct ybc_value
 };
 
 /*
+ * Status returned by ybc_item_acquire_de*().
+ */
+enum ybc_de_status
+{
+  YBC_DE_NOTFOUND,
+  YBC_DE_SUCCESS,
+  YBC_DE_WOULDBLOCK,
+};
+
+/*
  * Returns the size of ybc_item structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
@@ -594,21 +604,21 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  *
  * The function automatically suspends all the threads, which are requesting
  * missing value under the same key in the cache, except the first thread,
- * which will receive 'item not found' notification. It is expected that
+ * which will receive YBC_DE_NOTFOUND status. It is expected that
  * somebody (not necessarily the first thread) will eventually add missing
  * item, so blocked threads will be eventually resumed. If the value isn't
  * added during grace_ttl period of time, then one of suspended threads
- * is resumed with 'item not found' notification, while other threads remain
+ * is resumed with YBC_DE_NOTFOUND status, while other threads remain
  * suspended, and so on until threads are exhasuted or value is successfully
  * added into the cache.
  *
  * When item's ttl becomes smaller than grace_ttl, then the function may notify
- * a thread (by returning 'item not found'), so it can build fresh value
+ * a thread (by returning YBC_DE_NOTFOUND), so it can build fresh value
  * for the item, while other threads will receive not-yet-expired value
  * until the item is refreshed or expired.
  *
- * If zero is returned, then it is expected that an item with the given key
- * will be added or refreshed during grace_ttl period of time.
+ * If YBC_DE_NOTFOUND is returned, then it is expected that an item with
+ * the given key will be added or refreshed during grace_ttl period of time.
  * The item may be added or refreshed by arbitrary thread, not necessarily
  * the thread, which called ybc_item_acquire_be().
  *
@@ -621,15 +631,31 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * This function introduces additional overhead comparing to ybc_item_acquire(),
  * so use it only for items with high probability of dogpile effect.
  *
- * Returns non-zero on success.
- * Returns zero if an item with the given key isn't found.
+ * Returns YBC_DE_SUCCESS on success.
+ * Returns YBC_DE_NOTFOUND if an item with the given key isn't found.
  *
  * Item's value can be obtained via ybc_item_get_value() call.
  *
  * Acquired items MUST be released with ybc_item_release().
+ *
+ * This function mustn't be called in YBC_SINGLE_THREADED builds.
+ * Apps based on event loop and/or cooperative multitasking must use
+ * ybc_item_acquire_de_async() instead.
  */
-YBC_API int ybc_item_acquire_de(struct ybc *cache, struct ybc_item *item,
-    const struct ybc_key *key, uint64_t grace_ttl);
+YBC_API enum ybc_de_status ybc_item_acquire_de(struct ybc *cache,
+    struct ybc_item *item, const struct ybc_key *key, uint64_t grace_ttl);
+
+/*
+ * This function is almost equivalent to ybc_item_acquire_de(), except that it
+ * never blocks. It returns YBC_DE_WOULDBLOCK if the item isn't ready yet,
+ * so the caller can wait for a small amount of time before re-trying to obtain
+ * the item again.
+ *
+ * This function is intended for apps based on event loop and/or cooperative
+ * multitasking.
+ */
+YBC_API enum ybc_de_status ybc_item_acquire_de_async(struct ybc *cache,
+    struct ybc_item *item, const struct ybc_key *key, uint64_t grace_ttl);
 
 /*
  * Releases the item acquired by ybc_item_acquire().

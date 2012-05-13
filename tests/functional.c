@@ -193,7 +193,7 @@ static void expect_item_miss_de(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (ybc_item_acquire_de(cache, item, key, grace_ttl)) {
+  if (ybc_item_acquire_de(cache, item, key, grace_ttl) == YBC_DE_SUCCESS) {
     M_ERROR("unexpected item found");
   }
 }
@@ -205,7 +205,7 @@ static void expect_item_hit_de(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (!ybc_item_acquire_de(cache, item, key, grace_ttl)) {
+  if (ybc_item_acquire_de(cache, item, key, grace_ttl) != YBC_DE_SUCCESS) {
     M_ERROR("cannot find expected item");
   }
   expect_value(item, expected_value);
@@ -406,6 +406,72 @@ static void test_dogpile_effect_ops(struct ybc *const cache)
   expect_item_miss_de(cache, &key, value.ttl * 10);
   expect_item_hit_de(cache, &key, &value, value.ttl * 10);
   expect_item_hit_de(cache, &key, &value, value.ttl / 10);
+
+  ybc_close(cache);
+}
+
+static void test_dogpile_effect_ops_async(struct ybc *const cache)
+{
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  m_open_anonymous(cache);
+
+  struct ybc_key key = {
+      .ptr = "foo",
+      .size = 3,
+  };
+  const struct ybc_value value = {
+      .ptr = "bar",
+      .size = 3,
+      .ttl = 2 * 1000,
+  };
+
+  /*
+   * De-aware method should return an empty item on the first try
+   * for non-existing item. The second try for the same non-existing item
+   * should result in YBC_DE_WOULDBLOCK.
+   */
+  if (ybc_item_acquire_de_async(cache, item, &key, 10 * 1000) != YBC_DE_NOTFOUND) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+
+  /* Should return immediately instead of waiting for 10 seconds. */
+  if (ybc_item_acquire_de_async(cache, item, &key, 5 * 1000) !=
+      YBC_DE_WOULDBLOCK) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+
+  key.ptr = "bar";
+  expect_item_add(cache, &key, &value);
+
+  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl / 10) !=
+      YBC_DE_SUCCESS) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+  ybc_item_release(item);
+
+  /*
+   * If grace ttl is larger than item's ttl, then an empty item
+   * should be returned on the first try and the item itself should be returned
+   * on subsequent tries irregardless of grace ttl value.
+   */
+  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl * 10) !=
+      YBC_DE_NOTFOUND) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+
+  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl * 10) !=
+      YBC_DE_SUCCESS) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+  ybc_item_release(item);
+
+  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl / 10) !=
+      YBC_DE_SUCCESS) {
+    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  }
+  ybc_item_release(item);
 
   ybc_close(cache);
 }
@@ -1014,7 +1080,10 @@ int main(void)
   test_add_txn_ops(cache);
   test_item_ops(cache, 1000);
   test_expiration(cache);
-  test_dogpile_effect_ops(cache);
+  if (ybc_is_thread_safe()) {
+    test_dogpile_effect_ops(cache);
+  }
+  test_dogpile_effect_ops_async(cache);
   test_cluster_ops(5, 1000);
 
   test_overlapped_acquirements(cache, 100);
