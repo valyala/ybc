@@ -7,6 +7,4 @@
 - Optimistic concurrency control.
 
 Architecture enhancements:
-- Rename ybc_item_acquire* to ybc_item_get*, since other functions also acquire
-  items.
 - Improve m_storage_allocate() algorithm from O(n*n) to O(n*ln(n)).

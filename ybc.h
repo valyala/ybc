@@ -481,7 +481,7 @@ YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
  * struct ybc_value value;
  * size_t item_size;
  * ...
- * if (!ybc_item_acquire(cache, item, &key)) {
+ * if (!ybc_item_get(cache, item, &key)) {
  *   // The value is missing in the cache.
  *   // Build new value (i.e. obtain it from backends, prepare, serialize, etc.)
  *   // and insert it into the cache.
@@ -524,7 +524,7 @@ struct ybc_value
 };
 
 /*
- * Status returned by ybc_item_acquire_de*().
+ * Status returned by ybc_item_get_de*().
  */
 enum ybc_de_status
 {
@@ -584,7 +584,7 @@ YBC_API void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
  *
  * Acquired items MUST be released via ybc_item_release() call.
  */
-YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
+YBC_API int ybc_item_get(struct ybc *cache, struct ybc_item *item,
     const struct ybc_key *key);
 
 /*
@@ -620,7 +620,7 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * If YBC_DE_NOTFOUND is returned, then it is expected that an item with
  * the given key will be added or refreshed during grace_ttl period of time.
  * The item may be added or refreshed by arbitrary thread, not necessarily
- * the thread, which called ybc_item_acquire_be().
+ * the thread, which called ybc_item_get_be().
  *
  * Grace_ttl is set in milliseconds. It shouldn't exceed few minutes - this time
  * should be enough for fetching and constructing new blob from the slowest
@@ -628,7 +628,7 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  * Grace_ttl should be greater than zero milliseconds.
  * Typical grace_ttl should be in the 10ms - 1s range.
  *
- * This function introduces additional overhead comparing to ybc_item_acquire(),
+ * This function introduces additional overhead comparing to ybc_item_get(),
  * so use it only for items with high probability of dogpile effect.
  *
  * Returns YBC_DE_SUCCESS on success.
@@ -640,13 +640,13 @@ YBC_API int ybc_item_acquire(struct ybc *cache, struct ybc_item *item,
  *
  * This function mustn't be called in YBC_SINGLE_THREADED builds.
  * Apps based on event loop and/or cooperative multitasking must use
- * ybc_item_acquire_de_async() instead.
+ * ybc_item_get_de_async() instead.
  */
-YBC_API enum ybc_de_status ybc_item_acquire_de(struct ybc *cache,
+YBC_API enum ybc_de_status ybc_item_get_de(struct ybc *cache,
     struct ybc_item *item, const struct ybc_key *key, uint64_t grace_ttl);
 
 /*
- * This function is almost equivalent to ybc_item_acquire_de(), except that it
+ * This function is almost equivalent to ybc_item_get_de(), except that it
  * never blocks. It returns YBC_DE_WOULDBLOCK if the item isn't ready yet,
  * so the caller can wait for a small amount of time before re-trying to obtain
  * the item again.
@@ -654,11 +654,11 @@ YBC_API enum ybc_de_status ybc_item_acquire_de(struct ybc *cache,
  * This function is intended for apps based on event loop and/or cooperative
  * multitasking.
  */
-YBC_API enum ybc_de_status ybc_item_acquire_de_async(struct ybc *cache,
+YBC_API enum ybc_de_status ybc_item_get_de_async(struct ybc *cache,
     struct ybc_item *item, const struct ybc_key *key, uint64_t grace_ttl);
 
 /*
- * Releases the item acquired by ybc_item_acquire().
+ * Releases acquired item.
  *
  * The value returned by ybc_item_get_value() MUST not be used after the item
  * is released.
@@ -749,7 +749,7 @@ YBC_API void ybc_item_get_value(const struct ybc_item *item,
  * struct ybc_item *const item = (struct ybc_item *)item_buf;
  * ...
  * struct ybc *const cache = ybc_cluster_get_cache(cluster, &key);
- * ybc_item_acquire(cache, item, &key);
+ * ybc_item_get(cache, item, &key);
  * ...
  * ybc_item_release(item);
  * ...

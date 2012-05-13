@@ -210,7 +210,7 @@ static void simple_get(struct ybc *const cache, const size_t requests_count,
   for (size_t i = 0; i < requests_count; ++i) {
     tmp = m_rand_next(&rand_state) % items_count;
 
-    if (ybc_item_acquire(cache, item, &key)) {
+    if (ybc_item_get(cache, item, &key)) {
       /* Emulate access to the item */
       ybc_item_get_value(item, &value);
       if (value.size > max_item_size) {

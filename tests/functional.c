@@ -147,7 +147,7 @@ static void expect_item_miss(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (ybc_item_acquire(cache, item, key)) {
+  if (ybc_item_get(cache, item, key)) {
     M_ERROR("unexpected item found");
   }
 }
@@ -159,7 +159,7 @@ static void expect_item_hit(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (!ybc_item_acquire(cache, item, key)) {
+  if (!ybc_item_get(cache, item, key)) {
     M_ERROR("cannot find expected item");
   }
   expect_value(item, expected_value);
@@ -193,7 +193,7 @@ static void expect_item_miss_de(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (ybc_item_acquire_de(cache, item, key, grace_ttl) == YBC_DE_SUCCESS) {
+  if (ybc_item_get_de(cache, item, key, grace_ttl) == YBC_DE_SUCCESS) {
     M_ERROR("unexpected item found");
   }
 }
@@ -205,7 +205,7 @@ static void expect_item_hit_de(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (ybc_item_acquire_de(cache, item, key, grace_ttl) != YBC_DE_SUCCESS) {
+  if (ybc_item_get_de(cache, item, key, grace_ttl) != YBC_DE_SUCCESS) {
     M_ERROR("cannot find expected item");
   }
   expect_value(item, expected_value);
@@ -432,22 +432,22 @@ static void test_dogpile_effect_ops_async(struct ybc *const cache)
    * for non-existing item. The second try for the same non-existing item
    * should result in YBC_DE_WOULDBLOCK.
    */
-  if (ybc_item_acquire_de_async(cache, item, &key, 10 * 1000) != YBC_DE_NOTFOUND) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+  if (ybc_item_get_de_async(cache, item, &key, 10 * 1000) != YBC_DE_NOTFOUND) {
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
 
   /* Should return immediately instead of waiting for 10 seconds. */
-  if (ybc_item_acquire_de_async(cache, item, &key, 5 * 1000) !=
+  if (ybc_item_get_de_async(cache, item, &key, 5 * 1000) !=
       YBC_DE_WOULDBLOCK) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
 
   key.ptr = "bar";
   expect_item_add(cache, &key, &value);
 
-  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl / 10) !=
+  if (ybc_item_get_de_async(cache, item, &key, value.ttl / 10) !=
       YBC_DE_SUCCESS) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
   ybc_item_release(item);
 
@@ -456,20 +456,20 @@ static void test_dogpile_effect_ops_async(struct ybc *const cache)
    * should be returned on the first try and the item itself should be returned
    * on subsequent tries irregardless of grace ttl value.
    */
-  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl * 10) !=
+  if (ybc_item_get_de_async(cache, item, &key, value.ttl * 10) !=
       YBC_DE_NOTFOUND) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
 
-  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl * 10) !=
+  if (ybc_item_get_de_async(cache, item, &key, value.ttl * 10) !=
       YBC_DE_SUCCESS) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
   ybc_item_release(item);
 
-  if (ybc_item_acquire_de_async(cache, item, &key, value.ttl / 10) !=
+  if (ybc_item_get_de_async(cache, item, &key, value.ttl / 10) !=
       YBC_DE_SUCCESS) {
-    M_ERROR("unexpected status returned from ybc_item_acquire_de_async()");
+    M_ERROR("unexpected status returned from ybc_item_get_de_async()");
   }
   ybc_item_release(item);
 
@@ -554,7 +554,7 @@ static void test_overlapped_acquirements(struct ybc *const cache,
   }
 
   for (i = 0; i < items_count; ++i) {
-    ybc_item_acquire(cache, m_get_item(obtained_items, i), &key);
+    ybc_item_get(cache, m_get_item(obtained_items, i), &key);
     expect_value(m_get_item(obtained_items, i), &value);
   }
 
@@ -826,7 +826,7 @@ static int is_item_exists(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (!ybc_item_acquire(cache, item, key)) {
+  if (!ybc_item_get(cache, item, key)) {
     return 0;
   }
   ybc_item_release(item);
@@ -1032,7 +1032,7 @@ static void *thread_func(void *const ctx)
       ybc_item_remove(task->cache, &key);
       break;
     default:
-      if (ybc_item_acquire(task->cache, item, &key)) {
+      if (ybc_item_get(task->cache, item, &key)) {
         value.ptr = key.ptr;
         expect_value(item, &value);
         ybc_item_release(item);

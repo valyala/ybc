@@ -1133,7 +1133,7 @@ static int m_storage_allocate(struct m_storage *const storage,
 
       /*
        * It is expected that item's properties are already verified
-       * in ybc_item_acquire(), so use only assertions here.
+       * in ybc_item_get(), so use only assertions here.
        */
       assert(payload->size <= storage_size);
       assert(payload->cursor.offset <= storage_size - payload->size);
@@ -2059,20 +2059,20 @@ static void m_sync_destroy(struct m_sync *const sc)
  ******************************************************************************/
 
 /*
- * Minimum grace ttl, which can be passed to ybc_item_acquire_de().
+ * Minimum grace ttl, which can be passed to ybc_item_get_de().
  *
  * There is no sense in grace ttl, which is smaller than 1 millisecond.
  */
 static const uint64_t M_DE_ITEM_MIN_GRACE_TTL = 1;
 
 /*
- * Maximum grace ttl, which can be passed to ybc_item_acquire_de().
+ * Maximum grace ttl, which can be passed to ybc_item_get_de().
  *
  * Too low maximum grace ttl won't prevent from dogpile effect, when multiple
  * threads are busy with creation of the same item.
  *
  * Too high maximum grace ttl may result in too long m_de->pending_items list
- * if many distinct items are requested via ybc_item_acquire_de() with high
+ * if many distinct items are requested via ybc_item_get_de() with high
  * grace ttls. So the maximum grace ttl effectively limits the size
  * of m_de->pending_items list.
  *
@@ -2090,7 +2090,7 @@ static const uint64_t M_DE_ITEM_MAX_GRACE_TTL = 10 * 60 * 1000;
  * Too low sleep time may result in many unsuccessful tries on obtaining
  * not-yet-existing item, i.e. CPU time waste.
  *
- * Too high sleep time may result in high ybc_item_acquire_be() latencies.
+ * Too high sleep time may result in high ybc_item_get_de() latencies.
  */
 static const uint64_t M_DE_ITEM_SLEEP_TIME = 100;
 
@@ -2674,7 +2674,7 @@ void ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
   m_lock_unlock(&cache->lock);
 }
 
-int ybc_item_acquire(struct ybc *const cache, struct ybc_item *const item,
+int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,
     const struct ybc_key *const key)
 {
   struct m_key_digest key_digest;
@@ -2732,7 +2732,7 @@ static enum ybc_de_status m_item_acquire_de_async(struct ybc *const cache,
   return YBC_DE_SUCCESS;
 }
 
-enum ybc_de_status ybc_item_acquire_de_async(struct ybc *const cache,
+enum ybc_de_status ybc_item_get_de_async(struct ybc *const cache,
     struct ybc_item *const item, const struct ybc_key *const key,
     const uint64_t grace_ttl)
 {
@@ -2745,7 +2745,7 @@ enum ybc_de_status ybc_item_acquire_de_async(struct ybc *const cache,
       adjusted_grace_ttl);
 }
 
-enum ybc_de_status ybc_item_acquire_de(struct ybc *const cache,
+enum ybc_de_status ybc_item_get_de(struct ybc *const cache,
     struct ybc_item *const item, const struct ybc_key *const key,
     const uint64_t grace_ttl)
 {
