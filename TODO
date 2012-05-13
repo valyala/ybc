@@ -1,8 +1,14 @@
 - More tests.
-- Perftests.
 - Documentation.
 - Ports to other platforms (Windows, MacOS).
 - Killer app.
 - API bindings for popular programming languages (Java, Python, PHP, C#, Lua).
 - Data corruption detection.
 - Optimistic concurrency control.
+
+Architecture enhancements:
+- Add ybc_item_acquire_de_async() for single-threaded apps.
+- Deny ybc_item_acquire_de() call for YBC_SINGLE_THREADED builds.
+- Rename ybc_item_acquire* to ybc_item_get*, since other functions also acquire
+  items.
+- Improve m_storage_allocate() algorithm from O(n*n) to O(n*ln(n)).
