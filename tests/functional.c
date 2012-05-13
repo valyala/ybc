@@ -1080,10 +1080,10 @@ int main(void)
   test_add_txn_ops(cache);
   test_item_ops(cache, 1000);
   test_expiration(cache);
+  test_dogpile_effect_ops_async(cache);
   if (ybc_is_thread_safe()) {
     test_dogpile_effect_ops(cache);
   }
-  test_dogpile_effect_ops_async(cache);
   test_cluster_ops(5, 1000);
 
   test_overlapped_acquirements(cache, 100);
