@@ -456,6 +456,53 @@ static void test_cluster_ops(const size_t cluster_size,
   ybc_cluster_close(cluster);
 }
 
+static struct ybc_item *m_get_item(struct ybc_item *const items, const size_t i)
+{
+  return (struct ybc_item *)(((char *)items) + ybc_item_get_size() * i);
+}
+
+static void test_overlapped_acquirements(struct ybc *const cache,
+    const size_t items_count)
+{
+  m_open_anonymous(cache);
+
+  char added_items_buf[ybc_item_get_size() * items_count];
+  struct ybc_item *const added_items = (struct ybc_item *)added_items_buf;
+
+  char obtained_items_buf[ybc_item_get_size() * items_count];
+  struct ybc_item *const obtained_items = (struct ybc_item *)obtained_items_buf;
+
+  size_t i;
+  const struct ybc_key key = {
+      .ptr = &i,
+      .size = sizeof(i),
+  };
+  const struct ybc_value value = {
+      .ptr = &i,
+      .size = sizeof(i),
+      .ttl = YBC_MAX_TTL,
+  };
+
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_add(cache, m_get_item(added_items, i), &key, &value);
+  }
+
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_acquire(cache, m_get_item(obtained_items, i), &key);
+    expect_value(m_get_item(obtained_items, i), &value);
+  }
+
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_release(m_get_item(added_items, i));
+  }
+
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_release(m_get_item(obtained_items, items_count - i - 1));
+  }
+
+  ybc_close(cache);
+}
+
 static void test_interleaved_adds(struct ybc *const cache)
 {
   m_open_anonymous(cache);
@@ -970,6 +1017,7 @@ int main(void)
   test_dogpile_effect_ops(cache);
   test_cluster_ops(5, 1000);
 
+  test_overlapped_acquirements(cache, 100);
   test_interleaved_adds(cache);
   test_instant_clear(cache);
   test_persistent_survival(cache);
