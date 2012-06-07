@@ -943,6 +943,14 @@ struct m_storage
   size_t size;
 
   /*
+   * A copy of hash seed from index file.
+   *
+   * Each item contains a copy of hash seed in its' metadata for validation
+   * purposes. See m_storage_metadata_check() for details.
+   */
+  uint64_t hash_seed;
+
+  /*
    * A pointer to the beginning of the storage.
    */
   char *data;
@@ -1177,7 +1185,7 @@ static int m_storage_allocate(struct m_storage *const storage,
  * Doesn't check item's key, which is stored in the storage, due to performance
  * reasons (avoids random memory access).
  *
- * See also m_storage_payload_key_check().
+ * See also m_storage_metadata_check().
  *
  * Returns non-zero on successful check, zero on failure.
  */
@@ -1219,31 +1227,95 @@ static int m_storage_payload_check(const struct m_storage *const storage,
 }
 
 /*
- * Checks key correctness for an item with the given payload.
- *
- * Item's key must match the given key.
+ * It is safe referencing uninitialized memory inside sizeof().
+ */
+#define M_MEMBER_SIZEOF(struct_name, member_name) \
+	sizeof(((struct_name *)0)->member_name)
+
+static size_t m_storage_metadata_get_size(const size_t key_size) {
+  /*
+   * Payload metadata contains the following fields:
+   * - hash_seed
+   * - key size
+   * - payload size
+   * - key data
+   */
+  static const size_t const_metadata_size =
+      M_MEMBER_SIZEOF(struct m_storage, hash_seed) +
+      M_MEMBER_SIZEOF(struct ybc_key, size) +
+      M_MEMBER_SIZEOF(struct m_storage_payload, size);
+
+  assert(key_size <= SIZE_MAX - const_metadata_size);
+  return key_size + const_metadata_size;
+}
+
+static void m_storage_metadata_save(
+    const struct m_storage *const storage,
+    const struct m_storage_payload *const payload,
+    const struct ybc_key *const key)
+{
+  const size_t metadata_size = m_storage_metadata_get_size(key->size);
+  char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
+  (void)metadata_size;
+
+  memcpy(ptr, &storage->hash_seed, sizeof(storage->hash_seed));
+
+  ptr += sizeof(storage->hash_seed);
+  memcpy(ptr, &key->size, sizeof(key->size));
+
+  ptr += sizeof(key->size);
+  memcpy(ptr, &payload->size, sizeof(payload->size));
+
+  ptr += sizeof(payload->size);
+  memcpy(ptr, key->ptr, key->size);
+}
+
+/*
+ * Checks metadata correctness for an item with the given payload.
  *
  * The function is slower than m_storage_payload_check(), because it accesses
  * random location in the storage. Use this function only if you really need it.
  *
  * Returns non-zero on successful check, zero on failure.
  */
-static int m_storage_payload_key_check(const struct m_storage *const storage,
+static int m_storage_metadata_check(const struct m_storage *const storage,
     const struct m_storage_payload *const payload,
     const struct ybc_key *const key)
 {
-  if (payload->size < key->size) {
+  const size_t metadata_size = m_storage_metadata_get_size(key->size);
+
+  if (payload->size < metadata_size) {
     /*
-     * Payload's size cannot be smaller than the key's size,
-     * because key contents is stored at the beginning of payload.
+     * Payload's size cannot be smaller than the size of metadata,
+     * because payload includes the metadata.
      */
     return 0;
   }
 
-  const char *const ptr = m_storage_get_ptr(storage, payload->cursor.offset);
-  assert(((uintptr_t)ptr) <= UINTPTR_MAX - key->size);
+  const char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
+
+  if (memcmp(ptr, &storage->hash_seed, sizeof(storage->hash_seed))) {
+    /* Invalid hash_seed. */
+    return 0;
+  }
+
+  ptr += sizeof(storage->hash_seed);
+  if (memcmp(ptr, &key->size, sizeof(key->size))) {
+    /* Invalid key size. */
+    return 0;
+  }
+
+  ptr += sizeof(key->size);
+  if (memcmp(ptr, &payload->size, sizeof(payload->size))) {
+    /* Invalid payload size. */
+    return 0;
+  }
+
+  ptr += sizeof(payload->size);
   if (memcmp(ptr, key->ptr, key->size)) {
-    /* Key data mismatch. */
+    /* Invalid key data. */
     return 0;
   }
 
@@ -1289,7 +1361,7 @@ static const size_t M_WS_MAX_MOVABLE_ITEM_SIZE = 64 * 1024;
  * The probability must be in the range [0..99].
  * 0 disables the defragmentation, while 99 leads to aggressive defragmentation.
  *
- * Lower probability result in smaller number of m_ws_defragment() calls
+ * Lower probability results in smaller number of m_ws_defragment() calls
  * at the cost of probably higher hot data fragmentation.
  */
 static const int M_WS_DEFRAGMENT_PROBABILITY = 10;
@@ -1628,12 +1700,12 @@ static int m_map_get(
   struct m_storage_payload *const payload = &map->payloads[slot_index];
 
   /*
-   * Do not merge m_storage_payload_check() with m_storage_payload_key_check(),
+   * Do not merge m_storage_payload_check() with m_storage_metadata_check(),
    * because m_storage_payload_check() operates only on map, while
-   * m_storage_payload_key_check() accesses random location in the storage.
+   * m_storage_metadata_check() accesses random location in the storage.
    */
   if (!m_storage_payload_check(storage, payload) ||
-      !m_storage_payload_key_check(storage, payload, key)) {
+      !m_storage_metadata_check(storage, payload, key)) {
     /*
      * Optimization: clear key for invalid payload,
      * so it won't be returned and checked next time.
@@ -1805,17 +1877,6 @@ struct m_index
    * - Fast cache data invalidation. See ybc_clear().
    */
   uint64_t *hash_seed_ptr;
-
-  /*
-   * An immutable copy of hash seed from index file.
-   *
-   * It is used instead of *hash_seed_ptr due to the following reasons:
-   * - avoiding a memory dereference in hot paths during key digests'
-   *   calculations.
-   * - protecting from accidental (or malicious) corruption of *hash_seed_ptr
-   *   located directly in index file.
-   */
-  uint64_t hash_seed;
 };
 
 static size_t m_index_get_file_size(const size_t slots_count)
@@ -1889,7 +1950,6 @@ static int m_index_open(struct m_index *const index, const char *const filename,
   if (*is_file_created) {
     *index->hash_seed_ptr = m_get_current_time();
   }
-  index->hash_seed = *index->hash_seed_ptr;
 
   /*
    * Do not verify correctness of loaded index file now, because the cache
@@ -1912,6 +1972,9 @@ static void m_index_close(struct m_index *const index)
 
 /*******************************************************************************
  * Sync API.
+ *
+ * Syncing is performed by a separate thread in order to avoid latency spikes
+ * during cache accesses.
  ******************************************************************************/
 
 /*
@@ -2357,6 +2420,7 @@ static int m_open(struct ybc *const cache,
   }
 
   cache->storage.next_cursor = *next_cursor;
+  cache->storage.hash_seed = *cache->index.hash_seed_ptr;
 
   if (!m_storage_open(&cache->storage, config->data_file, force,
       &is_storage_file_created)) {
@@ -2421,19 +2485,10 @@ void ybc_clear(struct ybc *const cache)
 {
   /*
    * New hash seed automatically invalidates all the items stored in the cache.
-   *
-   * There is non-zero probability that certain keys will have identical digests
-   * for new and old hash seeds. This means that items with such keys may
-   * survive cache clearance.
-   * TODO: think about how to get rid of such items. For example, store and
-   * verify key digests alongside keys in data file.
-   * Also estimate the probability of keys' survival. If it is too small (
-   * i.e. close to 1/(2^64)), then there is no need in special handling for
-   * this case.
    */
 
-  ++cache->index.hash_seed;
-  *cache->index.hash_seed_ptr = cache->index.hash_seed;
+  ++cache->storage.hash_seed;
+  *cache->index.hash_seed_ptr = cache->storage.hash_seed;
 }
 
 void ybc_remove(const struct ybc_config *const config)
@@ -2455,12 +2510,13 @@ struct ybc_add_txn
 
 static void *m_item_get_value_ptr(const struct ybc_item *const item)
 {
-  assert(item->payload.size >= item->key_size);
+  const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
+  assert(item->payload.size >= metadata_size);
 
   char *const ptr = m_storage_get_ptr(&item->cache->storage,
       item->payload.cursor.offset);
-  assert((uintptr_t)ptr <= UINTPTR_MAX - item->key_size);
-  return ptr + item->key_size;
+  assert((uintptr_t)ptr <= UINTPTR_MAX - metadata_size);
+  return ptr + metadata_size;
 }
 
 static uint64_t m_item_get_ttl(const struct ybc_item *const item)
@@ -2532,13 +2588,14 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
     return 0;
   }
 
-  m_key_digest_get(&txn->key_digest, cache->index.hash_seed, key);
+  m_key_digest_get(&txn->key_digest, cache->storage.hash_seed, key);
 
   txn->item.cache = cache;
   txn->item.key_size = key->size;
 
-  assert(value_size <= SIZE_MAX - key->size);
-  txn->item.payload.size = key->size + value_size;
+  const size_t metadata_size = m_storage_metadata_get_size(key->size);
+  assert(value_size <= SIZE_MAX - metadata_size);
+  txn->item.payload.size = metadata_size + value_size;
 
   /*
    * Allocate storage space for the new item.
@@ -2556,12 +2613,9 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
   }
 
   /*
-   * Copy key to the beginning of the storage space.
+   * Save item's metadata to storage.
    */
-  char *const ptr = m_storage_get_ptr(&cache->storage,
-      txn->item.payload.cursor.offset);
-  assert(((uintptr_t)ptr) <= UINTPTR_MAX - key->size);
-  memcpy(ptr, key->ptr, key->size);
+  m_storage_metadata_save(&cache->storage, &txn->item.payload, key);
 
   return 1;
 }
@@ -2667,7 +2721,7 @@ void ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
 
   struct m_key_digest key_digest;
 
-  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+  m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
 
   m_lock_lock(&cache->lock);
   m_map_cache_remove(&cache->index.map, &cache->index.map_cache, &key_digest);
@@ -2679,7 +2733,7 @@ int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,
 {
   struct m_key_digest key_digest;
 
-  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+  m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
 
   return m_item_acquire(cache, item, key, &key_digest);
 }
@@ -2739,7 +2793,7 @@ enum ybc_de_status ybc_item_get_de_async(struct ybc *const cache,
   struct m_key_digest key_digest;
   const uint64_t adjusted_grace_ttl = m_item_adjust_grace_ttl(grace_ttl);
 
-  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+  m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
 
   return m_item_acquire_de_async(cache, item, key, &key_digest,
       adjusted_grace_ttl);
@@ -2759,7 +2813,7 @@ enum ybc_de_status ybc_item_get_de(struct ybc *const cache,
   struct m_key_digest key_digest;
   const uint64_t adjusted_grace_ttl = m_item_adjust_grace_ttl(grace_ttl);
 
-  m_key_digest_get(&key_digest, cache->index.hash_seed, key);
+  m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
 
   for (;;) {
     enum ybc_de_status status = m_item_acquire_de_async(cache, item, key,
@@ -2790,8 +2844,9 @@ void ybc_item_get_value(const struct ybc_item *const item,
 {
   value->ptr = m_item_get_value_ptr(item);
 
-  assert(item->payload.size >= item->key_size);
-  value->size = item->payload.size - item->key_size;
+  const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
+  assert(item->payload.size >= metadata_size);
+  value->size = item->payload.size - metadata_size;
 
   value->ttl = m_item_get_ttl(item);
 }
@@ -2907,7 +2962,7 @@ int ybc_cluster_open(struct ybc_cluster *const cluster,
     total_slots_count += config->map_slots_count;
     max_slot_indexes[i] = total_slots_count;
 
-    cluster->hash_seed += cache->index.hash_seed;
+    cluster->hash_seed += cache->storage.hash_seed;
   }
 
   cluster->caches_count = caches_count;

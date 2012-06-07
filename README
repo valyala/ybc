@@ -146,3 +146,12 @@ A: Cache persistence allows skipping cache warm-up step ater the application
    and start every node in the application cluster using their own copy
    of the 'golden' cache, thus avoiding warm-up step on all nodes
    in the cluster.
+
+Q: Are cache files platform-neutral?
+A: No. Cache files are tightly tied to the platform they were created.
+   Cache files created on one platform (for example, x86) will be completely
+   broken when read on another platform (for example, x64) - it is likely
+   they will appear as empty.
+   Platform interoperability may result in code complication and, probably,
+   performance degradation. So share cache files only between machines with
+   identical platforms.
