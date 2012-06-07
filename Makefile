@@ -113,7 +113,7 @@ run-valgrind-tests: tests-shared-debug tests-single-threaded
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-release
 	valgrind $(VALGRIND_FLAGS) tests/functional-single-threaded
 
-run-perftests:
+run-perftests: perftests
 	tests/performance-32-debug
 	tests/performance-64-debug
 	tests/performance-32-release
