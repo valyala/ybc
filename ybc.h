@@ -185,6 +185,25 @@ YBC_API void ybc_config_set_hot_data_size(struct ybc_config *config,
     size_t hot_data_size);
 
 /*
+ * Sets the size of hashtable used for tracking pending items affected
+ * by dogpile effect.
+ *
+ * The hashtable size should be close to the average number of distinct pending
+ * items concurrently affected by dogpile effect (N_de).
+ *
+ * If N_de is much larger than the hashtable size, then ybc_item_get_de*() may
+ * waste a lot of CPU time looking up pending items affected by dogpile effect.
+ *
+ * If N_de is smaller than the hashtable size, then the cache may waste
+ * additional memory.
+ *
+ * Default value should work well for almost all cases, so tune this value only
+ * if you know what you are doing.
+ */
+YBC_API void ybc_config_set_de_hashtable_size(struct ybc_config *config,
+    size_t de_hashtable_size);
+
+/*
  * Sets interval for cache data syncing in milliseconds.
  *
  * Cache items are periodically synced to data file with this interval.

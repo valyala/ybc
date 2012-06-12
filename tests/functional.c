@@ -476,6 +476,55 @@ static void test_dogpile_effect_ops_async(struct ybc *const cache)
   ybc_close(cache);
 }
 
+static void m_test_de_hashtable(struct ybc *const cache,
+    const size_t hashtable_size, const size_t pending_items_count)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_de_hashtable_size(config, hashtable_size);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create an anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  size_t i;
+  struct ybc_key key = {
+      .ptr = &i,
+      .size = sizeof(i),
+  };
+
+  for (i = 0; i < pending_items_count; ++i) {
+    if (ybc_item_get_de_async(cache, item, &key, 1000) != YBC_DE_NOTFOUND) {
+      M_ERROR("unexpected status returned from ybc_item_get_de_async()");
+    }
+
+    if (ybc_item_get_de_async(cache, item, &key, 1000) != YBC_DE_WOULDBLOCK) {
+      M_ERROR("unexpected status returned from ybc_item_get_de_async()");
+    }
+  }
+
+  ybc_close(cache);
+}
+
+static void test_dogpile_effect_hashtable(struct ybc *const cache)
+{
+  for (size_t hashtable_size = 1; hashtable_size <= 1000;
+      hashtable_size *= 10) {
+    for (size_t pending_items_count = 1; pending_items_count <= 10000;
+        pending_items_count *= 100) {
+      m_test_de_hashtable(cache, hashtable_size, pending_items_count);
+    }
+  }
+}
+
 static void test_cluster_ops(const size_t cluster_size,
     const size_t iterations_count)
 {
@@ -1082,6 +1131,7 @@ int main(void)
   test_expiration(cache);
   test_dogpile_effect_ops_async(cache);
   test_dogpile_effect_ops(cache);
+  test_dogpile_effect_hashtable(cache);
   test_cluster_ops(5, 1000);
 
   test_overlapped_acquirements(cache, 100);

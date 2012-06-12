@@ -8,6 +8,3 @@
 
 Architecture enhancements:
 - Improve m_storage_allocate() algorithm from O(n*n) to O(n*ln(n)).
-- Split single m_de->pending_items list into multiple lists (aka hash buckets)
-  in order to increase m_de_get_item() speed when there are a lot of pending
-  items.

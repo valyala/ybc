@@ -1390,6 +1390,13 @@ static void m_key_digest_get(struct m_key_digest *const key_digest,
   }
 }
 
+static size_t m_key_digest_mod(const struct m_key_digest *const key_digest,
+    const size_t n)
+{
+  assert(!m_key_digest_is_empty(key_digest));
+  return key_digest->digest % n;
+}
+
 
 /*******************************************************************************
  * Map API.
@@ -1511,11 +1518,10 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
     const struct m_key_digest *const key_digest, size_t *const start_index,
     size_t *const slot_index)
 {
-  assert(!m_key_digest_is_empty(key_digest));
   assert(map->slots_count % M_MAP_BUCKET_SIZE == 0);
   assert(map->slots_count >= M_MAP_BUCKET_SIZE);
 
-  *start_index = (key_digest->digest % map->slots_count) & ~M_MAP_BUCKET_MASK;
+  *start_index = m_key_digest_mod(key_digest, map->slots_count) & ~M_MAP_BUCKET_MASK;
 
   for (size_t i = 0; i < M_MAP_BUCKET_SIZE; ++i) {
     const size_t current_index = *start_index + i;
@@ -2133,20 +2139,35 @@ struct m_de_item
 struct m_de
 {
   /*
-   * Lock for pending_items list.
+   * Lock for pending_items hash table.
    */
   struct m_lock lock;
 
   /*
-   * A list of items, which are pending to be added or updated in the cache.
+   * The number of buckets in pending_items hash table.
    */
-  struct m_de_item *pending_items;
+  size_t buckets_count;
+
+  /*
+   * A hash table of buckets with items, which are pending to be added
+   * or updated in the cache.
+   */
+  struct m_de_item **pending_items;
 };
 
-static void m_de_init(struct m_de *const de)
+static void m_de_init(struct m_de *const de, const size_t buckets_count)
 {
+
   m_lock_init(&de->lock);
-  de->pending_items = NULL;
+
+  de->buckets_count = buckets_count;
+
+  assert(buckets_count > 0);
+  assert(buckets_count <= SIZE_MAX / sizeof(*de->pending_items));
+  de->pending_items = m_malloc(buckets_count * sizeof(*de->pending_items));
+  for (size_t i = 0; i < buckets_count; ++i) {
+    de->pending_items[i] = NULL;
+  }
 }
 
 static void m_de_item_destroy_all(struct m_de_item *const de_item)
@@ -2166,7 +2187,10 @@ static void m_de_destroy(struct m_de *const de)
    * de->pending_items can contain not-yet-expired items at destruction time.
    * It is safe removing them now.
    */
-  m_de_item_destroy_all(de->pending_items);
+  for (size_t i = 0; i < de->buckets_count; ++i) {
+    m_de_item_destroy_all(de->pending_items[i]);
+  }
+  free(de->pending_items);
 
   m_lock_destroy(&de->lock);
 }
@@ -2222,15 +2246,17 @@ static int m_de_item_register(struct m_de *const de,
   const uint64_t current_time = m_get_current_time();
 
   m_lock_lock(&de->lock);
+  const size_t idx = m_key_digest_mod(key_digest, de->buckets_count);
+  struct m_de_item **const pending_items_ptr = &de->pending_items[idx];
 
-  struct m_de_item *const de_item = m_de_item_get(&de->pending_items,
-      key_digest, current_time);
+  struct m_de_item *const de_item = m_de_item_get(pending_items_ptr, key_digest,
+      current_time);
 
   if (de_item == NULL) {
     /* This assertion may break in very far future. */
     assert(grace_ttl <= UINT64_MAX - current_time);
 
-    m_de_item_add(&de->pending_items, key_digest, grace_ttl + current_time);
+    m_de_item_add(pending_items_ptr, key_digest, grace_ttl + current_time);
   }
 
   m_lock_unlock(&de->lock);
@@ -2251,6 +2277,8 @@ static const size_t M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT = 10 * 1000;
 
 static const size_t M_CONFIG_DEFAULT_HOT_DATA_SIZE = 8 * 1024 * 1024;
 
+static const size_t M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE = 16;
+
 static const size_t M_CONFIG_DEFAULT_SYNC_INTERVAL = 10 * 1000;
 
 struct ybc_config
@@ -2261,6 +2289,7 @@ struct ybc_config
   size_t data_file_size;
   size_t map_cache_slots_count;
   size_t hot_data_size;
+  size_t de_hashtable_size;
   uint64_t sync_interval;
 };
 
@@ -2277,6 +2306,7 @@ void ybc_config_init(struct ybc_config *const config)
   config->data_file_size = M_CONFIG_DEFAULT_DATA_SIZE;
   config->map_cache_slots_count = M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT;
   config->hot_data_size = M_CONFIG_DEFAULT_HOT_DATA_SIZE;
+  config->de_hashtable_size = M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE;
   config->sync_interval = M_CONFIG_DEFAULT_SYNC_INTERVAL;
 }
 
@@ -2320,6 +2350,13 @@ void ybc_config_set_hot_data_size(struct ybc_config *const config,
     const size_t hot_data_size)
 {
   config->hot_data_size = hot_data_size;
+}
+
+void ybc_config_set_de_hashtable_size(struct ybc_config *const config,
+    const size_t de_hashtable_size)
+{
+  config->de_hashtable_size = ((de_hashtable_size > 0) ? de_hashtable_size :
+      M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE);
 }
 
 void ybc_config_set_sync_interval(struct ybc_config *const config,
@@ -2389,7 +2426,7 @@ static int m_open(struct ybc *const cache,
 
   m_sync_init(&cache->sc, config->sync_interval, next_cursor, &cache->storage,
       &cache->acquired_items, &cache->lock);
-  m_de_init(&cache->de);
+  m_de_init(&cache->de, config->de_hashtable_size);
 
   cache->hot_data_size = config->hot_data_size;
   m_ws_fix_hot_data_size(&cache->hot_data_size, cache->storage.size);
@@ -2933,7 +2970,8 @@ struct ybc *ybc_cluster_get_cache(struct ybc_cluster *const cluster,
 
   m_key_digest_get(&key_digest, cluster->hash_seed, key);
 
-  const size_t slot_index = key_digest.digest % cluster->total_slots_count;
+  const size_t slot_index = m_key_digest_mod(&key_digest,
+      cluster->total_slots_count);
 
   /*
    * Prefer linear search over binary search here due to the following reasons:
