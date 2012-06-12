@@ -25,33 +25,6 @@ extern "C" {
  */
 #define YBC_MAX_TTL (~(uint64_t)0)
 
-/*
- * Returns non-zero if the library is built with thread safety support.
- * Otherwise returns zero.
- *
- * If the function return zero, the library functions MUST NOT be called
- * from concurrent threads.
- *
- * The library with disabled thread safety may work faster than the library
- * with enabled thread safety, when linked with single-threaded applications.
- * Such applications can achieve concurrency either via asynchronous
- * event-based architecture or via cooperative multitasking (aka 'fibers',
- * 'green threads', 'user-space threads'), where tasks switch to each other
- * at blocking operations.
- *
- * Single-threaded concurrency has the following drawbacks comparing
- * to real multithreading:
- * - It doesn't scale on multiple CPUs, because a thread cannot be executed
- *   simultaneously on multiple CPUs by definition.
- * - Major pagefault ( http://en.wikipedia.org/wiki/Page_fault#Major )
- *   effectively blocks all the tasks in the thread. Major pagefaults are common
- *   if frequently accessed items in the cache don't fit available physical RAM.
- *   So single-threaded applications will work slower than multithreaded apps
- *   under these conditions.
- */
-YBC_API int ybc_is_thread_safe(void);
-
-
 /*******************************************************************************
  * Config API.
  *
@@ -638,9 +611,8 @@ YBC_API int ybc_item_get(struct ybc *cache, struct ybc_item *item,
  *
  * Acquired items MUST be released with ybc_item_release().
  *
- * This function mustn't be called in YBC_SINGLE_THREADED builds.
  * Apps based on event loop and/or cooperative multitasking must use
- * ybc_item_get_de_async() instead.
+ * ybc_item_get_de_async() instead of this function.
  */
 YBC_API enum ybc_de_status ybc_item_get_de(struct ybc *cache,
     struct ybc_item *item, const struct ybc_key *key, uint64_t grace_ttl);

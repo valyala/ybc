@@ -239,8 +239,6 @@ static void m_open(struct ybc *const cache, const size_t items_count,
   ybc_config_set_data_file_size(config, data_file_size);
   ybc_config_set_hot_data_size(config, hot_data_size);
 
-  ybc_config_set_sync_interval(config, 200);
-
   if (!ybc_open(cache, config, 1)) {
     M_ERROR("Cannot create a cache");
   }
@@ -391,11 +389,9 @@ int main(void)
           max_item_size);
     }
 
-    if (ybc_is_thread_safe()) {
-      for (size_t threads_count = 1; threads_count <= 8; threads_count *= 2) {
-        measure_multithreaded_ops(cache, threads_count, requests_count,
-            items_count, 10 * 1000, max_item_size);
-      }
+    for (size_t threads_count = 1; threads_count <= 8; threads_count *= 2) {
+      measure_multithreaded_ops(cache, threads_count, requests_count,
+          items_count, 10 * 1000, max_item_size);
     }
   }
 
