@@ -386,8 +386,8 @@ static int m_event_wait_with_timeout(struct m_event *const e,
 
   if (!e->is_set) {
     const uint64_t current_time = m_get_current_time();
-    assert(timeout <= UINT64_MAX - current_time);
-    const uint64_t exp_time = current_time + timeout;
+    const uint64_t exp_time = ((timeout <= UINT64_MAX - current_time) ?
+        (current_time + timeout) : UINT64_MAX);
 
     struct timespec t = {
         .tv_sec = exp_time / 1000,
@@ -1980,15 +1980,15 @@ static void m_sync_commit(const struct m_storage *const storage,
   }
 }
 
-static void m_sync_flush_data(struct m_sync *const sc)
+static void m_sync_flush_data(
+    const struct m_storage *const storage,
+    struct ybc_item **const acquired_items_ptr,
+    struct m_storage_cursor *const sync_cursor_ptr)
 {
-  m_lock_lock(sc->cache_lock);
+  const struct m_storage_cursor sync_cursor = *sync_cursor_ptr;
+  struct m_storage_cursor next_cursor = storage->next_cursor;
 
-  struct m_storage_cursor next_cursor = sc->storage->next_cursor;
-  struct m_storage_cursor sync_cursor = *sc->sync_cursor;
-
-  m_sync_adjust_next_cursor(*sc->acquired_items_ptr, sc->sync_cursor,
-      &next_cursor);
+  m_sync_adjust_next_cursor(*acquired_items_ptr, &sync_cursor, &next_cursor);
 
   if (next_cursor.wrap_count == sync_cursor.wrap_count) {
     /*
@@ -1998,7 +1998,7 @@ static void m_sync_flush_data(struct m_sync *const sc)
 
     assert(sync_cursor.offset <= next_cursor.offset);
 
-    m_sync_commit(sc->storage, sync_cursor.offset, next_cursor.offset);
+    m_sync_commit(storage, sync_cursor.offset, next_cursor.offset);
   }
   else {
     /*
@@ -2015,10 +2015,10 @@ static void m_sync_flush_data(struct m_sync *const sc)
        * - from the beginning of the storage till next_cursor.
        */
 
-      assert(sync_cursor.offset <= sc->storage->size);
+      assert(sync_cursor.offset <= storage->size);
 
-      m_sync_commit(sc->storage, sync_cursor.offset, sc->storage->size);
-      m_sync_commit(sc->storage, 0, next_cursor.offset);
+      m_sync_commit(storage, sync_cursor.offset, storage->size);
+      m_sync_commit(storage, 0, next_cursor.offset);
     }
     else {
       /*
@@ -2026,13 +2026,11 @@ static void m_sync_flush_data(struct m_sync *const sc)
        * of unsynced data. Let's sync the whole storage.
        */
 
-      m_sync_commit(sc->storage, 0, sc->storage->size);
+      m_sync_commit(storage, 0, storage->size);
     }
   }
 
-  *sc->sync_cursor = next_cursor;
-
-  m_lock_unlock(sc->cache_lock);
+  *sync_cursor_ptr = next_cursor;
 }
 
 static void m_sync_thread_func(void *const ctx)
@@ -2040,10 +2038,16 @@ static void m_sync_thread_func(void *const ctx)
   struct m_sync *const sc = ctx;
 
   while (!m_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
-    m_sync_flush_data(sc);
+    m_lock_lock(sc->cache_lock);
+    m_sync_flush_data(sc->storage, sc->acquired_items_ptr, sc->sync_cursor);
+    m_lock_unlock(sc->cache_lock);
   }
 
-  m_sync_flush_data(sc);
+  /*
+   * There is no need in locking sc->cache_lock here, because the cache
+   * cannot be used by other threads now (at destruction time).
+   */
+  m_sync_flush_data(sc->storage, sc->acquired_items_ptr, sc->sync_cursor);
 }
 
 static void m_sync_init(struct m_sync *const sc,
@@ -2058,16 +2062,23 @@ static void m_sync_init(struct m_sync *const sc,
   sc->acquired_items_ptr = acquired_items_ptr;
   sc->cache_lock = cache_lock;
 
-  m_event_init(&sc->stop_event);
-  m_thread_init_and_start(&sc->sync_thread, &m_sync_thread_func, sc);
+  if (sync_interval > 0) {
+    m_event_init(&sc->stop_event);
+    m_thread_init_and_start(&sc->sync_thread, &m_sync_thread_func, sc);
+  }
 }
 
 static void m_sync_destroy(struct m_sync *const sc)
 {
-  m_event_set(&sc->stop_event);
-
-  m_thread_join_and_destroy(&sc->sync_thread);
-  m_event_destroy(&sc->stop_event);
+  if (sc->sync_interval > 0) {
+    m_event_set(&sc->stop_event);
+    m_thread_join_and_destroy(&sc->sync_thread);
+    m_event_destroy(&sc->stop_event);
+  }
+  else {
+    /* Syncing is disabled, so just update sync cursor. */
+    *sc->sync_cursor = sc->storage->next_cursor;
+  }
 }
 
 
