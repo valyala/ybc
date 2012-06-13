@@ -2517,6 +2517,13 @@ static void *m_item_get_value_ptr(const struct ybc_item *const item)
   return ptr + metadata_size;
 }
 
+static size_t m_item_get_size(const struct ybc_item *const item)
+{
+  const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
+  assert(item->payload.size >= metadata_size);
+  return item->payload.size - metadata_size;
+}
+
 static uint64_t m_item_get_ttl(const struct ybc_item *const item)
 {
   const uint64_t current_time = m_get_current_time();
@@ -2638,9 +2645,11 @@ void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
   m_item_deregister(&txn->item);
 }
 
-void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *const txn)
+void ybc_add_txn_get_value(const struct ybc_add_txn *const txn,
+    struct ybc_add_txn_value *const value)
 {
-  return m_item_get_value_ptr(&txn->item);
+  value->ptr = m_item_get_value_ptr(&txn->item);
+  value->size = m_item_get_size(&txn->item);
 }
 
 
@@ -2701,7 +2710,7 @@ int ybc_item_add(struct ybc *const cache, struct ybc_item *const item,
     return 0;
   }
 
-  void *const dst = ybc_add_txn_get_value_ptr(&txn);
+  void *const dst = m_item_get_value_ptr(&txn.item);
   memcpy(dst, value->ptr, value->size);
   ybc_add_txn_commit(&txn, item, value->ttl);
   return 1;
@@ -2831,11 +2840,7 @@ void ybc_item_get_value(const struct ybc_item *const item,
     struct ybc_value *const value)
 {
   value->ptr = m_item_get_value_ptr(item);
-
-  const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
-  assert(item->payload.size >= metadata_size);
-  value->size = item->payload.size - metadata_size;
-
+  value->size = m_item_get_size(item);
   value->ttl = m_item_get_ttl(item);
 }
 

@@ -233,9 +233,11 @@ static void test_add_txn_commit(struct ybc *const cache,
     M_ERROR("error when starting add transaction");
   }
 
-  void *const value_ptr = ybc_add_txn_get_value_ptr(txn);
-  assert(value_ptr != NULL);
-  memcpy(value_ptr, value->ptr, value->size);
+  struct ybc_add_txn_value txn_value;
+  ybc_add_txn_get_value(txn, &txn_value);
+  assert(txn_value.ptr != NULL);
+  assert(txn_value.size == value->size);
+  memcpy(txn_value.ptr, value->ptr, value->size);
 
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
@@ -660,8 +662,15 @@ static void test_interleaved_adds(struct ybc *const cache)
     M_ERROR("Cannot start the second add transaction");
   }
 
-  memcpy(ybc_add_txn_get_value_ptr(txn1), value1.ptr, value1.size);
-  memcpy(ybc_add_txn_get_value_ptr(txn2), value2.ptr, value2.size);
+  struct ybc_add_txn_value txn_value;
+
+  ybc_add_txn_get_value(txn1, &txn_value);
+  assert(txn_value.size == value1.size);
+  memcpy(txn_value.ptr, value1.ptr, value1.size);
+
+  ybc_add_txn_get_value(txn2, &txn_value);
+  assert(txn_value.size == value2.size);
+  memcpy(txn_value.ptr, value2.ptr, value2.size);
 
   expect_item_miss(cache, &key1);
   expect_item_miss(cache, &key2);

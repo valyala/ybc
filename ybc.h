@@ -340,8 +340,9 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  *
  * value_size = get_serialized_object_size(obj);
  * if (ybc_add_txn_begin(cache, txn, &key, value_size)) {
- *   void *const value_ptr = ybc_add_txn_get_value_ptr(txn);
- *   if (serialize_object(obj, value_ptr)) {
+ *   struct ybc_add_txn_value txn_value;
+ *   ybc_add_txn_get_value(txn, &txn_value);
+ *   if (serialize_object(obj, txn_value.ptr)) {
  *     char item_buf[ybc_item_get_size()];
  *     struct ybc_item *const item = (struct ybc_item *)item_buf;
  *     struct ybc_value value;
@@ -388,6 +389,22 @@ struct ybc_key
 };
 
 /*
+ * Value, which is returned by ybc_add_txn_get_value().
+ */
+struct ybc_add_txn_value
+{
+  /*
+   * A pointer to the allocated region of memory.
+   */
+  void *ptr;
+
+  /*
+   * The size of allocated region of memory.
+   */
+  size_t size;
+};
+
+/*
  * Returns the size of ybc_add_txn structure in bytes.
  *
  * The caller is responsible for allocating this amount of memory
@@ -404,7 +421,7 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * Allocates space in the cache for storing an item (key + value).
  *
  * The caller is responsible for filling up value_size bytes returned
- * by ybc_add_txn_get_value_ptr() before commiting the transaction.
+ * by ybc_add_txn_get_value() before commiting the transaction.
  *
  * The caller may freely modify key contents after the call to this function,
  * because the function makes an internal copy of the key.
@@ -421,7 +438,7 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  * Commits the given 'add' transaction.
  *
  * The allocated space for item's value must be populated with contents
- * before commiting the transaction. See ybc_add_txn_get_value_ptr()
+ * before commiting the transaction. See ybc_add_txn_get_value()
  * for details.
  *
  * The corresponding item instantly appears in the cache after the commit
@@ -445,9 +462,9 @@ YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, struct ybc_item *item,
 YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
 
 /*
- * Returns a pointer to allocated space for item's value.
+ * Populates value with a pointer to allocated space and a size of the value.
  *
- * The caller must fill the given space with value_size bytes of item's value
+ * The caller must fill the given space with value.size bytes of item's value
  * before calling ybc_add_txn_commit().
  *
  * DO NOT write to the allocated space returned by this function after
@@ -455,7 +472,8 @@ YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
  *
  * Always returns non-NULL value.
  */
-YBC_API void *ybc_add_txn_get_value_ptr(const struct ybc_add_txn *txn);
+YBC_API void ybc_add_txn_get_value(const struct ybc_add_txn *txn,
+    struct ybc_add_txn_value *value);
 
 
 /*******************************************************************************
