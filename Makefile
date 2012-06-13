@@ -72,10 +72,10 @@ tests-64-debug: ybc-64-debug $(TEST_SRCS)
 	$(CC) $(TEST_SRCS) ybc-64-debug.o $(TEST_FLAGS) -m64 -o tests/functional-64-debug
 
 tests-shared-debug: libybc-debug $(TEST_SRCS)
-	$(CC) $(TEST_SRCS) libybc-debug.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-debug
+	$(CC) $(TEST_SRCS) -L. -lybc-debug -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-debug
 
 tests-shared-release: libybc-release $(TEST_SRCS)
-	$(CC) $(TEST_SRCS) libybc-release.so -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-release
+	$(CC) $(TEST_SRCS) -L. -lybc-release -Wl,-rpath,. $(TEST_FLAGS) -o tests/functional-shared-release
 
 perftests-32-release: ybc-32-release $(PERFTEST_SRCS)
 	$(CC) $(PERFTEST_SRCS) ybc-32-release.o $(PERFTEST_FLAGS) -O2 -DNDEBUG -m32 -o tests/performance-32-release
