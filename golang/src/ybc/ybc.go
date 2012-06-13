@@ -48,12 +48,10 @@ type Item struct {
 type ClusterConfig struct {
 	ctx *C.struct_ybc_config
 	caches_count uint
-	size uint
 }
 
 type Cluster struct {
 	ctx *C.struct_ybc_cluster
-	caches_count uint
 }
 
 
@@ -283,12 +281,10 @@ func (item Item) getValue() *C.struct_ybc_value {
  ******************************************************************************/
 
 func NewClusterConfig(caches_count uint) *ClusterConfig {
-	config_size := uint(C.ybc_config_get_size())
-	config_buf := make([]byte, config_size * caches_count)
+	config_buf := make([]byte, uint(C.ybc_config_get_size()) * caches_count)
 	config := &ClusterConfig{
 		ctx: (*C.struct_ybc_config)(unsafe.Pointer(&config_buf[0])),
 		caches_count: caches_count,
-		size: config_size,
 	}
 
 	for i := uint(0); i < caches_count; i++ {
@@ -316,11 +312,10 @@ func (config *ClusterConfig) GetConfig(n uint) (cfg Config, err error) {
 	return
 }
 
-func (config *ClusterConfig) OpenCache(force bool) (cluster *Cluster, err error) {
+func (config *ClusterConfig) OpenCache(force bool) (cluster Cluster, err error) {
 	cluster_buf := make([]byte, C.ybc_cluster_get_size(C.size_t(config.caches_count)))
-	cluster = &Cluster{
+	cluster = Cluster{
 		ctx: (*C.struct_ybc_cluster)(unsafe.Pointer(&cluster_buf[0])),
-		caches_count: config.caches_count,
 	}
 	m_force := C.int(0)
 	if force {
@@ -334,7 +329,8 @@ func (config *ClusterConfig) OpenCache(force bool) (cluster *Cluster, err error)
 }
 
 func (config *ClusterConfig) getConfig(n uint) *C.struct_ybc_config {
-	return (*C.struct_ybc_config)(unsafe.Pointer(uintptr(unsafe.Pointer(config.ctx)) + uintptr(n * config.size)))
+	config_size := uint(C.ybc_config_get_size())
+	return (*C.struct_ybc_config)(unsafe.Pointer(uintptr(unsafe.Pointer(config.ctx)) + uintptr(n * config_size)))
 }
 
 
@@ -342,11 +338,11 @@ func (config *ClusterConfig) getConfig(n uint) *C.struct_ybc_config {
  * Cluster
  ******************************************************************************/
 
-func (cluster *Cluster) Close() {
+func (cluster Cluster) Close() {
 	C.ybc_cluster_close(cluster.ctx)
 }
 
-func (cluster *Cluster) GetCache(key []byte) Cache {
+func (cluster Cluster) GetCache(key []byte) Cache {
 	m_key := newKey(key)
 	return Cache{
 		ctx: (*C.struct_ybc)(C.ybc_cluster_get_cache(cluster.ctx, m_key)),
