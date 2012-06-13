@@ -11,7 +11,7 @@ LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 PERFTEST_FLAGS = $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 
-VALGRIND_FLAGS = --suppressions=valgrind.supp
+VALGRIND_FLAGS = --suppressions=valgrind.supp --track-fds=yes
 
 YBC_SRCS = ybc.c
 TEST_SRCS = tests/functional.c
