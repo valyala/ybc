@@ -339,7 +339,7 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  * ...
  *
  * value_size = get_serialized_object_size(obj);
- * if (ybc_add_txn_begin(cache, txn, &key, value_size)) {
+ * if (ybc_add_txn_begin(cache, txn, &key, value_size, ttl)) {
  *   struct ybc_add_txn_value txn_value;
  *   ybc_add_txn_get_value(txn, &txn_value);
  *   if (serialize_object(obj, txn_value.ptr)) {
@@ -347,7 +347,7 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  *     struct ybc_item *const item = (struct ybc_item *)item_buf;
  *     struct ybc_value value;
  *
- *     ybc_add_txn_commit(txn, item, ttl);
+ *     ybc_add_txn_commit(txn, item);
  *
  *     ybc_item_get_value(item, &value);
  *
@@ -418,7 +418,9 @@ YBC_API size_t ybc_add_txn_get_size(void);
 /*
  * Starts 'add' transaction for the given key and value of the given size.
  *
- * Allocates space in the cache for storing an item (key + value).
+ * Allocates space in the cache for storing an item (key + value) and sets
+ * the given ttl for the item. Set ttl to YBC_MAX_TTL for items without
+ * expiration time.
  *
  * The caller is responsible for filling up value_size bytes returned
  * by ybc_add_txn_get_value() before commiting the transaction.
@@ -432,7 +434,7 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * Returns non-zero on success, zero on failure.
  */
 YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
-    const struct ybc_key *key, size_t value_size);
+    const struct ybc_key *key, size_t value_size, uint64_t ttl);
 
 /*
  * Commits the given 'add' transaction.
@@ -441,10 +443,7 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  * before commiting the transaction. See ybc_add_txn_get_value()
  * for details.
  *
- * The corresponding item instantly appears in the cache after the commit
- * with the given ttl (time to live) set. Set ttl to YBC_MAX_TTL for items
- * without expiration time.
- *
+ * The corresponding item instantly appears in the cache after the commit.
  * The cache doesn't guarantee that the added item will be available
  * until its' ttl expiration. The item can be evicted from the cache
  * at any time, but in most cases the item will remain available until
@@ -453,8 +452,7 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  * The function also acquires commited item. The acquired item must be released
  * via ybc_item_release().
  */
-YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, struct ybc_item *item,
-    uint64_t ttl);
+YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, struct ybc_item *item);
 
 /*
  * Rolls back the given 'add' transaction.

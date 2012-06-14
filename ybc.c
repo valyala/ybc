@@ -2587,7 +2587,8 @@ size_t ybc_add_txn_get_size(void)
 }
 
 int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
-    const struct ybc_key *const key, const size_t value_size)
+    const struct ybc_key *const key, const size_t value_size,
+    const uint64_t ttl)
 {
   if (value_size > SIZE_MAX - key->size) {
     return 0;
@@ -2602,6 +2603,10 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
   const size_t metadata_size = m_storage_metadata_get_size(key->size);
   assert(value_size <= SIZE_MAX - metadata_size);
   txn->item.payload.size = metadata_size + value_size;
+
+  const uint64_t current_time = m_get_current_time();
+  txn->item.payload.expiration_time = (ttl > UINT64_MAX - current_time) ?
+      UINT64_MAX : (ttl + current_time);
 
   m_lock_lock(&cache->lock);
   int is_success = m_storage_allocate(&cache->storage, cache->acquired_items,
@@ -2621,13 +2626,9 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
 }
 
 void ybc_add_txn_commit(struct ybc_add_txn *const txn,
-    struct ybc_item *const item, const uint64_t ttl)
+    struct ybc_item *const item)
 {
   struct ybc *const cache = txn->item.cache;
-  const uint64_t current_time = m_get_current_time();
-
-  txn->item.payload.expiration_time = (ttl > UINT64_MAX - current_time) ?
-      (UINT64_MAX) : (ttl + current_time);
 
   m_lock_lock(&cache->lock);
 
@@ -2706,13 +2707,13 @@ int ybc_item_add(struct ybc *const cache, struct ybc_item *const item,
 {
   struct ybc_add_txn txn;
 
-  if (!ybc_add_txn_begin(cache, &txn, key, value->size)) {
+  if (!ybc_add_txn_begin(cache, &txn, key, value->size, value->ttl)) {
     return 0;
   }
 
   void *const dst = m_item_get_value_ptr(&txn.item);
   memcpy(dst, value->ptr, value->size);
-  ybc_add_txn_commit(&txn, item, value->ttl);
+  ybc_add_txn_commit(&txn, item);
   return 1;
 }
 

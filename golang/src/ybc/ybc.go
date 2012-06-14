@@ -183,14 +183,15 @@ func (cache Cache) GetDe(key []byte, grace_ttl time.Duration) (item Item, err er
 	panic("unreachable")
 }
 
-func (cache Cache) NewAddTxn(key []byte, value_size uint) (txn AddTxn, err error) {
+func (cache Cache) NewAddTxn(key []byte, value_size uint, ttl time.Duration) (txn AddTxn, err error) {
 	txn_buf := make([]byte, C.ybc_add_txn_get_size())
 	txn = AddTxn{
 		ctx: (*C.struct_add_txn)(unsafe.Pointer(&txn_buf[0])),
 	}
 
 	m_key := newKey(key)
-	if C.ybc_add_txn_begin(cache.ctx, txn.ctx, m_key, C.size_t(value_size)) == 0 {
+	m_ttl := C.uint64_t(ttl / time.Millisecond)
+	if C.ybc_add_txn_begin(cache.ctx, txn.ctx, m_key, C.size_t(value_size), m_ttl) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -206,10 +207,9 @@ func (cache Cache) Clear() {
  * AddTxn
  ******************************************************************************/
 
-func (txn AddTxn) Commit(ttl time.Duration) Item {
+func (txn AddTxn) Commit() Item {
 	item := newItem()
-	m_ttl := C.uint64_t(ttl / time.Millisecond)
-	C.ybc_add_txn_commit(txn.ctx, item.ctx, m_ttl)
+	C.ybc_add_txn_commit(txn.ctx, item.ctx)
 	return item
 }
 
