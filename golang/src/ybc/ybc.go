@@ -16,8 +16,8 @@ import (
 
 var (
 	ErrOpenFailed = errors.New("cannot open the cache")
-	ErrNotFound = errors.New("the item is not found in the cache")
-	ErrNoSpace = errors.New("not enough space for the item in the cache")
+	ErrNotFound   = errors.New("the item is not found in the cache")
+	ErrNoSpace    = errors.New("not enough space for the item in the cache")
 	ErrOutOfRange = errors.New("index out of range")
 )
 
@@ -52,7 +52,6 @@ type ClusterConfig struct {
 type Cluster struct {
 	buf []byte
 }
-
 
 /*******************************************************************************
  * Config
@@ -130,7 +129,6 @@ func (config Config) ctx() *C.struct_ybc_config {
 	return (*C.struct_ybc_config)(unsafe.Pointer(&config.buf[0]))
 }
 
-
 /*******************************************************************************
  * Cache
  ******************************************************************************/
@@ -206,7 +204,6 @@ func (cache Cache) ctx() *C.struct_ybc {
 	return (*C.struct_ybc)(unsafe.Pointer(&cache.buf[0]))
 }
 
-
 /*******************************************************************************
  * AddTxn
  ******************************************************************************/
@@ -241,7 +238,6 @@ func (txn AddTxn) ReadFromTo(r io.Reader, off int) (n int64, err error) {
 func (txn AddTxn) ctx() *C.struct_ybc_add_txn {
 	return (*C.struct_ybc_add_txn)(unsafe.Pointer(&txn.buf[0]))
 }
-
 
 /*******************************************************************************
  * Item
@@ -287,14 +283,13 @@ func (item Item) ctx() *C.struct_ybc_item {
 	return (*C.struct_ybc_item)(unsafe.Pointer(&item.buf[0]))
 }
 
-
 /*******************************************************************************
  * ClusterConfig
  ******************************************************************************/
 
 func NewClusterConfig(caches_count int) ClusterConfig {
 	config := ClusterConfig{
-		buf: make([]byte, int(C.ybc_config_get_size()) * caches_count),
+		buf: make([]byte, int(C.ybc_config_get_size())*caches_count),
 	}
 
 	for i := 0; i < caches_count; i++ {
@@ -315,7 +310,7 @@ func (config ClusterConfig) GetConfig(n int) Config {
 	if n < 0 || n >= config.cachesCount() {
 		panic(ErrOutOfRange)
 	}
-	return Config {
+	return Config{
 		buf: config.getConfigBuf(n),
 	}
 }
@@ -346,9 +341,8 @@ func (config ClusterConfig) cachesCount() int {
 func (config ClusterConfig) getConfigBuf(n int) []byte {
 	config_size := int(C.ybc_config_get_size())
 	start_idx := n * config_size
-	return config.buf[start_idx:start_idx + config_size]
+	return config.buf[start_idx : start_idx+config_size]
 }
-
 
 /*******************************************************************************
  * Cluster
@@ -370,23 +364,22 @@ func (cluster Cluster) ctx() *C.struct_ybc_cluster {
 	return (*C.struct_ybc_cluster)(unsafe.Pointer(&cluster.buf[0]))
 }
 
-
 /*******************************************************************************
  * Aux functions
  ******************************************************************************/
 
 func newKey(key []byte) *C.struct_ybc_key {
 	return &C.struct_ybc_key{
-		ptr: unsafe.Pointer(&key[0]),
+		ptr:  unsafe.Pointer(&key[0]),
 		size: C.size_t(len(key)),
 	}
 }
 
 func newValue(value []byte, ttl time.Duration) *C.struct_ybc_value {
 	return &C.struct_ybc_value{
-		ptr: unsafe.Pointer(&value[0]),
+		ptr:  unsafe.Pointer(&value[0]),
 		size: C.size_t(len(value)),
-		ttl: C.uint64_t(ttl / time.Millisecond),
+		ttl:  C.uint64_t(ttl / time.Millisecond),
 	}
 }
 
