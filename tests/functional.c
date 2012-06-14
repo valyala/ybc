@@ -838,7 +838,7 @@ static void test_broken_index_handling(struct ybc *const cache)
   ybc_config_destroy(config);
 }
 
-void test_large_cache(struct ybc *const cache)
+static void test_large_cache(struct ybc *const cache)
 {
   char config_buf[ybc_config_get_size()];
   struct ybc_config *const config = (struct ybc_config *)config_buf;
@@ -855,7 +855,6 @@ void test_large_cache(struct ybc *const cache)
   ybc_config_destroy(config);
 
   const size_t value_buf_size = 13 * 3457;
-
   char *const value_buf = malloc(value_buf_size);
   memset(value_buf, 'q', value_buf_size);
 
@@ -872,6 +871,77 @@ void test_large_cache(struct ybc *const cache)
     key.size = sizeof(i);
     expect_item_add(cache, &key, &value);
   }
+
+  free(value_buf);
+
+  ybc_close(cache);
+}
+
+static void test_out_of_memory(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_data_file_size(config, 1024 * 1024);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  const size_t value_buf_size = 1024 * 1024 + 1;
+  void *const value_buf = calloc(value_buf_size, 1);
+
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+
+  struct ybc_key key = {
+    .ptr = "foobar",
+    .size = 6,
+  };
+  struct ybc_value value = {
+    .ptr = value_buf,
+    .size = value_buf_size,
+    .ttl = YBC_MAX_TTL,
+  };
+
+  /*
+   * The value size exceeds cache size.
+   */
+  if (ybc_item_add(cache, item, &key, &value)) {
+    M_ERROR("unexpected item addition");
+  }
+
+  /*
+   * The acquired item should prevent from adding new item into the cache.
+   */
+  value.size -= 1000;
+  if (!ybc_item_add(cache, item, &key, &value)) {
+    M_ERROR("cannot add item to cache");
+  }
+
+  char item2_buf[ybc_item_get_size()];
+  struct ybc_item *const item2 =(struct ybc_item *)item2_buf;
+
+  key.ptr = "abcdef";
+  value.size = 1000;
+  if (ybc_item_add(cache, item2, &key, &value)) {
+    M_ERROR("unexpected item addition");
+  }
+
+  ybc_item_release(item);
+
+  /*
+   * Now the item2 should be added, since the item is released
+   * and the cache has enough room for the item2.
+   */
+  if (!ybc_item_add(cache, item2, &key, &value)) {
+    M_ERROR("cannot add item to cache");
+  }
+  ybc_item_release(item2);
 
   free(value_buf);
 
@@ -1149,6 +1219,7 @@ int main(void)
   test_persistent_survival(cache);
   test_broken_index_handling(cache);
   test_large_cache(cache);
+  test_out_of_memory(cache);
   test_data_compaction(cache);
   test_small_sync_interval(cache);
 
