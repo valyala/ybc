@@ -402,6 +402,9 @@ func (cluster Cluster) ctx() *C.struct_ybc_cluster {
  ******************************************************************************/
 
 func newKey(key []byte) *C.struct_ybc_key {
+	if len(key) == 0 {
+		return &C.struct_ybc_key{}
+	}
 	return &C.struct_ybc_key{
 		ptr:  unsafe.Pointer(&key[0]),
 		size: C.size_t(len(key)),
@@ -409,6 +412,9 @@ func newKey(key []byte) *C.struct_ybc_key {
 }
 
 func newValue(value []byte, ttl time.Duration) *C.struct_ybc_value {
+	if len(value) == 0 {
+		return &C.struct_ybc_value{}
+	}
 	return &C.struct_ybc_value{
 		ptr:  unsafe.Pointer(&value[0]),
 		size: C.size_t(len(value)),
