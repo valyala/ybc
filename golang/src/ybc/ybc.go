@@ -9,6 +9,7 @@ import "C"
 import (
 	"errors"
 	"io"
+	"log"
 	"reflect"
 	"time"
 	"unsafe"
@@ -340,7 +341,7 @@ func (config ClusterConfig) Close() {
 
 func (config ClusterConfig) Config(n int) Config {
 	if n < 0 || n >= config.cachesCount() {
-		panic(ErrOutOfRange)
+		log.Fatal(ErrOutOfRange)
 	}
 	return Config{
 		buf: config.getConfigBuf(n),
