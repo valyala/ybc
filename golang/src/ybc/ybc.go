@@ -345,7 +345,22 @@ func (item *Item) Read(p []byte) (n int, err error) {
 	buf := item.unsafeBuf()
 	n = copy(p, buf[item.offset:])
 	item.offset += n
-	if item.offset == len(buf) {
+	if n < len(p) {
+		err = io.EOF
+		return
+	}
+	return
+}
+
+// io.ReaderAt interface implementation
+func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
+	buf := item.unsafeBuf()
+	if offset > int64(len(buf)) {
+		err = ErrOutOfRange
+		return
+	}
+	n = copy(p, buf[offset:])
+	if n < len(p) {
 		err = io.EOF
 		return
 	}
