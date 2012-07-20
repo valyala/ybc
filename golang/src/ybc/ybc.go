@@ -55,7 +55,7 @@ type AddTxn struct {
 
 type Item struct {
 	buf    []byte
-	valueCache *C.struct_ybc_value
+	valueCache C.struct_ybc_value
 	offset int
 }
 
@@ -388,12 +388,10 @@ func (item *Item) unsafeBuf() []byte {
 }
 
 func (item *Item) value() *C.struct_ybc_value {
-	if item.valueCache == nil {
-		m_value := C.struct_ybc_value{}
-		C.ybc_item_get_value(item.ctx(), &m_value)
-		item.valueCache = &m_value
+	if item.valueCache.ptr == nil {
+		C.ybc_item_get_value(item.ctx(), &item.valueCache)
 	}
-	return item.valueCache
+	return &item.valueCache
 }
 
 func (item *Item) ctx() *C.struct_ybc_item {
