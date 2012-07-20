@@ -1,9 +1,11 @@
 package ybc
 
 // #cgo CFLAGS: -I../../..
-// #cgo LDFLAGS: -L../../.. -lybc-debug
-// #include <stdlib.h>  // free
+// #cgo LDFLAGS: -L../../..
+// #cgo !release LDFLAGS: -lybc-debug
+// #cgo release LDFLAGS: -lybc-release
 // #include "ybc.h"
+// #include <stdlib.h> // free
 import "C"
 
 import (
@@ -11,7 +13,6 @@ import (
 	"io"
 	"log"
 	"reflect"
-	"runtime"
 	"runtime/debug"
 	"time"
 	"unsafe"
@@ -36,34 +37,6 @@ var (
 	addTxnSize = int(C.ybc_add_txn_get_size())
 	itemSize   = int(C.ybc_item_get_size())
 )
-
-/*******************************************************************************
- * Private entities
- ******************************************************************************/
-
-type debugGuard struct {
-	isClosed bool
-}
-
-func debugGuardFinalizer(dg *debugGuard) {
-	if !dg.isClosed {
-		log.Fatalf("Unclosed object %p at destruction time. Forgot calling Close() on ybc object?", dg)
-	}
-}
-
-func (dg *debugGuard) Init() {
-	runtime.SetFinalizer(dg, debugGuardFinalizer)
-}
-
-func (dg *debugGuard) CheckLive() {
-	if dg.isClosed {
-		log.Fatalf("The object %p cannot be used, because it is already closed. Stack trace:\n%s", dg, debug.Stack())
-	}
-}
-
-func (dg *debugGuard) SetClosed() {
-	dg.isClosed = true
-}
 
 /*******************************************************************************
  * Public entities
