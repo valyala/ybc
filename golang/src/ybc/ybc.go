@@ -11,12 +11,13 @@ import (
 	"io"
 	"log"
 	"reflect"
+	"runtime"
+	"runtime/debug"
 	"time"
 	"unsafe"
 )
 
 var (
-	ErrClosed            = errors.New("cannot use the object, because it is already closed")
 	ErrOpenFailed        = errors.New("cannot open the cache")
 	ErrNotFound          = errors.New("the item is not found in the cache")
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
@@ -40,18 +41,28 @@ var (
  * Private entities
  ******************************************************************************/
 
-type liveGuard struct {
+type debugGuard struct {
 	isClosed bool
 }
 
-func (lg *liveGuard) checkLive() {
-	if lg.isClosed {
-		panic(ErrClosed)
+func debugGuardFinalizer(dg *debugGuard) {
+	if !dg.isClosed {
+		log.Fatalf("Unclosed object %p at destruction time. Forgot calling Close() on ybc object?", dg)
 	}
 }
 
-func (lg *liveGuard) setClosed() {
-	lg.isClosed = true
+func (dg *debugGuard) Init() {
+	runtime.SetFinalizer(dg, debugGuardFinalizer)
+}
+
+func (dg *debugGuard) CheckLive() {
+	if dg.isClosed {
+		log.Fatalf("The object %p cannot be used, because it is already closed. Stack trace:\n%s", dg, debug.Stack())
+	}
+}
+
+func (dg *debugGuard) SetClosed() {
+	dg.isClosed = true
 }
 
 /*******************************************************************************
@@ -59,36 +70,36 @@ func (lg *liveGuard) setClosed() {
  ******************************************************************************/
 
 type Config struct {
-	lg liveGuard
+	dg debugGuard
 	buf []byte
 }
 
 type Cache struct {
-	lg liveGuard
+	dg debugGuard
 	buf []byte
 }
 
 type AddTxn struct {
-	lg liveGuard
+	dg debugGuard
 	buf    []byte
 	unsafeBufCache []byte
 	offset int
 }
 
 type Item struct {
-	lg liveGuard
+	dg debugGuard
 	buf    []byte
 	valueCache C.struct_ybc_value
 	offset int
 }
 
 type ClusterConfig struct {
-	lg liveGuard
+	dg debugGuard
 	buf []byte
 }
 
 type Cluster struct {
-	lg liveGuard
+	dg debugGuard
 	buf []byte
 }
 
@@ -101,67 +112,68 @@ func NewConfig() *Config {
 		buf: make([]byte, configSize),
 	}
 	C.ybc_config_init(config.ctx())
+	config.dg.Init()
 	return config
 }
 
 func (config *Config) Close() {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_destroy(config.ctx())
-	config.lg.setClosed()
+	config.dg.SetClosed()
 }
 
 func (config *Config) SetMaxItemsCount(max_items_count uint) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_set_max_items_count(config.ctx(), C.size_t(max_items_count))
 }
 
 func (config *Config) SetDataFileSize(data_file_size uint) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_set_data_file_size(config.ctx(), C.size_t(data_file_size))
 }
 
 func (config *Config) SetIndexFile(index_file string) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	c_str := C.CString(index_file)
 	defer C.free(unsafe.Pointer(c_str))
 	C.ybc_config_set_index_file(config.ctx(), c_str)
 }
 
 func (config *Config) SetDataFile(data_file string) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	c_str := C.CString(data_file)
 	defer C.free(unsafe.Pointer(c_str))
 	C.ybc_config_set_data_file(config.ctx(), c_str)
 }
 
 func (config *Config) SetHotItemsCount(hot_items_count uint) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_set_hot_items_count(config.ctx(), C.size_t(hot_items_count))
 }
 
 func (config *Config) SetHotDataSize(hot_data_size uint) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_set_hot_data_size(config.ctx(), C.size_t(hot_data_size))
 }
 
 func (config *Config) SetDeHashtableSize(de_hashtable_size uint) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_config_set_de_hashtable_size(config.ctx(), C.size_t(de_hashtable_size))
 }
 
 func (config *Config) SetSyncInterval(sync_interval time.Duration) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	m_sync_interval := C.uint64_t(sync_interval / time.Millisecond)
 	C.ybc_config_set_sync_interval(config.ctx(), m_sync_interval)
 }
 
 func (config *Config) RemoveCache() {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	C.ybc_remove(config.ctx())
 }
 
 func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
 	}
@@ -173,6 +185,7 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 		err = ErrOpenFailed
 		return
 	}
+	cache.dg.Init()
 	return
 }
 
@@ -185,13 +198,13 @@ func (config *Config) ctx() *C.struct_ybc_config {
  ******************************************************************************/
 
 func (cache *Cache) Close() {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	C.ybc_close(cache.ctx())
-	cache.lg.setClosed()
+	cache.dg.SetClosed()
 }
 
 func (cache *Cache) Add(key []byte, value []byte, ttl time.Duration) error {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item, err := cache.AddItem(key, value, ttl)
 	if err == nil {
 		item.Close()
@@ -200,7 +213,7 @@ func (cache *Cache) Add(key []byte, value []byte, ttl time.Duration) error {
 }
 
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item, err := cache.GetItem(key)
 	if err != nil {
 		return
@@ -211,7 +224,7 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 }
 
 func (cache *Cache) GetDe(key []byte, grace_ttl time.Duration) (value []byte, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item, err := cache.GetDeItem(key, grace_ttl)
 	if err != nil {
 		return
@@ -222,13 +235,13 @@ func (cache *Cache) GetDe(key []byte, grace_ttl time.Duration) (value []byte, er
 }
 
 func (cache *Cache) Remove(key []byte) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	m_key := newKey(key)
 	C.ybc_item_remove(cache.ctx(), m_key)
 }
 
 func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item = newItem()
 	m_key := newKey(key)
 	m_value := newValue(value, ttl)
@@ -236,22 +249,24 @@ func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *
 		err = ErrNoSpace
 		return
 	}
+	item.dg.Init()
 	return
 }
 
 func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item = newItem()
 	m_key := newKey(key)
 	if C.ybc_item_get(cache.ctx(), item.ctx(), m_key) == 0 {
 		err = ErrNotFound
 		return
 	}
+	item.dg.Init()
 	return
 }
 
 func (cache *Cache) GetDeItem(key []byte, grace_ttl time.Duration) (item *Item, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	item = newItem()
 	m_key := newKey(key)
 	m_grace_ttl := C.uint64_t(grace_ttl / time.Millisecond)
@@ -264,6 +279,7 @@ func (cache *Cache) GetDeItem(key []byte, grace_ttl time.Duration) (item *Item, 
 			err = ErrNotFound
 			return
 		case C.YBC_DE_SUCCESS:
+			item.dg.Init()
 			return
 		}
 	}
@@ -271,7 +287,7 @@ func (cache *Cache) GetDeItem(key []byte, grace_ttl time.Duration) (item *Item, 
 }
 
 func (cache *Cache) NewAddTxn(key []byte, value_size uint, ttl time.Duration) (txn *AddTxn, err error) {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	txn = &AddTxn{
 		buf: make([]byte, addTxnSize),
 	}
@@ -282,11 +298,12 @@ func (cache *Cache) NewAddTxn(key []byte, value_size uint, ttl time.Duration) (t
 		err = ErrNoSpace
 		return
 	}
+	txn.dg.Init()
 	return
 }
 
 func (cache *Cache) Clear() {
-	cache.lg.checkLive()
+	cache.dg.CheckLive()
 	C.ybc_clear(cache.ctx())
 }
 
@@ -309,14 +326,14 @@ func (txn *AddTxn) Commit() (err error) {
 }
 
 func (txn *AddTxn) Rollback() {
-	txn.lg.checkLive()
+	txn.dg.CheckLive()
 	C.ybc_add_txn_rollback(txn.ctx())
-	txn.lg.setClosed()
+	txn.dg.SetClosed()
 }
 
 // io.Writer interface implementation
 func (txn *AddTxn) Write(p []byte) (n int, err error) {
-	txn.lg.checkLive()
+	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
 	n = copy(buf[txn.offset:], p)
 	txn.offset += n
@@ -329,7 +346,7 @@ func (txn *AddTxn) Write(p []byte) (n int, err error) {
 
 // io.ReaderFrom interface implementation
 func (txn *AddTxn) ReadFrom(r io.Reader) (n int64, err error) {
-	txn.lg.checkLive()
+	txn.dg.CheckLive()
 	var nn int
 	buf := txn.unsafeBuf()
 	nn, err = io.ReadFull(r, buf[txn.offset:])
@@ -339,7 +356,7 @@ func (txn *AddTxn) ReadFrom(r io.Reader) (n int64, err error) {
 }
 
 func (txn *AddTxn) CommitItem() (item *Item, err error) {
-	txn.lg.checkLive()
+	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
 	if txn.offset != len(buf) {
 		err = ErrPartialCommit
@@ -347,7 +364,8 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 	}
 	item = newItem()
 	C.ybc_add_txn_commit(txn.ctx(), item.ctx())
-	txn.lg.setClosed()
+	item.dg.Init()
+	txn.dg.SetClosed()
 	return
 }
 
@@ -369,26 +387,26 @@ func (txn *AddTxn) ctx() *C.struct_ybc_add_txn {
  ******************************************************************************/
 
 func (item *Item) Close() {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	C.ybc_item_release(item.ctx())
-	item.lg.setClosed()
+	item.dg.SetClosed()
 }
 
 func (item *Item) Value() []byte {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	m_value := item.value()
 	return C.GoBytes(m_value.ptr, C.int(m_value.size))
 }
 
 func (item *Item) Ttl() time.Duration {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	m_value := item.value()
 	return time.Duration(m_value.ttl) * time.Millisecond
 }
 
 // io.Seeker interface implementation
 func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	if whence != 0 {
 		err = ErrUnsupportedWhence
 		return
@@ -406,7 +424,7 @@ func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
 
 // io.Reader interface implementation
 func (item *Item) Read(p []byte) (n int, err error) {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	buf := item.unsafeBuf()
 	n = copy(p, buf[item.offset:])
 	item.offset += n
@@ -419,7 +437,7 @@ func (item *Item) Read(p []byte) (n int, err error) {
 
 // io.ReaderAt interface implementation
 func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	buf := item.unsafeBuf()
 	if offset > int64(len(buf)) {
 		err = ErrOutOfRange
@@ -435,7 +453,7 @@ func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
 
 // io.WriterTo interface implementation
 func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
-	item.lg.checkLive()
+	item.dg.CheckLive()
 	var nn int
 	buf := item.unsafeBuf()
 	nn, err = w.Write(buf[item.offset:])
@@ -473,22 +491,23 @@ func NewClusterConfig(caches_count int) *ClusterConfig {
 		c := config.Config(i)
 		C.ybc_config_init(c.ctx())
 	}
+	config.dg.Init()
 	return config
 }
 
 func (config *ClusterConfig) Close() {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	for i := 0; i < config.cachesCount(); i++ {
 		c := config.Config(i)
 		C.ybc_config_destroy(c.ctx())
 	}
-	config.lg.setClosed()
+	config.dg.SetClosed()
 }
 
 func (config *ClusterConfig) Config(n int) *Config {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	if n < 0 || n >= config.cachesCount() {
-		log.Fatal(ErrOutOfRange)
+		log.Fatalf("Index n=%d must be in the range [0 .. %d]. Stack trace:\n%s", n, config.cachesCount(), debug.Stack())
 	}
 	return &Config{
 		buf: config.getConfigBuf(n),
@@ -496,7 +515,7 @@ func (config *ClusterConfig) Config(n int) *Config {
 }
 
 func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
-	config.lg.checkLive()
+	config.dg.CheckLive()
 	cluster = &Cluster{
 		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(config.cachesCount()))),
 	}
@@ -508,6 +527,7 @@ func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err erro
 		err = ErrOpenFailed
 		return
 	}
+	cluster.dg.Init()
 	return
 }
 
@@ -529,13 +549,13 @@ func (config *ClusterConfig) getConfigBuf(n int) []byte {
  ******************************************************************************/
 
 func (cluster *Cluster) Close() {
-	cluster.lg.checkLive()
+	cluster.dg.CheckLive()
 	C.ybc_cluster_close(cluster.ctx())
-	cluster.lg.setClosed()
+	cluster.dg.SetClosed()
 }
 
 func (cluster *Cluster) Cache(key []byte) *Cache {
-	cluster.lg.checkLive()
+	cluster.dg.CheckLive()
 	m_key := newKey(key)
 	ctx := C.ybc_cluster_get_cache(cluster.ctx(), m_key)
 	return &Cache{
