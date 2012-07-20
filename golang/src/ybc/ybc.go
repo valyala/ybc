@@ -49,11 +49,13 @@ type Cache struct {
 
 type AddTxn struct {
 	buf    []byte
+	unsafeBufCache []byte
 	offset int
 }
 
 type Item struct {
 	buf    []byte
+	valueCache *C.struct_ybc_value
 	offset int
 }
 
@@ -296,9 +298,12 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 }
 
 func (txn *AddTxn) unsafeBuf() []byte {
-	m_value := C.struct_ybc_add_txn_value{}
-	C.ybc_add_txn_get_value(txn.ctx(), &m_value)
-	return newUnsafeSlice(m_value.ptr, int(m_value.size))
+	if txn.unsafeBufCache == nil {
+		m_value := C.struct_ybc_add_txn_value{}
+		C.ybc_add_txn_get_value(txn.ctx(), &m_value)
+		txn.unsafeBufCache = newUnsafeSlice(m_value.ptr, int(m_value.size))
+	}
+	return txn.unsafeBufCache
 }
 
 func (txn *AddTxn) ctx() *C.struct_ybc_add_txn {
@@ -383,9 +388,12 @@ func (item *Item) unsafeBuf() []byte {
 }
 
 func (item *Item) value() *C.struct_ybc_value {
-	m_value := C.struct_ybc_value{}
-	C.ybc_item_get_value(item.ctx(), &m_value)
-	return &m_value
+	if item.valueCache == nil {
+		m_value := C.struct_ybc_value{}
+		C.ybc_item_get_value(item.ctx(), &m_value)
+		item.valueCache = &m_value
+	}
+	return item.valueCache
 }
 
 func (item *Item) ctx() *C.struct_ybc_item {
