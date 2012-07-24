@@ -11,9 +11,7 @@ import "C"
 import (
 	"errors"
 	"io"
-	"log"
 	"reflect"
-	"runtime/debug"
 	"time"
 	"unsafe"
 )
@@ -480,7 +478,7 @@ func (config *ClusterConfig) Close() {
 func (config *ClusterConfig) Config(n int) *Config {
 	config.dg.CheckLive()
 	if n < 0 || n >= config.cachesCount() {
-		log.Fatalf("Index n=%d must be in the range [0 .. %d]. Stack trace:\n%s", n, config.cachesCount(), debug.Stack())
+		panic(ErrOutOfRange)
 	}
 	return &Config{
 		buf: config.getConfigBuf(n),
