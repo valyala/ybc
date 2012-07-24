@@ -5,9 +5,8 @@
 package ybc
 
 import (
-	"log"
 	"runtime"
-	"runtime/debug"
+	"time"
 )
 
 type debugGuard struct {
@@ -15,21 +14,33 @@ type debugGuard struct {
 }
 
 func debugGuardFinalizer(dg *debugGuard) {
-	if !dg.isClosed {
-		log.Fatalf("Unclosed object %p at destruction time. Forgot calling Close() on the object?", dg)
-	}
+	panic("Unclosed object at destruction time. Forgot calling Close() on the object?")
 }
 
 func (dg *debugGuard) Init() {
+	dg.isClosed = false
 	runtime.SetFinalizer(dg, debugGuardFinalizer)
 }
 
 func (dg *debugGuard) CheckLive() {
 	if dg.isClosed {
-		log.Fatalf("The object %p cannot be used, because it is already closed. Stack trace:\n%s", dg, debug.Stack())
+		panic("The object cannot be used, because it is already closed.")
 	}
 }
 
 func (dg *debugGuard) SetClosed() {
 	dg.isClosed = true
+	runtime.SetFinalizer(dg, nil)
+}
+
+func checkNonNegative(n int) {
+	if n < 0 {
+		panic("The number cannot be negative")
+	}
+}
+
+func checkNonNegativeDuration(t time.Duration) {
+	if t < 0 {
+		panic("The duration cannot be negative")
+	}
 }
