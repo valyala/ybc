@@ -87,10 +87,11 @@ func NewConfig() *Config {
 	return config
 }
 
-func (config *Config) Close() {
+func (config *Config) Close() error {
 	config.dg.CheckLive()
 	C.ybc_config_destroy(config.ctx())
 	config.dg.SetClosed()
+	return nil
 }
 
 func (config *Config) SetMaxItemsCount(max_items_count int) {
@@ -174,10 +175,11 @@ func (config *Config) ctx() *C.struct_ybc_config {
  * Cache
  ******************************************************************************/
 
-func (cache *Cache) Close() {
+func (cache *Cache) Close() error {
 	cache.dg.CheckLive()
 	C.ybc_close(cache.ctx())
 	cache.dg.SetClosed()
+	return nil
 }
 
 func (cache *Cache) Add(key []byte, value []byte, ttl time.Duration) error {
@@ -364,10 +366,11 @@ func (txn *AddTxn) ctx() *C.struct_ybc_add_txn {
  * Item
  ******************************************************************************/
 
-func (item *Item) Close() {
+func (item *Item) Close() error {
 	item.dg.CheckLive()
 	C.ybc_item_release(item.ctx())
 	item.dg.SetClosed()
+	return nil
 }
 
 func (item *Item) Value() []byte {
@@ -472,13 +475,14 @@ func NewClusterConfig(caches_count int) *ClusterConfig {
 	return config
 }
 
-func (config *ClusterConfig) Close() {
+func (config *ClusterConfig) Close() error {
 	config.dg.CheckLive()
 	for i := 0; i < config.cachesCount(); i++ {
 		c := config.Config(i)
 		C.ybc_config_destroy(c.ctx())
 	}
 	config.dg.SetClosed()
+	return nil
 }
 
 func (config *ClusterConfig) Config(n int) *Config {
@@ -526,10 +530,11 @@ func (config *ClusterConfig) getConfigBuf(n int) []byte {
  * Cluster
  ******************************************************************************/
 
-func (cluster *Cluster) Close() {
+func (cluster *Cluster) Close() error {
 	cluster.dg.CheckLive()
 	C.ybc_cluster_close(cluster.ctx())
 	cluster.dg.SetClosed()
+	return nil
 }
 
 // DO NOT close the returned cache! Its' lifetime is automatically managed
