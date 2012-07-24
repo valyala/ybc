@@ -1,4 +1,7 @@
 CC = gcc
+GOCC = go
+
+PWD = `pwd`
 
 YBC_FEATURE_FLAGS = -DYBC_HAVE_CLOCK_GETTIME -DYBC_HAVE_LINUX_FILE_API -DYBC_HAVE_LINUX_MMAN_API -DYBC_HAVE_PTHREAD -DYBC_HAVE_NANOSLEEP -DYBC_HAVE_LINUX_ERROR_API
 
@@ -89,6 +92,14 @@ perftests-32-debug: ybc-32-debug $(PERFTEST_SRCS)
 perftests-64-debug: ybc-64-debug $(PERFTEST_SRCS)
 	$(CC) $(PERFTEST_SRCS) ybc-64-debug.o $(PERFTEST_FLAGS) -g -m64 -o tests/performance-64-debug
 
+golang-tests-debug: libybc-debug
+	GOPATH=$(PWD)/golang $(GOCC) test -c ybc
+	mv ybc.test tests/golang-debug
+
+golang-tests-release: libybc-release
+	GOPATH=$(PWD)/golang $(GOCC) test -c -tags release ybc
+	mv ybc.test tests/golang-release
+
 run-tests: tests
 	tests/functional-32-debug
 	tests/functional-64-debug
@@ -96,6 +107,10 @@ run-tests: tests
 	tests/functional-64-release
 	tests/functional-shared-debug
 	tests/functional-shared-release
+
+run-golang-tests: golang-tests-debug golang-tests-release
+	LD_LIBRARY_PATH=$(PWD) tests/golang-debug
+	LD_LIBRARY_PATH=$(PWD) tests/golang-release
 
 run-valgrind-tests: tests-shared-debug
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
@@ -124,3 +139,5 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
+	rm -f tests/golang-release
+	rm -f tests/golang-debug
