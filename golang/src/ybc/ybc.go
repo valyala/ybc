@@ -337,6 +337,7 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 	buf := txn.unsafeBuf()
 	if txn.offset != len(buf) {
 		err = ErrPartialCommit
+		txn.Rollback()
 		return
 	}
 	item = newItem()
@@ -385,8 +386,7 @@ func (item *Item) Ttl() time.Duration {
 func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
 	item.dg.CheckLive()
 	if whence != 0 {
-		err = ErrUnsupportedWhence
-		return
+		panic(ErrUnsupportedWhence)
 	}
 
 	buf := item.unsafeBuf()
@@ -532,6 +532,8 @@ func (cluster *Cluster) Close() {
 	cluster.dg.SetClosed()
 }
 
+// DO NOT close the returned cache! Its' lifetime is automatically managed
+// by the Cluster object.
 func (cluster *Cluster) Cache(key []byte) *Cache {
 	cluster.dg.CheckLive()
 	m_key := newKey(key)
