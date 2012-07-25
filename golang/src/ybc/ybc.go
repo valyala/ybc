@@ -78,12 +78,14 @@ type Cluster struct {
  * Config
  ******************************************************************************/
 
-func NewConfig() *Config {
+func NewConfig(max_items_count, data_file_size int) *Config {
 	config := &Config{
 		buf: make([]byte, configSize),
 	}
 	C.ybc_config_init(config.ctx())
 	config.dg.Init()
+	config.SetMaxItemsCount(max_items_count)
+	config.SetDataFileSize(data_file_size)
 	return config
 }
 
