@@ -13,7 +13,7 @@ import (
  ******************************************************************************/
 
 func newConfig() *Config {
-	return NewConfig(1000, 1000 * 1000)
+	return NewConfig(1000, 1000*1000)
 }
 
 func TestNewConfig(t *testing.T) {
@@ -24,7 +24,7 @@ func TestNewConfig(t *testing.T) {
 func TestConfig_SetMaxItemsCount(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetMaxItemsCount(i)
 	}
 }
@@ -32,7 +32,7 @@ func TestConfig_SetMaxItemsCount(t *testing.T) {
 func TestConfig_SetDataFileSize(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetDataFileSize(i)
 	}
 }
@@ -40,7 +40,7 @@ func TestConfig_SetDataFileSize(t *testing.T) {
 func TestConfig_SetIndexFile(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetIndexFile(fmt.Sprintf("foobar_%d.index", i))
 	}
 }
@@ -48,7 +48,7 @@ func TestConfig_SetIndexFile(t *testing.T) {
 func TestConfig_SetDataFile(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetDataFile(fmt.Sprintf("foobar_%d.data", i))
 	}
 }
@@ -56,7 +56,7 @@ func TestConfig_SetDataFile(t *testing.T) {
 func TestConfig_SetHotItemsCount(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetHotItemsCount(i)
 	}
 }
@@ -64,7 +64,7 @@ func TestConfig_SetHotItemsCount(t *testing.T) {
 func TestConfig_SetHotDataSize(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetHotDataSize(i)
 	}
 }
@@ -72,7 +72,7 @@ func TestConfig_SetHotDataSize(t *testing.T) {
 func TestConfig_SetDeHashtableSize(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetDeHashtableSize(i)
 	}
 }
@@ -80,7 +80,7 @@ func TestConfig_SetDeHashtableSize(t *testing.T) {
 func TestConfig_SetSyncInterval(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000 * 1000; i *= 100 {
+	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetSyncInterval(time.Second * time.Duration(i))
 	}
 }
@@ -169,7 +169,7 @@ func TestConfig_OpenCache_Existing(t *testing.T) {
  ******************************************************************************/
 
 func newCache(t *testing.T) *Cache {
-	config := NewConfig(1000 * 1000, 10 * 1000 * 1000)
+	config := NewConfig(1000*1000, 10*1000*1000)
 	defer config.Close()
 
 	cache, err := config.OpenCache(true)
@@ -231,7 +231,7 @@ func TestCache_GetDe(t *testing.T) {
 	defer cache.Close()
 
 	key := []byte("test")
-	_, err := cache.GetDe(key, time.Millisecond * time.Duration(100))
+	_, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
 	if err != ErrNotFound {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestCache_GetDe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	actualValue, err := cache.GetDe(key, time.Millisecond * time.Duration(100))
+	actualValue, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +527,7 @@ func TestAddTxn_ReadFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n != int64(len(value)) {
-		txn.Rollback();
+		txn.Rollback()
 		t.Fatalf("unexpected number of bytes written=%d. Expected %d", n, len(value))
 	}
 
@@ -607,8 +607,8 @@ func TestItem_Seek_Read(t *testing.T) {
 	value := item.Value()
 	buf := make([]byte, 10)
 	nn, err := item.Read(buf)
-	if nn != len(value) - 2 {
-		t.Fatalf("unexpected number of bytes read=%d. Expected %d", nn, len(value) - 2)
+	if nn != len(value)-2 {
+		t.Fatalf("unexpected number of bytes read=%d. Expected %d", nn, len(value)-2)
 	}
 	if err != io.EOF {
 		t.Fatal(err)

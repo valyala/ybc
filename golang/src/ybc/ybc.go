@@ -41,36 +41,36 @@ var (
  ******************************************************************************/
 
 type Config struct {
-	dg debugGuard
+	dg  debugGuard
 	buf []byte
 }
 
 type Cache struct {
-	dg debugGuard
+	dg  debugGuard
 	buf []byte
 }
 
 type AddTxn struct {
-	dg debugGuard
-	buf    []byte
+	dg             debugGuard
+	buf            []byte
 	unsafeBufCache []byte
-	offset int
+	offset         int
 }
 
 type Item struct {
-	dg debugGuard
-	buf    []byte
+	dg         debugGuard
+	buf        []byte
 	valueCache C.struct_ybc_value
-	offset int
+	offset     int
 }
 
 type ClusterConfig struct {
-	dg debugGuard
+	dg  debugGuard
 	buf []byte
 }
 
 type Cluster struct {
-	dg debugGuard
+	dg  debugGuard
 	buf []byte
 }
 
@@ -143,7 +143,7 @@ func (config *Config) SetDeHashtableSize(deHashtableSize int) {
 func (config *Config) SetSyncInterval(syncInterval time.Duration) {
 	config.dg.CheckLive()
 	checkNonNegativeDuration(syncInterval)
-	C.ybc_config_set_sync_interval(config.ctx(), C.uint64_t(syncInterval / time.Millisecond))
+	C.ybc_config_set_sync_interval(config.ctx(), C.uint64_t(syncInterval/time.Millisecond))
 }
 
 func (config *Config) RemoveCache() {
@@ -268,7 +268,7 @@ func (cache *Cache) NewAddTxn(key []byte, value_size int, ttl time.Duration) (tx
 		buf: make([]byte, addTxnSize),
 	}
 
-	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), newKey(key), C.size_t(value_size), C.uint64_t(ttl / time.Millisecond)) == 0 {
+	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), newKey(key), C.size_t(value_size), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -458,7 +458,7 @@ func (item *Item) ctx() *C.struct_ybc_item {
 
 func NewClusterConfig(cachesCount int) *ClusterConfig {
 	config := &ClusterConfig{
-		buf: make([]byte, configSize * cachesCount),
+		buf: make([]byte, configSize*cachesCount),
 	}
 
 	for i := 0; i < cachesCount; i++ {
