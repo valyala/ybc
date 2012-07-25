@@ -78,14 +78,14 @@ type Cluster struct {
  * Config
  ******************************************************************************/
 
-func NewConfig(max_items_count, data_file_size int) *Config {
+func NewConfig(maxItemsCount, dataFileSize int) *Config {
 	config := &Config{
 		buf: make([]byte, configSize),
 	}
 	C.ybc_config_init(config.ctx())
 	config.dg.Init()
-	config.SetMaxItemsCount(max_items_count)
-	config.SetDataFileSize(data_file_size)
+	config.SetMaxItemsCount(maxItemsCount)
+	config.SetDataFileSize(dataFileSize)
 	return config
 }
 
@@ -96,55 +96,54 @@ func (config *Config) Close() error {
 	return nil
 }
 
-func (config *Config) SetMaxItemsCount(max_items_count int) {
+func (config *Config) SetMaxItemsCount(maxItemsCount int) {
 	config.dg.CheckLive()
-	checkNonNegative(max_items_count)
-	C.ybc_config_set_max_items_count(config.ctx(), C.size_t(max_items_count))
+	checkNonNegative(maxItemsCount)
+	C.ybc_config_set_max_items_count(config.ctx(), C.size_t(maxItemsCount))
 }
 
-func (config *Config) SetDataFileSize(data_file_size int) {
+func (config *Config) SetDataFileSize(dataFileSize int) {
 	config.dg.CheckLive()
-	checkNonNegative(data_file_size)
-	C.ybc_config_set_data_file_size(config.ctx(), C.size_t(data_file_size))
+	checkNonNegative(dataFileSize)
+	C.ybc_config_set_data_file_size(config.ctx(), C.size_t(dataFileSize))
 }
 
-func (config *Config) SetIndexFile(index_file string) {
+func (config *Config) SetIndexFile(indexFile string) {
 	config.dg.CheckLive()
-	c_str := C.CString(index_file)
-	defer C.free(unsafe.Pointer(c_str))
-	C.ybc_config_set_index_file(config.ctx(), c_str)
+	cStr := C.CString(indexFile)
+	defer C.free(unsafe.Pointer(cStr))
+	C.ybc_config_set_index_file(config.ctx(), cStr)
 }
 
-func (config *Config) SetDataFile(data_file string) {
+func (config *Config) SetDataFile(dataFile string) {
 	config.dg.CheckLive()
-	c_str := C.CString(data_file)
-	defer C.free(unsafe.Pointer(c_str))
-	C.ybc_config_set_data_file(config.ctx(), c_str)
+	cStr := C.CString(dataFile)
+	defer C.free(unsafe.Pointer(cStr))
+	C.ybc_config_set_data_file(config.ctx(), cStr)
 }
 
-func (config *Config) SetHotItemsCount(hot_items_count int) {
+func (config *Config) SetHotItemsCount(hotItemsCount int) {
 	config.dg.CheckLive()
-	checkNonNegative(hot_items_count)
-	C.ybc_config_set_hot_items_count(config.ctx(), C.size_t(hot_items_count))
+	checkNonNegative(hotItemsCount)
+	C.ybc_config_set_hot_items_count(config.ctx(), C.size_t(hotItemsCount))
 }
 
-func (config *Config) SetHotDataSize(hot_data_size int) {
+func (config *Config) SetHotDataSize(hotDataSize int) {
 	config.dg.CheckLive()
-	checkNonNegative(hot_data_size)
-	C.ybc_config_set_hot_data_size(config.ctx(), C.size_t(hot_data_size))
+	checkNonNegative(hotDataSize)
+	C.ybc_config_set_hot_data_size(config.ctx(), C.size_t(hotDataSize))
 }
 
-func (config *Config) SetDeHashtableSize(de_hashtable_size int) {
+func (config *Config) SetDeHashtableSize(deHashtableSize int) {
 	config.dg.CheckLive()
-	checkNonNegative(de_hashtable_size)
-	C.ybc_config_set_de_hashtable_size(config.ctx(), C.size_t(de_hashtable_size))
+	checkNonNegative(deHashtableSize)
+	C.ybc_config_set_de_hashtable_size(config.ctx(), C.size_t(deHashtableSize))
 }
 
-func (config *Config) SetSyncInterval(sync_interval time.Duration) {
+func (config *Config) SetSyncInterval(syncInterval time.Duration) {
 	config.dg.CheckLive()
-	checkNonNegativeDuration(sync_interval)
-	m_sync_interval := C.uint64_t(sync_interval / time.Millisecond)
-	C.ybc_config_set_sync_interval(config.ctx(), m_sync_interval)
+	checkNonNegativeDuration(syncInterval)
+	C.ybc_config_set_sync_interval(config.ctx(), C.uint64_t(syncInterval / time.Millisecond))
 }
 
 func (config *Config) RemoveCache() {
@@ -157,11 +156,11 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
 	}
-	m_force := C.int(0)
+	mForce := C.int(0)
 	if force {
-		m_force = 1
+		mForce = 1
 	}
-	if C.ybc_open(cache.ctx(), config.ctx(), m_force) == 0 {
+	if C.ybc_open(cache.ctx(), config.ctx(), mForce) == 0 {
 		err = ErrOpenFailed
 		return
 	}
@@ -202,8 +201,8 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	return
 }
 
-func (cache *Cache) GetDe(key []byte, grace_ttl time.Duration) (value []byte, err error) {
-	item, err := cache.GetDeItem(key, grace_ttl)
+func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
+	item, err := cache.GetDeItem(key, graceTtl)
 	if err != nil {
 		return
 	}
@@ -214,16 +213,13 @@ func (cache *Cache) GetDe(key []byte, grace_ttl time.Duration) (value []byte, er
 
 func (cache *Cache) Remove(key []byte) {
 	cache.dg.CheckLive()
-	m_key := newKey(key)
-	C.ybc_item_remove(cache.ctx(), m_key)
+	C.ybc_item_remove(cache.ctx(), newKey(key))
 }
 
 func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = newItem()
-	m_key := newKey(key)
-	m_value := newValue(value, ttl)
-	if C.ybc_item_add(cache.ctx(), item.ctx(), m_key, m_value) == 0 {
+	if C.ybc_item_add(cache.ctx(), item.ctx(), newKey(key), newValue(value, ttl)) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -234,8 +230,7 @@ func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *
 func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = newItem()
-	m_key := newKey(key)
-	if C.ybc_item_get(cache.ctx(), item.ctx(), m_key) == 0 {
+	if C.ybc_item_get(cache.ctx(), item.ctx(), newKey(key)) == 0 {
 		err = ErrNotFound
 		return
 	}
@@ -243,14 +238,14 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	return
 }
 
-func (cache *Cache) GetDeItem(key []byte, grace_ttl time.Duration) (item *Item, err error) {
+func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
-	checkNonNegativeDuration(grace_ttl)
+	checkNonNegativeDuration(graceTtl)
 	item = newItem()
-	m_key := newKey(key)
-	m_grace_ttl := C.uint64_t(grace_ttl / time.Millisecond)
+	mKey := newKey(key)
+	mGraceTtl := C.uint64_t(graceTtl / time.Millisecond)
 	for {
-		switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), m_key, m_grace_ttl) {
+		switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), mKey, mGraceTtl) {
 		case C.YBC_DE_WOULDBLOCK:
 			time.Sleep(time.Millisecond * 100)
 			continue
@@ -273,9 +268,7 @@ func (cache *Cache) NewAddTxn(key []byte, value_size int, ttl time.Duration) (tx
 		buf: make([]byte, addTxnSize),
 	}
 
-	m_key := newKey(key)
-	m_ttl := C.uint64_t(ttl / time.Millisecond)
-	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), m_key, C.size_t(value_size), m_ttl) == 0 {
+	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), newKey(key), C.size_t(value_size), C.uint64_t(ttl / time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -353,9 +346,9 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 
 func (txn *AddTxn) unsafeBuf() []byte {
 	if txn.unsafeBufCache == nil {
-		m_value := C.struct_ybc_add_txn_value{}
-		C.ybc_add_txn_get_value(txn.ctx(), &m_value)
-		txn.unsafeBufCache = newUnsafeSlice(m_value.ptr, int(m_value.size))
+		mValue := C.struct_ybc_add_txn_value{}
+		C.ybc_add_txn_get_value(txn.ctx(), &mValue)
+		txn.unsafeBufCache = newUnsafeSlice(mValue.ptr, int(mValue.size))
 	}
 	return txn.unsafeBufCache
 }
@@ -377,14 +370,13 @@ func (item *Item) Close() error {
 
 func (item *Item) Value() []byte {
 	item.dg.CheckLive()
-	m_value := item.value()
-	return C.GoBytes(m_value.ptr, C.int(m_value.size))
+	mValue := item.value()
+	return C.GoBytes(mValue.ptr, C.int(mValue.size))
 }
 
 func (item *Item) Ttl() time.Duration {
 	item.dg.CheckLive()
-	m_value := item.value()
-	return time.Duration(m_value.ttl) * time.Millisecond
+	return time.Duration(item.value().ttl) * time.Millisecond
 }
 
 // io.Seeker interface implementation
@@ -445,8 +437,8 @@ func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
 }
 
 func (item *Item) unsafeBuf() []byte {
-	m_value := item.value()
-	return newUnsafeSlice(m_value.ptr, int(m_value.size))
+	mValue := item.value()
+	return newUnsafeSlice(mValue.ptr, int(mValue.size))
 }
 
 func (item *Item) value() *C.struct_ybc_value {
@@ -464,12 +456,12 @@ func (item *Item) ctx() *C.struct_ybc_item {
  * ClusterConfig
  ******************************************************************************/
 
-func NewClusterConfig(caches_count int) *ClusterConfig {
+func NewClusterConfig(cachesCount int) *ClusterConfig {
 	config := &ClusterConfig{
-		buf: make([]byte, configSize*caches_count),
+		buf: make([]byte, configSize * cachesCount),
 	}
 
-	for i := 0; i < caches_count; i++ {
+	for i := 0; i < cachesCount; i++ {
 		c := config.Config(i)
 		C.ybc_config_init(c.ctx())
 	}
@@ -487,14 +479,14 @@ func (config *ClusterConfig) Close() error {
 	return nil
 }
 
-func (config *ClusterConfig) Config(n int) *Config {
+func (config *ClusterConfig) Config(cacheIndex int) *Config {
 	config.dg.CheckLive()
-	checkNonNegative(n)
-	if n >= config.cachesCount() {
+	checkNonNegative(cacheIndex)
+	if cacheIndex >= config.cachesCount() {
 		panic(ErrOutOfRange)
 	}
 	return &Config{
-		buf: config.getConfigBuf(n),
+		buf: config.configBuf(cacheIndex),
 	}
 }
 
@@ -503,11 +495,11 @@ func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err erro
 	cluster = &Cluster{
 		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(config.cachesCount()))),
 	}
-	m_force := C.int(0)
+	mForce := C.int(0)
 	if force {
-		m_force = 1
+		mForce = 1
 	}
-	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(config.cachesCount()), m_force) == 0 {
+	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(config.cachesCount()), mForce) == 0 {
 		err = ErrOpenFailed
 		return
 	}
@@ -523,7 +515,7 @@ func (config *ClusterConfig) cachesCount() int {
 	return len(config.buf) / configSize
 }
 
-func (config *ClusterConfig) getConfigBuf(n int) []byte {
+func (config *ClusterConfig) configBuf(n int) []byte {
 	start_idx := n * configSize
 	return config.buf[start_idx : start_idx+configSize]
 }
