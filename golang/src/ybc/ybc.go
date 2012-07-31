@@ -374,6 +374,11 @@ func (item *Item) Value() []byte {
 	return C.GoBytes(mValue.ptr, C.int(mValue.size))
 }
 
+func (item *Item) Size() int {
+	mValue := item.value()
+	return int(mValue.size)
+}
+
 func (item *Item) Ttl() time.Duration {
 	item.dg.CheckLive()
 	return time.Duration(item.value().ttl) * time.Millisecond

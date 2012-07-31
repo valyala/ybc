@@ -572,6 +572,23 @@ func TestItem_Value(t *testing.T) {
 	checkValue(t, value, item.Value())
 }
 
+func TestItem_Size(t *testing.T) {
+	cache := newCache(t)
+	defer cache.Close()
+
+	key := []byte("key")
+	value := []byte("value")
+
+	item, err := cache.AddItem(key, value, MaxTtl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer item.Close()
+	if item.Size() != len(value) {
+		t.Fatalf("Unexpected size=%d. Expected=%d", item.Size(), len(value))
+	}
+}
+
 func TestItem_Ttl(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
