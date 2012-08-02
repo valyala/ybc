@@ -1,7 +1,5 @@
 package ybc
 
-// #cgo CFLAGS: -I../../..
-// #cgo LDFLAGS: -L../../..
 // #cgo !release LDFLAGS: -lybc-debug
 // #cgo release LDFLAGS: -lybc-release
 // #include "ybc.h"
