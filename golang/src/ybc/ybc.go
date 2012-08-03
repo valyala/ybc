@@ -11,6 +11,7 @@ import (
 	"io"
 	"reflect"
 	"time"
+	"runtime"
 	"unsafe"
 )
 
@@ -307,6 +308,7 @@ func (txn *AddTxn) Rollback() {
 func (txn *AddTxn) Write(p []byte) (n int, err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
+
 	n = copy(buf[txn.offset:], p)
 	txn.offset += n
 	if n < len(p) {
@@ -403,7 +405,7 @@ func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
 func (item *Item) Read(p []byte) (n int, err error) {
 	item.dg.CheckLive()
 	buf := item.unsafeBuf()
-	n = copy(p, buf[item.offset:])
+	n = copyPagedOutSrc(p, buf[item.offset:])
 	item.offset += n
 	if n < len(p) {
 		err = io.EOF
@@ -420,7 +422,7 @@ func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
 		err = ErrOutOfRange
 		return
 	}
-	n = copy(p, buf[offset:])
+	n = copyPagedOutSrc(p, buf[offset:])
 	if n < len(p) {
 		err = io.EOF
 		return
@@ -433,7 +435,7 @@ func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
 	item.dg.CheckLive()
 	var nn int
 	buf := item.unsafeBuf()
-	nn, err = w.Write(buf[item.offset:])
+	nn, err = writePagedOutSlice(w, buf[item.offset:])
 	item.offset += nn
 	n = int64(nn)
 	return
@@ -587,5 +589,24 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
 	hdr.Data = uintptr(ptr)
 	hdr.Len = size
 	hdr.Cap = size
+	return
+}
+
+// Use this function instead of built-in copy() if src contents is potentially
+// paged out (for instance, src points to cold mmap'ed file contents).
+func copyPagedOutSrc(dst, src []byte) int {
+	// Lock the current goroutine to the current thread, so if the copy
+	// blocks while reading paged out contents, go scheduler may move other
+	// ready-to-run goroutines to other threads.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	return copy(dst, src)
+}
+
+// See copyPagedOutSrc() comments.
+func writePagedOutSlice(w io.Writer, p []byte) (n int, err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	n, err = w.Write(p)
 	return
 }
