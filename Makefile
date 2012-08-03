@@ -13,8 +13,8 @@ DEBUG_FLAGS = -g $(MULTI_THREADED_FLAGS)
 LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
 PERFTEST_FLAGS = $(MULTI_THREADED_FLAGS) -fwhole-program -lrt
-GO_CFLAGS = -I`pwd`
-GO_LDFLAGS = -L`pwd`
+GO_CFLAGS = -I$(PWD)
+GO_LDFLAGS = -L$(PWD)
 
 VALGRIND_FLAGS = --suppressions=valgrind.supp --track-fds=yes
 
@@ -99,7 +99,7 @@ golang-tests-debug: libybc-debug
 	mv ybc.test tests/golang-debug
 
 golang-tests-release: libybc-release
-	CGO_CFLAGS=$(GO_CFLAGS) CGO_LDFLAGS=$(GO_LDFLAGS) GOPATH=$(PWD)/golang $(GOCC) test $(GO_FLAGS) -c -tags release ybc
+	CGO_CFLAGS=$(GO_CFLAGS) CGO_LDFLAGS=$(GO_LDFLAGS) GOPATH=$(PWD)/golang $(GOCC) test -c -tags release ybc
 	mv ybc.test tests/golang-release
 
 run-tests: tests
