@@ -371,7 +371,7 @@ func (item *Item) Close() error {
 func (item *Item) Value() []byte {
 	item.dg.CheckLive()
 	mValue := item.value()
-	return C.GoBytes(mValue.ptr, C.int(mValue.size))
+	return goBytesPagedOut(mValue.ptr, C.int(mValue.size))
 }
 
 func (item *Item) Size() int {
@@ -609,4 +609,16 @@ func writePagedOutSlice(w io.Writer, p []byte) (n int, err error) {
 	defer runtime.UnlockOSThread()
 	n, err = w.Write(p)
 	return
+}
+
+// See copyPagedOutSrc() comments.
+func goBytesPagedOut(p unsafe.Pointer, n C.int) []byte {
+	// Currently C.GoBytes() 'cheats' comparing to third-party C functions.
+	// It doesn't use runtime·cgocall() wrapper, so it may block the whole
+	// execution thread including other goroutines on major pagefault.
+	// So notify go scheduler that the current goroutine may block.
+	// See http://golang.org/src/cmd/cgo/out.go for details.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	return C.GoBytes(p, n)
 }
