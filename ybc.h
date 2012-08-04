@@ -215,8 +215,6 @@ YBC_API void ybc_config_set_de_hashtable_size(struct ybc_config *config,
  *
  * Long sync interval minimizes the number of writes to data file at the cost
  * of potentially higher number of lost items in the event of program crash.
- * Long sync interval also may result in high latency spikes while syncing huge
- * amounts of new data.
  *
  * Setting sync interval to 0 completely disables data syncing. Even if syncing
  * is disabled, the cache is persisted at ybc_close() call. The cache won't
@@ -229,8 +227,8 @@ YBC_API void ybc_config_set_de_hashtable_size(struct ybc_config *config,
  * Periodic data syncing has also a nice side-effect - it minimizes the number
  * of dirty VM pages behind the cache using fast sequential write to backing
  * store. If periodic data syncing is disabled, then the Operating System should
- * decide when to sync those dirty pages to backing store. This may be much
- * slower if the OS syncs those dirty pages in random order.
+ * decide when and in which order to sync those dirty pages to backing store.
+ * This may be much slower if the OS syncs those dirty pages in random order.
  */
 YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
     uint64_t sync_interval);
