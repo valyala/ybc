@@ -12,17 +12,17 @@ import (
  * Config
  ******************************************************************************/
 
-func newConfig() *Config {
+func newTestConfig() *Config {
 	return NewConfig(1000, 1000*1000)
 }
 
 func TestNewConfig(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 }
 
 func TestConfig_SetMaxItemsCount(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetMaxItemsCount(i)
@@ -30,7 +30,7 @@ func TestConfig_SetMaxItemsCount(t *testing.T) {
 }
 
 func TestConfig_SetDataFileSize(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetDataFileSize(i)
@@ -38,7 +38,7 @@ func TestConfig_SetDataFileSize(t *testing.T) {
 }
 
 func TestConfig_SetIndexFile(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetIndexFile(fmt.Sprintf("foobar_%d.index", i))
@@ -46,7 +46,7 @@ func TestConfig_SetIndexFile(t *testing.T) {
 }
 
 func TestConfig_SetDataFile(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetDataFile(fmt.Sprintf("foobar_%d.data", i))
@@ -54,7 +54,7 @@ func TestConfig_SetDataFile(t *testing.T) {
 }
 
 func TestConfig_SetHotItemsCount(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetHotItemsCount(i)
@@ -62,7 +62,7 @@ func TestConfig_SetHotItemsCount(t *testing.T) {
 }
 
 func TestConfig_SetHotDataSize(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetHotDataSize(i)
@@ -70,7 +70,7 @@ func TestConfig_SetHotDataSize(t *testing.T) {
 }
 
 func TestConfig_SetDeHashtableSize(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetDeHashtableSize(i)
@@ -78,7 +78,7 @@ func TestConfig_SetDeHashtableSize(t *testing.T) {
 }
 
 func TestConfig_SetSyncInterval(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	for i := 1; i < 1000*1000; i *= 100 {
 		config.SetSyncInterval(time.Second * time.Duration(i))
@@ -86,13 +86,13 @@ func TestConfig_SetSyncInterval(t *testing.T) {
 }
 
 func TestConfig_RemoveCache_Anonymous(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 	config.RemoveCache()
 }
 
 func TestConfig_RemoveCache_Existing(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 
 	config.SetDataFile("foobar.data")
@@ -119,7 +119,7 @@ func TestConfig_RemoveCache_Existing(t *testing.T) {
 }
 
 func TestConfig_OpenCache_Anonymous(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 
 	cache, err := config.OpenCache(false)
@@ -142,7 +142,7 @@ func TestConfig_OpenCache_Anonymous(t *testing.T) {
 }
 
 func TestConfig_OpenCache_Existing(t *testing.T) {
-	config := newConfig()
+	config := newTestConfig()
 	defer config.Close()
 
 	config.SetDataFile("foobar.data")

@@ -10,7 +10,8 @@ import (
 )
 
 type debugGuard struct {
-	isClosed bool
+	isLive bool
+	noClose bool
 }
 
 func debugGuardFinalizer(dg *debugGuard) {
@@ -18,19 +19,34 @@ func debugGuardFinalizer(dg *debugGuard) {
 }
 
 func (dg *debugGuard) Init() {
-	dg.isClosed = false
+	dg.init()
 	runtime.SetFinalizer(dg, debugGuardFinalizer)
 }
 
+func (dg *debugGuard) InitNoClose() {
+	dg.init()
+	dg.noClose = true
+}
+
 func (dg *debugGuard) CheckLive() {
-	if dg.isClosed {
+	if !dg.isLive {
 		panic("The object cannot be used, because it is already closed.")
 	}
 }
 
 func (dg *debugGuard) SetClosed() {
-	dg.isClosed = true
+	if dg.noClose {
+		panic("The object cannot be closed!")
+	}
+	dg.isLive = false
 	runtime.SetFinalizer(dg, nil)
+}
+
+func (dg *debugGuard) init() {
+	if dg.isLive {
+		panic("Cannot initialize live object. Forgot calling Close() before Init()?")
+	}
+	dg.isLive = true
 }
 
 func checkNonNegative(n int) {

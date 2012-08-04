@@ -12,6 +12,8 @@ type debugGuard struct {}
 
 func (dg *debugGuard) Init() {}
 
+func (db *debugGuard) InitNoClose() {}
+
 func (dg *debugGuard) CheckLive() {}
 
 func (dg *debugGuard) SetClosed() {}

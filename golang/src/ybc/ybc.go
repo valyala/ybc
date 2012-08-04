@@ -65,11 +65,13 @@ type Item struct {
 type ClusterConfig struct {
 	dg  debugGuard
 	buf []byte
+	configsCache []*Config
 }
 
 type Cluster struct {
 	dg  debugGuard
 	buf []byte
+	cachesCache map[uintptr]*Cache
 }
 
 // TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
@@ -81,11 +83,7 @@ type SizeT uintptr
  ******************************************************************************/
 
 func NewConfig(maxItemsCount, dataFileSize SizeT) *Config {
-	config := &Config{
-		buf: make([]byte, configSize),
-	}
-	C.ybc_config_init(config.ctx())
-	config.dg.Init()
+	config := newConfig(make([]byte, configSize))
 	config.SetMaxItemsCount(maxItemsCount)
 	config.SetDataFileSize(dataFileSize)
 	return config
@@ -464,46 +462,43 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 	config := &ClusterConfig{
 		buf: make([]byte, configSize*cachesCount),
 	}
-
+	configsCache := make([]*Config, cachesCount)
 	for i := 0; i < cachesCount; i++ {
-		c := config.Config(i)
-		C.ybc_config_init(c.ctx())
+		configsCache[i] = newConfig(config.configBuf(i))
 	}
+	config.configsCache = configsCache
 	config.dg.Init()
 	return config
 }
 
 func (config *ClusterConfig) Close() error {
 	config.dg.CheckLive()
-	for i := 0; i < config.cachesCount(); i++ {
-		c := config.Config(i)
-		C.ybc_config_destroy(c.ctx())
+	for _, c := range config.configsCache {
+		c.Close()
 	}
 	config.dg.SetClosed()
 	return nil
 }
 
+// DO NOT close the returned config! Its' lifetime is automatically managed
+// by the ClusterConfig object.
 func (config *ClusterConfig) Config(cacheIndex int) *Config {
 	config.dg.CheckLive()
-	checkNonNegative(cacheIndex)
-	if cacheIndex >= config.cachesCount() {
-		panic(ErrOutOfRange)
-	}
-	return &Config{
-		buf: config.configBuf(cacheIndex),
-	}
+	return config.configsCache[cacheIndex]
 }
 
 func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
 	config.dg.CheckLive()
+	cachesCount := len(config.configsCache)
 	cluster = &Cluster{
-		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(config.cachesCount()))),
+		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(cachesCount))),
 	}
+	cluster.cachesCache = make(map[uintptr]*Cache, cachesCount)
 	mForce := C.int(0)
 	if force {
 		mForce = 1
 	}
-	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(config.cachesCount()), mForce) == 0 {
+	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(cachesCount), mForce) == 0 {
 		err = ErrOpenFailed
 		return
 	}
@@ -513,10 +508,6 @@ func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err erro
 
 func (config *ClusterConfig) ctx() *C.struct_ybc_config {
 	return (*C.struct_ybc_config)(unsafe.Pointer(&config.buf[0]))
-}
-
-func (config *ClusterConfig) cachesCount() int {
-	return len(config.buf) / configSize
 }
 
 func (config *ClusterConfig) configBuf(n int) []byte {
@@ -540,10 +531,16 @@ func (cluster *Cluster) Close() error {
 func (cluster *Cluster) Cache(key []byte) *Cache {
 	cluster.dg.CheckLive()
 	m_key := newKey(key)
-	ctx := C.ybc_cluster_get_cache(cluster.ctx(), m_key)
-	return &Cache{
-		buf: newUnsafeSlice(unsafe.Pointer(ctx), cacheSize),
+	p := unsafe.Pointer(C.ybc_cluster_get_cache(cluster.ctx(), m_key))
+	cache := cluster.cachesCache[uintptr(p)]
+	if cache == nil {
+		cache = &Cache{
+			buf: newUnsafeSlice(p, cacheSize),
+		}
+		cache.dg.InitNoClose()
+		cluster.cachesCache[uintptr(p)] = cache
 	}
+	return cache
 }
 
 func (cluster *Cluster) ctx() *C.struct_ybc_cluster {
@@ -553,6 +550,15 @@ func (cluster *Cluster) ctx() *C.struct_ybc_cluster {
 /*******************************************************************************
  * Aux functions
  ******************************************************************************/
+
+func newConfig(buf []byte) *Config {
+	config := &Config{
+		buf: buf,
+	}
+	C.ybc_config_init(config.ctx())
+	config.dg.Init()
+	return config
+}
 
 func newKey(key []byte) *C.struct_ybc_key {
 	if len(key) == 0 {
