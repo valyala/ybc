@@ -24,7 +24,7 @@ func TestNewConfig(t *testing.T) {
 func TestConfig_SetMaxItemsCount(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
+	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetMaxItemsCount(i)
 	}
 }
@@ -32,7 +32,7 @@ func TestConfig_SetMaxItemsCount(t *testing.T) {
 func TestConfig_SetDataFileSize(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
+	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetDataFileSize(i)
 	}
 }
@@ -56,7 +56,7 @@ func TestConfig_SetDataFile(t *testing.T) {
 func TestConfig_SetHotItemsCount(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
+	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetHotItemsCount(i)
 	}
 }
@@ -64,7 +64,7 @@ func TestConfig_SetHotItemsCount(t *testing.T) {
 func TestConfig_SetHotDataSize(t *testing.T) {
 	config := newConfig()
 	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
+	for i := SizeT(1); i < 1000*1000; i *= 100 {
 		config.SetHotDataSize(i)
 	}
 }

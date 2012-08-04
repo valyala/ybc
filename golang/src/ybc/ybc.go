@@ -72,11 +72,15 @@ type Cluster struct {
 	buf []byte
 }
 
+// TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
+// Currently amd64's sizeof(int) = 4. See http://golang.org/doc/go_faq.html#q_int_sizes .
+type SizeT uintptr
+
 /*******************************************************************************
  * Config
  ******************************************************************************/
 
-func NewConfig(maxItemsCount, dataFileSize int) *Config {
+func NewConfig(maxItemsCount, dataFileSize SizeT) *Config {
 	config := &Config{
 		buf: make([]byte, configSize),
 	}
@@ -94,15 +98,13 @@ func (config *Config) Close() error {
 	return nil
 }
 
-func (config *Config) SetMaxItemsCount(maxItemsCount int) {
+func (config *Config) SetMaxItemsCount(maxItemsCount SizeT) {
 	config.dg.CheckLive()
-	checkNonNegative(maxItemsCount)
 	C.ybc_config_set_max_items_count(config.ctx(), C.size_t(maxItemsCount))
 }
 
-func (config *Config) SetDataFileSize(dataFileSize int) {
+func (config *Config) SetDataFileSize(dataFileSize SizeT) {
 	config.dg.CheckLive()
-	checkNonNegative(dataFileSize)
 	C.ybc_config_set_data_file_size(config.ctx(), C.size_t(dataFileSize))
 }
 
@@ -120,15 +122,13 @@ func (config *Config) SetDataFile(dataFile string) {
 	C.ybc_config_set_data_file(config.ctx(), cStr)
 }
 
-func (config *Config) SetHotItemsCount(hotItemsCount int) {
+func (config *Config) SetHotItemsCount(hotItemsCount SizeT) {
 	config.dg.CheckLive()
-	checkNonNegative(hotItemsCount)
 	C.ybc_config_set_hot_items_count(config.ctx(), C.size_t(hotItemsCount))
 }
 
-func (config *Config) SetHotDataSize(hotDataSize int) {
+func (config *Config) SetHotDataSize(hotDataSize SizeT) {
 	config.dg.CheckLive()
-	checkNonNegative(hotDataSize)
 	C.ybc_config_set_hot_data_size(config.ctx(), C.size_t(hotDataSize))
 }
 
