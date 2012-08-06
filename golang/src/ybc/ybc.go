@@ -209,13 +209,16 @@ func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err
 
 func (cache *Cache) Remove(key []byte) {
 	cache.dg.CheckLive()
-	C.ybc_item_remove(cache.ctx(), newKey(key))
+	k := newKey(key)
+	C.ybc_item_remove(cache.ctx(), &k)
 }
 
 func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
-	item = newItem()
-	if C.ybc_item_add(cache.ctx(), item.ctx(), newKey(key), newValue(value, ttl)) == 0 {
+	item = acquireItem()
+	k := newKey(key)
+	v := newValue(value, ttl)
+	if C.ybc_item_add(cache.ctx(), item.ctx(), &k, &v) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -225,8 +228,9 @@ func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *
 
 func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	cache.dg.CheckLive()
-	item = newItem()
-	if C.ybc_item_get(cache.ctx(), item.ctx(), newKey(key)) == 0 {
+	item = acquireItem()
+	k := newKey(key)
+	if C.ybc_item_get(cache.ctx(), item.ctx(), &k) == 0 {
 		err = ErrNotFound
 		return
 	}
@@ -237,11 +241,11 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	checkNonNegativeDuration(graceTtl)
-	item = newItem()
-	mKey := newKey(key)
+	item = acquireItem()
+	k := newKey(key)
 	mGraceTtl := C.uint64_t(graceTtl / time.Millisecond)
 	for {
-		switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), mKey, mGraceTtl) {
+		switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
 		case C.YBC_DE_WOULDBLOCK:
 			time.Sleep(time.Millisecond * 100)
 			continue
@@ -260,11 +264,9 @@ func (cache *Cache) NewAddTxn(key []byte, value_size int, ttl time.Duration) (tx
 	cache.dg.CheckLive()
 	checkNonNegative(value_size)
 	checkNonNegativeDuration(ttl)
-	txn = &AddTxn{
-		buf: make([]byte, addTxnSize),
-	}
-
-	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), newKey(key), C.size_t(value_size), C.uint64_t(ttl/time.Millisecond)) == 0 {
+	txn = acquireAddTxn()
+	k := newKey(key)
+	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(value_size), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -298,7 +300,7 @@ func (txn *AddTxn) Commit() (err error) {
 func (txn *AddTxn) Rollback() {
 	txn.dg.CheckLive()
 	C.ybc_add_txn_rollback(txn.ctx())
-	txn.dg.SetClosed()
+	txn.finish()
 }
 
 // io.Writer interface implementation
@@ -334,11 +336,18 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 		txn.Rollback()
 		return
 	}
-	item = newItem()
+	item = acquireItem()
 	C.ybc_add_txn_commit(txn.ctx(), item.ctx())
 	item.dg.Init()
-	txn.dg.SetClosed()
+	txn.finish()
 	return
+}
+
+func (txn *AddTxn) finish() {
+	txn.dg.SetClosed()
+	txn.unsafeBufCache = nil
+	txn.offset = 0
+	releaseAddTxn(txn)
 }
 
 func (txn *AddTxn) unsafeBuf() []byte {
@@ -362,6 +371,9 @@ func (item *Item) Close() error {
 	item.dg.CheckLive()
 	C.ybc_item_release(item.ctx())
 	item.dg.SetClosed()
+	item.valueCache.ptr = nil
+	item.offset = 0
+	releaseItem(item)
 	return nil
 }
 
@@ -530,8 +542,8 @@ func (cluster *Cluster) Close() error {
 // by the Cluster object.
 func (cluster *Cluster) Cache(key []byte) *Cache {
 	cluster.dg.CheckLive()
-	m_key := newKey(key)
-	p := unsafe.Pointer(C.ybc_cluster_get_cache(cluster.ctx(), m_key))
+	k := newKey(key)
+	p := unsafe.Pointer(C.ybc_cluster_get_cache(cluster.ctx(), &k))
 	cache := cluster.cachesCache[uintptr(p)]
 	if cache == nil {
 		cache = &Cache{
@@ -560,33 +572,27 @@ func newConfig(buf []byte) *Config {
 	return config
 }
 
-func newKey(key []byte) *C.struct_ybc_key {
+func newKey(key []byte) C.struct_ybc_key {
 	var ptr unsafe.Pointer
 	if len(key) > 0 {
 		ptr = unsafe.Pointer(&key[0])
 	}
-	return &C.struct_ybc_key{
+	return C.struct_ybc_key{
 		ptr:  ptr,
 		size: C.size_t(len(key)),
 	}
 }
 
-func newValue(value []byte, ttl time.Duration) *C.struct_ybc_value {
+func newValue(value []byte, ttl time.Duration) C.struct_ybc_value {
 	checkNonNegativeDuration(ttl)
 	var ptr unsafe.Pointer
 	if len(value) > 0 {
 		ptr = unsafe.Pointer(&value[0])
 	}
-	return &C.struct_ybc_value{
+	return C.struct_ybc_value{
 		ptr:  ptr,
 		size: C.size_t(len(value)),
 		ttl:  C.uint64_t(ttl / time.Millisecond),
-	}
-}
-
-func newItem() *Item {
-	return &Item{
-		buf: make([]byte, itemSize),
 	}
 }
 
@@ -597,4 +603,48 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
 	hdr.Len = size
 	hdr.Cap = size
 	return
+}
+
+const addTxnsPoolSize = 1024
+var addTxnsPool = make(chan *AddTxn, addTxnsPoolSize)
+
+func acquireAddTxn() *AddTxn {
+	select {
+	case txn := <-addTxnsPool:
+		return txn
+	default:
+		return &AddTxn{
+			buf: make([]byte, addTxnSize),
+		}
+	}
+	panic("unreachable")
+}
+
+func releaseAddTxn(txn *AddTxn) {
+	select {
+	case addTxnsPool <- txn:
+	default:
+	}
+}
+
+const itemsPoolSize = 1024
+var itemsPool = make(chan *Item, itemsPoolSize)
+
+func acquireItem() *Item {
+	select {
+	case item := <-itemsPool:
+		return item
+	default:
+		return &Item{
+			buf: make([]byte, itemSize),
+		}
+	}
+	panic("unreachable")
+}
+
+func releaseItem(item *Item) {
+	select {
+	case itemsPool <- item:
+	default:
+	}
 }
