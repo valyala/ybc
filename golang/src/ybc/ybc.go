@@ -260,13 +260,13 @@ func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, e
 	panic("unreachable")
 }
 
-func (cache *Cache) NewAddTxn(key []byte, value_size int, ttl time.Duration) (txn *AddTxn, err error) {
+func (cache *Cache) NewAddTxn(key []byte, valueSize int, ttl time.Duration) (txn *AddTxn, err error) {
 	cache.dg.CheckLive()
-	checkNonNegative(value_size)
+	checkNonNegative(valueSize)
 	checkNonNegativeDuration(ttl)
 	txn = acquireAddTxn()
 	k := newKey(key)
-	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(value_size), C.uint64_t(ttl/time.Millisecond)) == 0 {
+	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
