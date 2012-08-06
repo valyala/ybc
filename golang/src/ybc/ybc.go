@@ -76,6 +76,12 @@ type Cluster struct {
 
 // TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
 // Currently amd64's sizeof(int) = 4. See http://golang.org/doc/go_faq.html#q_int_sizes .
+//
+// Though the hack with SizeT raises the maximum cache size from 2^31-1 to 2^63-1,
+// it doesn't help with the maximum cache item size.
+// Ybc uses byte slices for represening cache items. So the maximum cache item size
+// is limited by the maximum size of a slice. Currently this limit it set to 2^31-1 -
+// the maximum value, which can be stored in int type on all platforms.
 type SizeT uintptr
 
 /*******************************************************************************
