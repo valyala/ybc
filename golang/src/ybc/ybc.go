@@ -561,22 +561,24 @@ func newConfig(buf []byte) *Config {
 }
 
 func newKey(key []byte) *C.struct_ybc_key {
-	if len(key) == 0 {
-		return &C.struct_ybc_key{}
+	var ptr unsafe.Pointer
+	if len(key) > 0 {
+		ptr = unsafe.Pointer(&key[0])
 	}
 	return &C.struct_ybc_key{
-		ptr:  unsafe.Pointer(&key[0]),
+		ptr:  ptr,
 		size: C.size_t(len(key)),
 	}
 }
 
 func newValue(value []byte, ttl time.Duration) *C.struct_ybc_value {
 	checkNonNegativeDuration(ttl)
-	if len(value) == 0 {
-		return &C.struct_ybc_value{}
+	var ptr unsafe.Pointer
+	if len(value) > 0 {
+		ptr = unsafe.Pointer(&value[0])
 	}
 	return &C.struct_ybc_value{
-		ptr:  unsafe.Pointer(&value[0]),
+		ptr:  ptr,
 		size: C.size_t(len(value)),
 		ttl:  C.uint64_t(ttl / time.Millisecond),
 	}
