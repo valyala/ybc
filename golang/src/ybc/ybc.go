@@ -605,6 +605,12 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
 	return
 }
 
+/*******************************************************************************
+ * Leaky buffers for AddTxn and Item.
+ *
+ * See http://golang.org/doc/effective_go.html#leaky_buffer .
+ ******************************************************************************/
+
 const addTxnsPoolSize = 1024
 var addTxnsPool = make(chan *AddTxn, addTxnsPoolSize)
 
