@@ -29,6 +29,11 @@ func (dg *debugGuard) Init() {
 	runtime.SetFinalizer(dg, debugGuardFinalizer)
 }
 
+func (dg *debugGuard) InitByOwner() {
+	dg.Init()
+	dg.noClose = true
+}
+
 func (dg *debugGuard) InitNoClose() {
 	dg.init()
 	dg.noClose = true
@@ -40,12 +45,18 @@ func (dg *debugGuard) CheckLive() {
 	}
 }
 
-func (dg *debugGuard) SetClosed() {
+func (dg *debugGuard) Close() {
 	if dg.noClose {
 		panic("The object cannot be closed!")
 	}
-	dg.isLive = false
-	runtime.SetFinalizer(dg, nil)
+	dg.close_()
+}
+
+func (dg *debugGuard) CloseByOwner() {
+	if !dg.noClose {
+		panic("Call Close() instead!")
+	}
+	dg.close_()
 }
 
 func (dg *debugGuard) init() {
@@ -53,6 +64,12 @@ func (dg *debugGuard) init() {
 		panic("Cannot initialize live object. Forgot calling Close() before Init()?")
 	}
 	dg.isLive = true
+}
+
+func (dg *debugGuard) close_() {
+	dg.CheckLive()
+	dg.isLive = false
+	runtime.SetFinalizer(dg, nil)
 }
 
 /*******************************************************************************
@@ -132,6 +149,15 @@ func absFile(filename *string) string {
 type clusterCacheGuard []*cacheGuard
 
 func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) {
+	defer func() {
+		if r := recover(); r != nil {
+			for _, cg := range ccg {
+				cg.Release()
+			}
+			panic(r)
+		}
+	}()
+
 	for _, c := range configs {
 		c.cg.Acquire()
 		ccg = append(ccg, &c.cg)

@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+func expectPanic(t *testing.T, f func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("unexpected empty panic message")
+		}
+	}()
+	f()
+	t.Fatal("the function must panic!")
+}
+
 /*******************************************************************************
  * Config
  ******************************************************************************/
@@ -109,7 +120,6 @@ func TestConfig_RemoveCache_Existing(t *testing.T) {
 		t.Fatal(err)
 	}
 	cache.Close()
-
 	config.RemoveCache()
 
 	cache, err = config.OpenCache(false)
@@ -147,12 +157,12 @@ func TestConfig_OpenCache_Existing(t *testing.T) {
 
 	config.SetDataFile("foobar.data")
 	config.SetIndexFile("foobar.index")
-	defer config.RemoveCache()
 
 	cache, err := config.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer config.RemoveCache()
 	cache.Close()
 
 	for i := 1; i < 10; i++ {
@@ -644,6 +654,22 @@ func TestItem_Seek_OutOfRange(t *testing.T) {
 	}
 }
 
+func TestItem_Seek_UnsupportedWhence1(t *testing.T) {
+	cache, item := newCacheItem(t)
+	defer cache.Close()
+	defer item.Close()
+
+	expectPanic(t, func() { item.Seek(100, 1) })
+}
+
+func TestItem_Seek_UnsupportedWhence2(t *testing.T) {
+	cache, item := newCacheItem(t)
+	defer cache.Close()
+	defer item.Close()
+
+	expectPanic(t, func() { item.Seek(100, 2) })
+}
+
 func TestItem_ReadAt(t *testing.T) {
 	cache, item := newCacheItem(t)
 	defer cache.Close()
@@ -693,6 +719,16 @@ func TestItem_WriteTo(t *testing.T) {
  * ClusterConfig
  ******************************************************************************/
 
+func newClusterConfig(cachesCount int) *ClusterConfig {
+	config := NewClusterConfig(cachesCount)
+	for i := 0; i < cachesCount; i++ {
+		c := config.Config(i)
+		c.SetMaxItemsCount(1000)
+		c.SetDataFileSize(1000 * 1000)
+	}
+	return config
+}
+
 func Test_NewClusterConfig(t *testing.T) {
 	config := NewClusterConfig(10)
 	defer config.Close()
@@ -710,14 +746,8 @@ func TestClusterConfig_Config(t *testing.T) {
 }
 
 func TestClusterConfig_OpenCluster(t *testing.T) {
-	config := NewClusterConfig(3)
+	config := newClusterConfig(3)
 	defer config.Close()
-
-	for i := 0; i < 3; i++ {
-		c := config.Config(i)
-		c.SetMaxItemsCount(1000)
-		c.SetDataFileSize(1000 * 1000)
-	}
 
 	_, err := config.OpenCluster(false)
 	if err != ErrOpenFailed {
@@ -738,7 +768,7 @@ func TestClusterConfig_OpenCluster(t *testing.T) {
  ******************************************************************************/
 
 func TestCluster_Cache(t *testing.T) {
-	config := NewClusterConfig(2)
+	config := newClusterConfig(2)
 	defer config.Close()
 	defer func() {
 		for i := 0; i < 2; i++ {

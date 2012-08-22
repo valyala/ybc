@@ -16,11 +16,15 @@ type debugGuard struct{}
 
 func (dg *debugGuard) Init() {}
 
+func (dg *debugGuard) InitByOwner() {}
+
 func (db *debugGuard) InitNoClose() {}
 
 func (dg *debugGuard) CheckLive() {}
 
-func (dg *debugGuard) SetClosed() {}
+func (dg *debugGuard) Close() {}
+
+func (dg *debugGuard) CloseByOwner() {}
 
 /*******************************************************************************
  * cacheGuard

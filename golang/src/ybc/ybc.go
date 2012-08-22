@@ -97,15 +97,15 @@ type SizeT uintptr
 
 func NewConfig(maxItemsCount, dataFileSize SizeT) *Config {
 	config := newConfig(make([]byte, configSize))
+	config.dg.Init()
 	config.SetMaxItemsCount(maxItemsCount)
 	config.SetDataFileSize(dataFileSize)
 	return config
 }
 
 func (config *Config) Close() error {
-	config.dg.CheckLive()
+	config.dg.Close()
 	C.ybc_config_destroy(config.ctx())
-	config.dg.SetClosed()
 	return nil
 }
 
@@ -198,10 +198,9 @@ func (config *Config) ctx() *C.struct_ybc_config {
  ******************************************************************************/
 
 func (cache *Cache) Close() error {
-	cache.dg.CheckLive()
+	cache.dg.Close()
 	cache.cg.Release()
 	C.ybc_close(cache.ctx())
-	cache.dg.SetClosed()
 	return nil
 }
 
@@ -370,7 +369,7 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 }
 
 func (txn *AddTxn) finish() {
-	txn.dg.SetClosed()
+	txn.dg.Close()
 	txn.unsafeBufCache = nil
 	txn.offset = 0
 	releaseAddTxn(txn)
@@ -394,9 +393,8 @@ func (txn *AddTxn) ctx() *C.struct_ybc_add_txn {
  ******************************************************************************/
 
 func (item *Item) Close() error {
-	item.dg.CheckLive()
+	item.dg.Close()
 	C.ybc_item_release(item.ctx())
-	item.dg.SetClosed()
 	item.valueCache.ptr = nil
 	item.offset = 0
 	releaseItem(item)
@@ -502,7 +500,9 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 	}
 	configsCache := make([]*Config, cachesCount)
 	for i := 0; i < cachesCount; i++ {
-		configsCache[i] = newConfig(config.configBuf(i))
+		c := newConfig(config.configBuf(i))
+		c.dg.InitByOwner()
+		configsCache[i] = c
 	}
 	config.configsCache = configsCache
 	config.dg.Init()
@@ -510,11 +510,11 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 }
 
 func (config *ClusterConfig) Close() error {
-	config.dg.CheckLive()
+	config.dg.Close()
 	for _, c := range config.configsCache {
-		c.Close()
+		c.dg.CloseByOwner()
+		C.ybc_config_destroy(c.ctx())
 	}
-	config.dg.SetClosed()
 	return nil
 }
 
@@ -568,10 +568,9 @@ func (config *ClusterConfig) configBuf(n int) []byte {
  ******************************************************************************/
 
 func (cluster *Cluster) Close() error {
-	cluster.dg.CheckLive()
+	cluster.dg.Close()
 	debugReleaseClusterCache(cluster.ccg)
 	C.ybc_cluster_close(cluster.ctx())
-	cluster.dg.SetClosed()
 	return nil
 }
 
@@ -605,7 +604,6 @@ func newConfig(buf []byte) *Config {
 		buf: buf,
 	}
 	C.ybc_config_init(config.ctx())
-	config.dg.Init()
 	return config
 }
 
