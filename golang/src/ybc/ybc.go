@@ -15,12 +15,16 @@ import (
 )
 
 var (
+	// Public errors
 	ErrOpenFailed        = errors.New("cannot open the cache")
 	ErrNotFound          = errors.New("the item is not found in the cache")
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
 	ErrOutOfRange        = errors.New("out of range")
 	ErrPartialCommit     = errors.New("partial commit")
 	ErrUnsupportedWhence = errors.New("unsupported whence")
+
+	// Errors for internal use only
+	errPanic = errors.New("panic")
 )
 
 var (
@@ -161,6 +165,13 @@ func (config *Config) RemoveCache() {
 func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 	config.dg.CheckLive()
 	config.cg.Acquire()
+	err = errPanic
+	defer func() {
+		if err != nil {
+			config.cg.Release()
+			cache = nil
+		}
+	}()
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
 		cg:  config.cg,
@@ -170,12 +181,11 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 		mForce = 1
 	}
 	if C.ybc_open(cache.ctx(), config.ctx(), mForce) == 0 {
-		config.cg.Release()
-		cache = nil
 		err = ErrOpenFailed
 		return
 	}
 	cache.dg.Init()
+	err = nil
 	return
 }
 
@@ -354,8 +364,8 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 	}
 	item = acquireItem()
 	C.ybc_add_txn_commit(txn.ctx(), item.ctx())
-	item.dg.Init()
 	txn.finish()
+	item.dg.Init()
 	return
 }
 
@@ -518,6 +528,13 @@ func (config *ClusterConfig) Config(cacheIndex int) *Config {
 func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
 	config.dg.CheckLive()
 	ccg := debugAcquireClusterCache(config.configsCache)
+	err = errPanic
+	defer func() {
+		if err != nil {
+			debugReleaseClusterCache(ccg)
+			cluster = nil
+		}
+	}()
 	cachesCount := len(config.configsCache)
 	cluster = &Cluster{
 		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(cachesCount))),
@@ -529,12 +546,11 @@ func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err erro
 		mForce = 1
 	}
 	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(cachesCount), mForce) == 0 {
-		debugReleaseClusterCache(ccg)
-		cluster = nil
 		err = ErrOpenFailed
 		return
 	}
 	cluster.dg.Init()
+	err = nil
 	return
 }
 
