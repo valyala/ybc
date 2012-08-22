@@ -1,13 +1,19 @@
-// Development version of debugGuard implementation
+// Development version of debug helpers
 
 // +build !release
 
 package ybc
 
 import (
+	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 )
+
+/*******************************************************************************
+ * debugGuard
+ ******************************************************************************/
 
 type debugGuard struct {
 	isLive bool
@@ -48,6 +54,100 @@ func (dg *debugGuard) init() {
 	}
 	dg.isLive = true
 }
+
+/*******************************************************************************
+ * cacheGuard
+ ******************************************************************************/
+
+var (
+	acquiredFilesMutex sync.Mutex
+	acquiredFiles = make(map[string]bool)
+)
+
+type cacheGuard struct {
+	dataFile *string
+	indexFile *string
+}
+
+func (cg *cacheGuard) SetDataFile(dataFile string) {
+	cg.dataFile = &dataFile
+}
+
+func (cg *cacheGuard) SetIndexFile(indexFile string) {
+	cg.indexFile = &indexFile
+}
+
+func (cg *cacheGuard) Acquire() {
+	acquireFile(cg.dataFile)
+	acquireFile(cg.indexFile)
+}
+
+func (cg *cacheGuard) Release() {
+	releaseFile(cg.dataFile)
+	releaseFile(cg.indexFile)
+}
+
+func acquireFile(filename *string) {
+	if filename == nil {
+		return
+	}
+
+	acquiredFilesMutex.Lock()
+	defer acquiredFilesMutex.Unlock()
+
+	absFilename := absFile(filename)
+	if acquiredFiles[absFilename] {
+		panic("Cannot open already opened index or data file for the cache!")
+	}
+	acquiredFiles[absFilename] = true
+}
+
+func releaseFile(filename *string) {
+	if filename == nil {
+		return
+	}
+
+	acquiredFilesMutex.Lock()
+	defer acquiredFilesMutex.Unlock()
+
+	absFilename := absFile(filename)
+	if !acquiredFiles[absFilename] {
+		panic("Impossible happened: the given cache file is already closed!")
+	}
+	delete(acquiredFiles, absFilename)
+}
+
+func absFile(filename *string) string {
+	absFilename, err := filepath.Abs(*filename)
+	if err != nil {
+		panic(err)
+	}
+	return absFilename
+}
+
+/*******************************************************************************
+ * clusterCacheGuard
+ ******************************************************************************/
+
+type clusterCacheGuard []*cacheGuard
+
+func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) {
+	for _, c := range configs {
+		c.cg.Acquire()
+		ccg = append(ccg, &c.cg)
+	}
+	return
+}
+
+func debugReleaseClusterCache(ccg clusterCacheGuard) {
+	for _, cg := range ccg {
+		cg.Release()
+	}
+}
+
+/*******************************************************************************
+ * misc functions
+ ******************************************************************************/
 
 func checkNonNegative(n int) {
 	if n < 0 {

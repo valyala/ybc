@@ -40,11 +40,13 @@ var (
 
 type Config struct {
 	dg  debugGuard
+	cg  cacheGuard
 	buf []byte
 }
 
 type Cache struct {
 	dg  debugGuard
+	cg  cacheGuard
 	buf []byte
 }
 
@@ -70,6 +72,7 @@ type ClusterConfig struct {
 
 type Cluster struct {
 	dg  debugGuard
+	ccg clusterCacheGuard
 	buf []byte
 	cachesCache map[uintptr]*Cache
 }
@@ -114,6 +117,7 @@ func (config *Config) SetDataFileSize(dataFileSize SizeT) {
 
 func (config *Config) SetIndexFile(indexFile string) {
 	config.dg.CheckLive()
+	config.cg.SetIndexFile(indexFile)
 	cStr := C.CString(indexFile)
 	defer C.free(unsafe.Pointer(cStr))
 	C.ybc_config_set_index_file(config.ctx(), cStr)
@@ -121,6 +125,7 @@ func (config *Config) SetIndexFile(indexFile string) {
 
 func (config *Config) SetDataFile(dataFile string) {
 	config.dg.CheckLive()
+	config.cg.SetDataFile(dataFile)
 	cStr := C.CString(dataFile)
 	defer C.free(unsafe.Pointer(cStr))
 	C.ybc_config_set_data_file(config.ctx(), cStr)
@@ -155,14 +160,18 @@ func (config *Config) RemoveCache() {
 
 func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 	config.dg.CheckLive()
+	config.cg.Acquire()
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
+		cg: config.cg,
 	}
 	mForce := C.int(0)
 	if force {
 		mForce = 1
 	}
 	if C.ybc_open(cache.ctx(), config.ctx(), mForce) == 0 {
+		config.cg.Release()
+		cache = nil
 		err = ErrOpenFailed
 		return
 	}
@@ -180,6 +189,7 @@ func (config *Config) ctx() *C.struct_ybc_config {
 
 func (cache *Cache) Close() error {
 	cache.dg.CheckLive()
+	cache.cg.Release()
 	C.ybc_close(cache.ctx())
 	cache.dg.SetClosed()
 	return nil
@@ -507,9 +517,11 @@ func (config *ClusterConfig) Config(cacheIndex int) *Config {
 
 func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
 	config.dg.CheckLive()
+	ccg := debugAcquireClusterCache(config.configsCache)
 	cachesCount := len(config.configsCache)
 	cluster = &Cluster{
 		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(cachesCount))),
+		ccg: ccg,
 	}
 	cluster.cachesCache = make(map[uintptr]*Cache, cachesCount)
 	mForce := C.int(0)
@@ -517,6 +529,8 @@ func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err erro
 		mForce = 1
 	}
 	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(cachesCount), mForce) == 0 {
+		debugReleaseClusterCache(ccg)
+		cluster = nil
 		err = ErrOpenFailed
 		return
 	}
@@ -539,6 +553,7 @@ func (config *ClusterConfig) configBuf(n int) []byte {
 
 func (cluster *Cluster) Close() error {
 	cluster.dg.CheckLive()
+	debugReleaseClusterCache(cluster.ccg)
 	C.ybc_cluster_close(cluster.ctx())
 	cluster.dg.SetClosed()
 	return nil
