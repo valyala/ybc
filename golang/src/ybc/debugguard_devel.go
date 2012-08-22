@@ -16,7 +16,7 @@ import (
  ******************************************************************************/
 
 type debugGuard struct {
-	isLive bool
+	isLive  bool
 	noClose bool
 }
 
@@ -61,11 +61,11 @@ func (dg *debugGuard) init() {
 
 var (
 	acquiredFilesMutex sync.Mutex
-	acquiredFiles = make(map[string]bool)
+	acquiredFiles      = make(map[string]bool)
 )
 
 type cacheGuard struct {
-	dataFile *string
+	dataFile  *string
 	indexFile *string
 }
 

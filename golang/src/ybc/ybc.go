@@ -65,15 +65,15 @@ type Item struct {
 }
 
 type ClusterConfig struct {
-	dg  debugGuard
-	buf []byte
+	dg           debugGuard
+	buf          []byte
 	configsCache []*Config
 }
 
 type Cluster struct {
-	dg  debugGuard
-	ccg clusterCacheGuard
-	buf []byte
+	dg          debugGuard
+	ccg         clusterCacheGuard
+	buf         []byte
 	cachesCache map[uintptr]*Cache
 }
 
@@ -163,7 +163,7 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 	config.cg.Acquire()
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
-		cg: config.cg,
+		cg:  config.cg,
 	}
 	mForce := C.int(0)
 	if force {
@@ -633,6 +633,7 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
  ******************************************************************************/
 
 const addTxnsPoolSize = 1024
+
 var addTxnsPool = make(chan *AddTxn, addTxnsPoolSize)
 
 func acquireAddTxn() *AddTxn {
@@ -655,6 +656,7 @@ func releaseAddTxn(txn *AddTxn) {
 }
 
 const itemsPoolSize = 1024
+
 var itemsPool = make(chan *Item, itemsPoolSize)
 
 func acquireItem() *Item {

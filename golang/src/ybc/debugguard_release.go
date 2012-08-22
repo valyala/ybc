@@ -12,7 +12,7 @@ import (
  * debugGuard
  ******************************************************************************/
 
-type debugGuard struct {}
+type debugGuard struct{}
 
 func (dg *debugGuard) Init() {}
 
@@ -26,7 +26,7 @@ func (dg *debugGuard) SetClosed() {}
  * cacheGuard
  ******************************************************************************/
 
-type cacheGuard struct {}
+type cacheGuard struct{}
 
 func (cg *cacheGuard) SetDataFile(dataFile string) {}
 
@@ -40,7 +40,7 @@ func (cg *cacheGuard) Release() {}
  * clusterCacheGuard
  ******************************************************************************/
 
-type clusterCacheGuard struct {}
+type clusterCacheGuard struct{}
 
 func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) { return }
 
