@@ -720,28 +720,22 @@ func TestItem_WriteTo(t *testing.T) {
  ******************************************************************************/
 
 func newClusterConfig(cachesCount int) *ClusterConfig {
-	config := NewClusterConfig(cachesCount)
-	for i := 0; i < cachesCount; i++ {
-		c := config.Config(i)
-		c.SetMaxItemsCount(1000)
-		c.SetDataFileSize(1000 * 1000)
-	}
-	return config
+	return NewClusterConfig(cachesCount, 1000, 1000*1000)
 }
 
 func Test_NewClusterConfig(t *testing.T) {
-	config := NewClusterConfig(10)
+	config := NewClusterConfig(10, 1000, 1000*1000)
 	defer config.Close()
 }
 
 func TestClusterConfig_Config(t *testing.T) {
-	config := NewClusterConfig(10)
+	config := NewClusterConfig(10, 1000, 1000*1000)
 	defer config.Close()
 
 	for i := 0; i < 10; i++ {
 		c := config.Config(i)
 		c.SetMaxItemsCount(1000)
-		c.SetDataFileSize(1000 * 1000)
+		c.SetDataFileSize(1000*1000)
 	}
 }
 

@@ -505,7 +505,7 @@ func (item *Item) ctx() *C.struct_ybc_item {
  * ClusterConfig
  ******************************************************************************/
 
-func NewClusterConfig(cachesCount int) *ClusterConfig {
+func NewClusterConfig(cachesCount int, maxItemsCount, dataFileSize SizeT) *ClusterConfig {
 	config := &ClusterConfig{
 		buf: make([]byte, configSize*cachesCount),
 	}
@@ -519,11 +519,15 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 			}
 		}
 	}()
+	maxItemsCount /= SizeT(cachesCount)
+	dataFileSize /= SizeT(cachesCount)
 	for initializedCachesCount < cachesCount {
 		c := newConfig(config.configBuf(initializedCachesCount))
 		c.dg.InitNoClose()
 		configsCache[initializedCachesCount] = c
 		initializedCachesCount++
+		c.SetMaxItemsCount(maxItemsCount)
+		c.SetDataFileSize(dataFileSize)
 	}
 	config.configsCache = configsCache
 	config.dg.Init()
