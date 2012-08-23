@@ -501,7 +501,7 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 	configsCache := make([]*Config, cachesCount)
 	for i := 0; i < cachesCount; i++ {
 		c := newConfig(config.configBuf(i))
-		c.dg.InitByOwner()
+		c.dg.InitNoClose()
 		configsCache[i] = c
 	}
 	config.configsCache = configsCache
@@ -512,7 +512,6 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 func (config *ClusterConfig) Close() error {
 	config.dg.Close()
 	for _, c := range config.configsCache {
-		c.dg.CloseByOwner()
 		C.ybc_config_destroy(c.ctx())
 	}
 	return nil
