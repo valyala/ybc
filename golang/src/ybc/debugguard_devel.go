@@ -151,9 +151,7 @@ type clusterCacheGuard []*cacheGuard
 func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) {
 	defer func() {
 		if r := recover(); r != nil {
-			for _, cg := range ccg {
-				cg.Release()
-			}
+			debugReleaseClusterCache(ccg)
 			panic(r)
 		}
 	}()
