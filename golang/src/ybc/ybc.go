@@ -98,14 +98,21 @@ type SizeT uintptr
 func NewConfig(maxItemsCount, dataFileSize SizeT) *Config {
 	config := newConfig(make([]byte, configSize))
 	config.dg.Init()
+	err := errPanic
+	defer func() {
+		if err != nil {
+			config.destroy()
+		}
+	}()
 	config.SetMaxItemsCount(maxItemsCount)
 	config.SetDataFileSize(dataFileSize)
+	err = nil
 	return config
 }
 
 func (config *Config) Close() error {
 	config.dg.Close()
-	C.ybc_config_destroy(config.ctx())
+	config.destroy()
 	return nil
 }
 
@@ -191,6 +198,10 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 
 func (config *Config) ctx() *C.struct_ybc_config {
 	return (*C.struct_ybc_config)(unsafe.Pointer(&config.buf[0]))
+}
+
+func (config *Config) destroy() {
+	C.ybc_config_destroy(config.ctx())
 }
 
 /*******************************************************************************
@@ -499,10 +510,20 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 		buf: make([]byte, configSize*cachesCount),
 	}
 	configsCache := make([]*Config, cachesCount)
-	for i := 0; i < cachesCount; i++ {
-		c := newConfig(config.configBuf(i))
+	initializedCachesCount := 0
+	defer func() {
+		if initializedCachesCount != cachesCount {
+			for initializedCachesCount > 0 {
+				initializedCachesCount--
+				configsCache[initializedCachesCount].destroy()
+			}
+		}
+	}()
+	for initializedCachesCount < cachesCount {
+		c := newConfig(config.configBuf(initializedCachesCount))
 		c.dg.InitNoClose()
-		configsCache[i] = c
+		configsCache[initializedCachesCount] = c
+		initializedCachesCount++
 	}
 	config.configsCache = configsCache
 	config.dg.Init()
@@ -512,7 +533,7 @@ func NewClusterConfig(cachesCount int) *ClusterConfig {
 func (config *ClusterConfig) Close() error {
 	config.dg.Close()
 	for _, c := range config.configsCache {
-		C.ybc_config_destroy(c.ctx())
+		c.destroy()
 	}
 	return nil
 }
