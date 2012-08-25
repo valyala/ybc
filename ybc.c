@@ -2414,6 +2414,9 @@ static int m_open(struct ybc *const cache,
       &is_index_file_created, &next_cursor)) {
     return 0;
   }
+  if (next_cursor->offset > cache->storage.size) {
+    next_cursor->offset = 0;
+  }
 
   cache->storage.next_cursor = *next_cursor;
   cache->storage.hash_seed = *cache->index.hash_seed_ptr;

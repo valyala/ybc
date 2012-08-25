@@ -807,24 +807,50 @@ static void test_broken_index_handling(struct ybc *const cache)
     M_ERROR("cannot create persistent cache");
   }
 
+  struct ybc_key key;
+  struct ybc_value value = {
+      .ptr = "foobar",
+      .size = 6,
+      .ttl = YBC_MAX_TTL,
+  };
+
+  /* Add some data to cache. */
+  for (size_t i = 0; i < 1000; i++) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    expect_item_add(cache, &key, &value);
+  }
+
   ybc_close(cache);
 
   /* Corrupt index file. */
   FILE *const fp = fopen("./tmp_cache.index", "r+");
-  for (size_t i = 0; i < 100; ++i) {
-    if (fwrite(&i, sizeof(i), 1, fp) != 1) {
+  int rv = fseek(fp, 0, SEEK_END);
+  if (rv != 0) {
+    M_ERROR("fseek(SEEK_END, 0) failed");
+  }
+  const long pos = ftell(fp);
+  if (pos < 0) {
+    M_ERROR("ftell failed");
+  }
+  const size_t file_size = (size_t)pos;
+  rv = fseek(fp, 0, SEEK_SET);
+  if (rv != 0) {
+    M_ERROR("fseek(SEEK_SET, 0) failed");
+  }
+  for (size_t i = 0; i < file_size; ++i) {
+    if (fputc((unsigned char)i, fp) == EOF) {
       M_ERROR("cannot write data");
     }
   }
   fclose(fp);
 
-  /* Try reading index file. It must be "empty". */
+  /* Try reading index file. It must become "empty". */
   if (!ybc_open(cache, config, 0)) {
     M_ERROR("cannot open persistent cache");
   }
 
-  struct ybc_key key;
-  for (size_t i = 0; i < 100; ++i) {
+  for (size_t i = 0; i < 1000; ++i) {
     key.ptr = &i;
     key.size = sizeof(i);
     expect_item_miss(cache, &key);
