@@ -2561,6 +2561,17 @@ static void m_item_deregister(struct ybc_item *const item)
   item->prev_ptr = NULL;
 }
 
+static void m_item_release(struct ybc_item *const item)
+{
+  struct ybc *const cache = item->cache;
+
+  m_lock_lock(&cache->lock);
+  m_item_deregister(item);
+  m_lock_unlock(&cache->lock);
+
+  item->cache = NULL;
+}
+
 /*
  * Relocates the item from src to dst.
  *
@@ -2646,7 +2657,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
 
 void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
 {
-  m_item_deregister(&txn->item);
+  m_item_release(&txn->item);
 }
 
 void ybc_add_txn_get_value(const struct ybc_add_txn *const txn,
@@ -2687,17 +2698,6 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
   }
 
   return is_found;
-}
-
-static void m_item_release(struct ybc_item *const item)
-{
-  struct ybc *const cache = item->cache;
-
-  m_lock_lock(&cache->lock);
-  m_item_deregister(item);
-  m_lock_unlock(&cache->lock);
-
-  item->cache = NULL;
 }
 
 size_t ybc_item_get_size(void)
