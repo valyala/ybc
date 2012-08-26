@@ -1953,7 +1953,8 @@ static void m_sync_adjust_next_cursor(
   }
 }
 
-static void m_sync_commit(const struct m_storage *const storage,
+static void m_sync_commit(struct m_lock *const cache_lock,
+    const struct m_storage *const storage,
     const size_t start_offset, const size_t end_offset)
 {
   assert(start_offset <= end_offset);
@@ -1976,15 +1977,20 @@ static void m_sync_commit(const struct m_storage *const storage,
   const size_t sync_chunk_size = end_offset - start_offset;
   if (sync_chunk_size > 0) {
     void *const ptr = m_storage_get_ptr(storage, start_offset);
+
+    m_lock_unlock(cache_lock);
     m_memory_sync(ptr, sync_chunk_size);
+    m_lock_lock(cache_lock);
   }
 }
 
-static void m_sync_flush_data(
+static void m_sync_flush_data(struct m_lock *const cache_lock,
     const struct m_storage *const storage,
     struct ybc_item **const acquired_items_ptr,
     struct m_storage_cursor *const sync_cursor_ptr)
 {
+  m_lock_lock(cache_lock);
+
   const struct m_storage_cursor sync_cursor = *sync_cursor_ptr;
   struct m_storage_cursor next_cursor = storage->next_cursor;
 
@@ -1998,7 +2004,7 @@ static void m_sync_flush_data(
 
     assert(sync_cursor.offset <= next_cursor.offset);
 
-    m_sync_commit(storage, sync_cursor.offset, next_cursor.offset);
+    m_sync_commit(cache_lock, storage, sync_cursor.offset, next_cursor.offset);
   }
   else {
     /*
@@ -2017,8 +2023,8 @@ static void m_sync_flush_data(
 
       assert(sync_cursor.offset <= storage->size);
 
-      m_sync_commit(storage, sync_cursor.offset, storage->size);
-      m_sync_commit(storage, 0, next_cursor.offset);
+      m_sync_commit(cache_lock, storage, sync_cursor.offset, storage->size);
+      m_sync_commit(cache_lock, storage, 0, next_cursor.offset);
     }
     else {
       /*
@@ -2026,11 +2032,13 @@ static void m_sync_flush_data(
        * of unsynced data. Let's sync the whole storage.
        */
 
-      m_sync_commit(storage, 0, storage->size);
+      m_sync_commit(cache_lock, storage, 0, storage->size);
     }
   }
 
   *sync_cursor_ptr = next_cursor;
+
+  m_lock_unlock(cache_lock);
 }
 
 static void m_sync_thread_func(void *const ctx)
@@ -2038,16 +2046,12 @@ static void m_sync_thread_func(void *const ctx)
   struct m_sync *const sc = ctx;
 
   while (!m_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
-    m_lock_lock(sc->cache_lock);
-    m_sync_flush_data(sc->storage, sc->acquired_items_ptr, sc->sync_cursor);
-    m_lock_unlock(sc->cache_lock);
+    m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_ptr,
+        sc->sync_cursor);
   }
 
-  /*
-   * There is no need in locking sc->cache_lock here, because the cache
-   * cannot be used by other threads now (at destruction time).
-   */
-  m_sync_flush_data(sc->storage, sc->acquired_items_ptr, sc->sync_cursor);
+  m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_ptr,
+      sc->sync_cursor);
 }
 
 static void m_sync_init(struct m_sync *const sc,
