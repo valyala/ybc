@@ -600,6 +600,21 @@ static void test_overlapped_acquirements(struct ybc *const cache,
       .ttl = YBC_MAX_TTL,
   };
 
+  const struct ybc_key static_key = {
+      .ptr = "aaaabbb",
+      .size = 7,
+  };
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_add(cache, m_get_item(added_items, i), &static_key, &value);
+  }
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_get(cache, m_get_item(obtained_items, i), &static_key);
+  }
+  for (i = 0; i < items_count; ++i) {
+    ybc_item_release(m_get_item(obtained_items, i));
+    ybc_item_release(m_get_item(added_items, i));
+  }
+
   for (i = 0; i < items_count; ++i) {
     ybc_item_add(cache, m_get_item(added_items, i), &key, &value);
   }
@@ -610,11 +625,11 @@ static void test_overlapped_acquirements(struct ybc *const cache,
   }
 
   for (i = 0; i < items_count; ++i) {
-    ybc_item_release(m_get_item(added_items, i));
+    ybc_item_release(m_get_item(obtained_items, items_count - i - 1));
   }
 
   for (i = 0; i < items_count; ++i) {
-    ybc_item_release(m_get_item(obtained_items, items_count - i - 1));
+    ybc_item_release(m_get_item(added_items, i));
   }
 
   ybc_close(cache);
@@ -1187,7 +1202,6 @@ static void *thread_func(void *const ctx)
       break;
     default:
       if (ybc_item_get(task->cache, item, &key)) {
-        value.ptr = key.ptr;
         expect_value(item, &value);
         ybc_item_release(item);
       }
@@ -1239,7 +1253,7 @@ int main(void)
   test_dogpile_effect_hashtable(cache);
   test_cluster_ops(5, 1000);
 
-  test_overlapped_acquirements(cache, 100);
+  test_overlapped_acquirements(cache, 1000);
   test_interleaved_adds(cache);
   test_instant_clear(cache);
   test_persistent_survival(cache);
@@ -1253,7 +1267,7 @@ int main(void)
   test_disabled_data_compaction(cache);
   test_disabled_syncing(cache);
 
-  test_multithreaded_access(cache, 10);
+  test_multithreaded_access(cache, 100);
 
   printf("All functional tests done\n");
   return 0;

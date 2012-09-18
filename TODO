@@ -5,6 +5,3 @@
 - API bindings for popular programming languages (Java, Python, PHP, C#, Lua).
 - Data corruption detection.
 - Optimistic concurrency control.
-
-Architecture enhancements:
-- Improve m_storage_allocate() algorithm from O(n*n) to O(n*ln(n)).
