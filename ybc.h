@@ -345,7 +345,7 @@ YBC_API void ybc_remove(const struct ybc_config *config);
  *     struct ybc_item *const item = (struct ybc_item *)item_buf;
  *     struct ybc_value value;
  *
- *     ybc_add_txn_commit(txn, item);
+ *     ybc_add_txn_commit_item(txn, item);
  *
  *     ybc_item_get_value(item, &value);
  *
@@ -426,13 +426,29 @@ YBC_API size_t ybc_add_txn_get_size(void);
  * The caller may freely modify key contents after the call to this function,
  * because the function makes an internal copy of the key.
  *
- * The transaction may be commited by calling ybc_add_txn_commit()
+ * The transaction may be commited by calling ybc_add_txn_commit*()
  * or may be rolled back by calling ybc_add_txn_rollback().
  *
  * Returns non-zero on success, zero on failure.
  */
 YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
     const struct ybc_key *key, size_t value_size, uint64_t ttl);
+
+/*
+ * Commits the given 'add' transaction.
+ *
+ * The corresponding item instantly appears in the cache after the commit.
+ * The cache doesn't guarantee that the added item will be available
+ * until its' ttl expiration. The item can be evicted from the cache
+ * at any time, but in most cases the item will remain available until
+ * its' ttl expiration.
+ *
+ * Use ybc_add_txn_commit_item() instead if you need reading item's contents
+ * immediately after the commit.
+ * ybc_add_txn_commit_item() is better and faster alternative
+ * to ybc_add_txn_commit() + ybc_item_get().
+ */
+YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn);
 
 /*
  * Commits the given 'add' transaction.
@@ -449,8 +465,13 @@ YBC_API int ybc_add_txn_begin(struct ybc *cache, struct ybc_add_txn *txn,
  *
  * The function also acquires commited item. The acquired item must be released
  * via ybc_item_release().
+ *
+ * Use ybc_add_txn_commit() if you don't need reading item's contents
+ * immediately after the commit.
+ * ybc_add_txn_commit() is better and faster alternative
+ * to ybc_add_txn_commit_item() + ybc_item_release().
  */
-YBC_API void ybc_add_txn_commit(struct ybc_add_txn *txn, struct ybc_item *item);
+YBC_API void ybc_add_txn_commit_item(struct ybc_add_txn *txn, struct ybc_item *item);
 
 /*
  * Rolls back the given 'add' transaction.
@@ -461,7 +482,7 @@ YBC_API void ybc_add_txn_rollback(struct ybc_add_txn *txn);
  * Populates value with a pointer to allocated space and a size of the value.
  *
  * The caller must fill the given space with value.size bytes of item's value
- * before calling ybc_add_txn_commit().
+ * before calling ybc_add_txn_commit*().
  *
  * DO NOT write to the allocated space returned by this function after
  * the corresponding transaction is commited or rolled back!
@@ -492,7 +513,7 @@ YBC_API void ybc_add_txn_get_value(const struct ybc_add_txn *txn,
  *   // Build new value (i.e. obtain it from backends, prepare, serialize, etc.)
  *   // and insert it into the cache.
  *   build_new_value(&value);
- *   if (!ybc_item_add(cache, item, &key, &value)) {
+ *   if (!ybc_item_add_item(cache, item, &key, &value)) {
  *     log_error("Cannot add item to the cache");
  *     exit(EXIT_FAILURE);
  *   }
@@ -568,9 +589,38 @@ YBC_API size_t ybc_item_get_size(void);
  *
  * The function overwrites the pervious value for the given key.
  *
- * The returned item MUST be released via ybc_item_release() call.
+ * Use ybc_item_add_item() instead of ybc_item_add() + ybc_item_get()
+ * if you need reading item's contents immediately after adding the item
+ * to the cache.
  */
-YBC_API int ybc_item_add(struct ybc *cache, struct ybc_item *item,
+YBC_API int ybc_item_add(struct ybc *cache, const struct ybc_key *key,
+    const struct ybc_value *value);
+
+/*
+ * Adds the given value with the given key to the cache.
+ *
+ * Both key and value are copied from the provided memory locations,
+ * so the caller can freely modify memory under the key and the value after
+ * returning from the function.
+ *
+ * Set value->ttl to YBC_MAX_TTL for items without expiration time.
+ *
+ * The cache doesn't guarantee that the added item will be available
+ * until its' ttl expiration. The item can be evicted from the cache
+ * at any time, but in most cases the item will remain available until
+ * its' ttl expiration.
+ *
+ * Returns non-zero on success, zero on error.
+ *
+ * The function overwrites the pervious value for the given key.
+ *
+ * The returned item MUST be released via ybc_item_release() call.
+ *
+ * Use ybc_item_add() instead of ybc_item_add_item() + ybc_item_release()
+ * if you don't need reading item's contents immediately after adding the item
+ * to the cache.
+ */
+YBC_API int ybc_item_add_item(struct ybc *cache, struct ybc_item *item,
     const struct ybc_key *key, const struct ybc_value *value);
 
 /*

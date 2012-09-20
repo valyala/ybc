@@ -172,11 +172,20 @@ static void expect_item_add(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  if (!ybc_item_add(cache, item, key, value)) {
+  if (!ybc_item_add_item(cache, item, key, value)) {
     M_ERROR("error when adding item");
   }
   expect_value(item, value);
   ybc_item_release(item);
+  expect_item_hit(cache, key, value);
+}
+
+static void expect_item_add_no_acquire(struct ybc *const cache,
+    const struct ybc_key *const key, const struct ybc_value *const value)
+{
+  if (!ybc_item_add(cache, key, value)) {
+    M_ERROR("error when adding item");
+  }
   expect_item_hit(cache, key, value);
 }
 
@@ -225,7 +234,7 @@ static void test_add_txn_rollback(struct ybc *const cache,
   ybc_add_txn_rollback(txn);
 }
 
-static void test_add_txn_commit(struct ybc *const cache,
+static void test_add_txn_commit_item(struct ybc *const cache,
     struct ybc_add_txn *const txn, const struct ybc_key *const key,
     const struct ybc_value *const value)
 {
@@ -242,10 +251,29 @@ static void test_add_txn_commit(struct ybc *const cache,
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
 
-  ybc_add_txn_commit(txn, item);
+  ybc_add_txn_commit_item(txn, item);
 
   expect_value(item, value);
   ybc_item_release(item);
+
+  expect_item_hit(cache, key, value);
+}
+
+static void test_add_txn_commit(struct ybc *const cache,
+    struct ybc_add_txn *const txn, const struct ybc_key *const key,
+    const struct ybc_value *const value)
+{
+  if (!ybc_add_txn_begin(cache, txn, key, value->size, value->ttl)) {
+    M_ERROR("error when starting add transaction");
+  }
+
+  struct ybc_add_txn_value txn_value;
+  ybc_add_txn_get_value(txn, &txn_value);
+  assert(txn_value.ptr != NULL);
+  assert(txn_value.size == value->size);
+  memcpy(txn_value.ptr, value->ptr, value->size);
+
+  ybc_add_txn_commit(txn);
 
   expect_item_hit(cache, key, value);
 }
@@ -280,14 +308,17 @@ static void test_add_txn_ops(struct ybc *const cache)
   test_add_txn_rollback(cache, txn, &key, value.size);
 
   test_add_txn_commit(cache, txn, &key, &value);
+  test_add_txn_commit_item(cache, txn, &key, &value);
 
   /* Test zero-length key. */
   key.size = 0;
   test_add_txn_commit(cache, txn, &key, &value);
+  test_add_txn_commit_item(cache, txn, &key, &value);
 
   /* Test zero-length value. */
   value.size = 0;
   test_add_txn_commit(cache, txn, &key, &value);
+  test_add_txn_commit_item(cache, txn, &key, &value);
 
   /* Test too large key. */
   value.size = 6;
@@ -325,6 +356,7 @@ static void test_item_ops(struct ybc *const cache,
     value.ptr = &i;
     value.size = sizeof(i);
 
+    expect_item_add_no_acquire(cache, &key, &value);
     expect_item_add(cache, &key, &value);
   }
 
@@ -605,7 +637,7 @@ static void test_overlapped_acquirements(struct ybc *const cache,
       .size = 7,
   };
   for (i = 0; i < items_count; ++i) {
-    ybc_item_add(cache, m_get_item(added_items, i), &static_key, &value);
+    ybc_item_add_item(cache, m_get_item(added_items, i), &static_key, &value);
   }
   for (i = 0; i < items_count; ++i) {
     ybc_item_get(cache, m_get_item(obtained_items, i), &static_key);
@@ -616,7 +648,7 @@ static void test_overlapped_acquirements(struct ybc *const cache,
   }
 
   for (i = 0; i < items_count; ++i) {
-    ybc_item_add(cache, m_get_item(added_items, i), &key, &value);
+    ybc_item_add_item(cache, m_get_item(added_items, i), &key, &value);
   }
 
   for (i = 0; i < items_count; ++i) {
@@ -690,8 +722,8 @@ static void test_interleaved_adds(struct ybc *const cache)
   expect_item_miss(cache, &key1);
   expect_item_miss(cache, &key2);
 
-  ybc_add_txn_commit(txn1, item1);
-  ybc_add_txn_commit(txn2, item2);
+  ybc_add_txn_commit_item(txn1, item1);
+  ybc_add_txn_commit_item(txn2, item2);
 
   expect_value(item1, &value1);
   expect_value(item2, &value2);
@@ -952,7 +984,7 @@ static void test_out_of_memory(struct ybc *const cache)
   /*
    * The value size exceeds cache size.
    */
-  if (ybc_item_add(cache, item, &key, &value)) {
+  if (ybc_item_add(cache, &key, &value)) {
     M_ERROR("unexpected item addition");
   }
 
@@ -960,7 +992,7 @@ static void test_out_of_memory(struct ybc *const cache)
    * The acquired item should prevent from adding new item into the cache.
    */
   value.size -= 1000;
-  if (!ybc_item_add(cache, item, &key, &value)) {
+  if (!ybc_item_add_item(cache, item, &key, &value)) {
     M_ERROR("cannot add item to cache");
   }
 
@@ -969,7 +1001,7 @@ static void test_out_of_memory(struct ybc *const cache)
 
   key.ptr = "abcdef";
   value.size = 1000;
-  if (ybc_item_add(cache, item2, &key, &value)) {
+  if (ybc_item_add_item(cache, item2, &key, &value)) {
     M_ERROR("unexpected item addition");
   }
 
@@ -979,7 +1011,7 @@ static void test_out_of_memory(struct ybc *const cache)
    * Now the item2 should be added, since the item is released
    * and the cache has enough room for the item2.
    */
-  if (!ybc_item_add(cache, item2, &key, &value)) {
+  if (!ybc_item_add_item(cache, item2, &key, &value)) {
     M_ERROR("cannot add item to cache");
   }
   ybc_item_release(item2);
@@ -1191,7 +1223,7 @@ static void *thread_func(void *const ctx)
     value.ptr = &tmp;
     switch (rand() % 5) {
     case 0: case 1:
-      if (!ybc_item_add(task->cache, item, &key, &value)) {
+      if (!ybc_item_add_item(task->cache, item, &key, &value)) {
         M_ERROR("error when adding item");
       }
       expect_value(item, &value);

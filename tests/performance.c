@@ -154,8 +154,6 @@ static int m_memset_check(const void *const s, const char c, const size_t n)
 static void simple_add(struct ybc *const cache, const size_t requests_count,
     const size_t items_count, const size_t max_item_size)
 {
-  char item_buf[ybc_item_get_size()];
-  struct ybc_item *const item = (struct ybc_item *)item_buf;
   struct m_rand_state rand_state;
   uint64_t tmp;
 
@@ -182,10 +180,9 @@ static void simple_add(struct ybc *const cache, const size_t requests_count,
     value.size = m_rand_next(&rand_state) % (max_item_size + 1);
     m_memset(buf, (char)value.size, value.size);
 
-    if (!ybc_item_add(cache, item, &key, &value)) {
+    if (!ybc_item_add(cache, &key, &value)) {
       M_ERROR("Cannot add item to the cache");
     }
-    ybc_item_release(item);
   }
 
   free(buf);

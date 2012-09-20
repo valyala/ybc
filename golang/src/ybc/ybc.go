@@ -216,11 +216,13 @@ func (cache *Cache) Close() error {
 }
 
 func (cache *Cache) Add(key []byte, value []byte, ttl time.Duration) error {
-	item, err := cache.AddItem(key, value, ttl)
-	if err == nil {
-		item.Close()
+	cache.dg.CheckLive()
+	k := newKey(key)
+	v := newValue(value, ttl)
+	if C.ybc_item_add(cache.ctx(), &k, &v) == 0 {
+		return ErrNoSpace
 	}
-	return err
+	return nil
 }
 
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
@@ -254,7 +256,7 @@ func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *
 	item = acquireItem()
 	k := newKey(key)
 	v := newValue(value, ttl)
-	if C.ybc_item_add(cache.ctx(), item.ctx(), &k, &v) == 0 {
+	if C.ybc_item_add_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -324,12 +326,15 @@ func (cache *Cache) ctx() *C.struct_ybc {
  ******************************************************************************/
 
 func (txn *AddTxn) Commit() (err error) {
-	var item *Item
-	item, err = txn.CommitItem()
-	if err != nil {
+	txn.dg.CheckLive()
+	buf := txn.unsafeBuf()
+	if txn.offset != len(buf) {
+		err = ErrPartialCommit
+		txn.Rollback()
 		return
 	}
-	item.Close()
+	C.ybc_add_txn_commit(txn.ctx())
+	txn.finish()
 	return
 }
 
@@ -373,7 +378,7 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 		return
 	}
 	item = acquireItem()
-	C.ybc_add_txn_commit(txn.ctx(), item.ctx())
+	C.ybc_add_txn_commit_item(txn.ctx(), item.ctx())
 	txn.finish()
 	item.dg.Init()
 	return

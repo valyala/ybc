@@ -1435,12 +1435,9 @@ static void m_ws_defragment(struct ybc *const cache,
     const struct ybc_item *const item, const struct ybc_key *const key)
 {
   struct ybc_value value;
-  struct ybc_item tmp_item;
 
   ybc_item_get_value(item, &value);
-  if (ybc_item_add(cache, &tmp_item, key, &value)) {
-    ybc_item_release(&tmp_item);
-  }
+  (void)ybc_item_add(cache, key, &value);
 }
 
 static int m_ws_should_defragment(const struct m_storage *const storage,
@@ -2763,7 +2760,21 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
   return 1;
 }
 
-void ybc_add_txn_commit(struct ybc_add_txn *const txn,
+void ybc_add_txn_commit(struct ybc_add_txn *const txn)
+{
+  struct ybc *const cache = txn->item.cache;
+
+  m_lock_lock(&cache->lock);
+
+  m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
+      &txn->key_digest, &txn->item.payload);
+
+  m_item_deregister(&txn->item);
+
+  m_lock_unlock(&cache->lock);
+}
+
+void ybc_add_txn_commit_item(struct ybc_add_txn *const txn,
     struct ybc_item *const item)
 {
   struct ybc *const cache = txn->item.cache;
@@ -2829,7 +2840,22 @@ size_t ybc_item_get_size(void)
   return sizeof(struct ybc_item);
 }
 
-int ybc_item_add(struct ybc *const cache, struct ybc_item *const item,
+int ybc_item_add(struct ybc *const cache, const struct ybc_key *const key,
+    const struct ybc_value *const value)
+{
+  struct ybc_add_txn txn;
+
+  if (!ybc_add_txn_begin(cache, &txn, key, value->size, value->ttl)) {
+    return 0;
+  }
+
+  void *const dst = m_item_get_value_ptr(&txn.item);
+  memcpy(dst, value->ptr, value->size);
+  ybc_add_txn_commit(&txn);
+  return 1;
+}
+
+int ybc_item_add_item(struct ybc *const cache, struct ybc_item *const item,
     const struct ybc_key *const key, const struct ybc_value *const value)
 {
   struct ybc_add_txn txn;
@@ -2840,7 +2866,7 @@ int ybc_item_add(struct ybc *const cache, struct ybc_item *const item,
 
   void *const dst = m_item_get_value_ptr(&txn.item);
   memcpy(dst, value->ptr, value->size);
-  ybc_add_txn_commit(&txn, item);
+  ybc_add_txn_commit_item(&txn, item);
   return 1;
 }
 
