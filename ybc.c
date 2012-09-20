@@ -918,9 +918,13 @@ struct ybc_item
    */
 
   /*
-   * Pointers to the next items in the skiplist.
+   * Pointers to the next and previous items in the skiplist.
+   *
+   * Pointers to previous items are used for speeding up acquired items'
+   * release.
    */
   struct ybc_item *next[M_ITEM_SKIPLIST_HEIGHT];
+  struct ybc_item *prev[M_ITEM_SKIPLIST_HEIGHT];
 
   /*
    * Item's value location.
@@ -934,6 +938,15 @@ struct ybc_item
   int is_add_txn;
 };
 
+static void m_item_assert_less_equal(const struct ybc_item *const a,
+    const struct ybc_item *const b)
+{
+  (void)a;
+  (void)b;
+  assert(a != b);
+  assert(a->payload.cursor.offset <= b->payload.cursor.offset);
+}
+
 static void m_item_skiplist_init(struct ybc_item *const acquired_items_head,
     struct ybc_item *const acquired_items_tail, const size_t storage_size)
 {
@@ -944,7 +957,9 @@ static void m_item_skiplist_init(struct ybc_item *const acquired_items_head,
 
   for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
     acquired_items_head->next[i] = acquired_items_tail;
+    acquired_items_head->prev[i] = NULL;
     acquired_items_tail->next[i] = NULL;
+    acquired_items_tail->prev[i] = acquired_items_head;
   }
 }
 
@@ -962,30 +977,22 @@ static void m_item_skiplist_destroy(struct ybc_item *const acquired_items_head,
 
   for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
     assert(acquired_items_head->next[i] == acquired_items_tail);
+    assert(acquired_items_head->prev[i] == NULL);
     assert(acquired_items_tail->next[i] == NULL);
+    assert(acquired_items_tail->prev[i] == acquired_items_head);
   }
 }
 
-static void m_item_assert_less_equal(const struct ybc_item *const a,
-    const struct ybc_item *const b)
+static void m_item_skiplist_assert_valid(const struct ybc_item *const item,
+    const size_t i)
 {
-  (void)a;
-  (void)b;
-  assert(a != b);
-  assert(a->payload.cursor.offset <= b->payload.cursor.offset);
-}
-
-static void m_item_skiplist_adjust_prevs(struct ybc_item *const item,
-    struct ybc_item **const prevs)
-{
-  const size_t offset = item->payload.cursor.offset;
-  for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
-    struct ybc_item *prev = prevs[i];
-    m_item_assert_less_equal(prev, item);
-    while (item != prev->next[i] && offset == prev->next[i]->payload.cursor.offset) {
-      prev = prev->next[i];
-    }
-    prevs[i] = prev;
+  if (item->next[i] != NULL) {
+    assert(item == item->next[i]->prev[i]);
+    m_item_assert_less_equal(item, item->next[i]);
+  }
+  if (item->prev[i] != NULL) {
+    assert(item == item->prev[i]->next[i]);
+    m_item_assert_less_equal(item->prev[i], item);
   }
 }
 
@@ -994,15 +1001,16 @@ static void m_item_skiplist_get_prevs(
     const size_t offset)
 {
   struct ybc_item *prev = acquired_items_head;
+
   for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
     assert(prev->payload.cursor.offset <= offset);
     struct ybc_item *next = prev->next[i];
     while (offset > next->payload.cursor.offset) {
-      m_item_assert_less_equal(prev, next);
+      m_item_skiplist_assert_valid(next, i);
       prev = next;
       next = next->next[i];
     }
-    m_item_assert_less_equal(prev, next);
+    m_item_skiplist_assert_valid(next, i);
     prevs[i] = prev;
   }
 }
@@ -1011,56 +1019,54 @@ static void m_item_skiplist_add(struct ybc_item *const item) {
   const size_t offset = item->payload.cursor.offset;
   uint64_t h = m_hash_get(0, &offset, sizeof(offset));
 
-  size_t i = M_ITEM_SKIPLIST_HEIGHT - 1;
-  struct ybc_item *prev = item->next[i];
-  m_item_assert_less_equal(prev, item);
-  m_item_assert_less_equal(item, prev->next[i]);
-  item->next[i] = prev->next[i];
-  prev->next[i] = item;
-  while (i > 0 && (h & 1)) {
+  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
-    prev = item->next[i];
+    struct ybc_item *const prev = item->next[i];
     m_item_assert_less_equal(prev, item);
     m_item_assert_less_equal(item, prev->next[i]);
     item->next[i] = prev->next[i];
+    item->prev[i] = prev;
+    prev->next[i]->prev[i] = item;
     prev->next[i] = item;
+
+    if (!(h & 1)) {
+      while (i > 0) {
+        --i;
+        item->next[i] = NULL;
+        item->prev[i] = NULL;
+      }
+      break;
+    }
     h >>= 1;
   }
 }
 
-static void m_item_skiplist_del(struct ybc_item *const item,
-    struct ybc_item **const prevs)
+static void m_item_skiplist_del(struct ybc_item *const item)
 {
-  size_t i = M_ITEM_SKIPLIST_HEIGHT - 1;
-  assert(item == prevs[i]->next[i]);
-  m_item_assert_less_equal(item, item->next[i]);
-  prevs[i]->next[i] = item->next[i];
-  while (i > 0) {
+  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
-    if (item != prevs[i]->next[i]) {
+    if (item->next[i] == NULL) {
       break;
     }
-    m_item_assert_less_equal(item, item->next[i]);
-    prevs[i]->next[i] = item->next[i];
+    m_item_skiplist_assert_valid(item, i);
+    item->prev[i]->next[i] = item->next[i];
+    item->next[i]->prev[i] = item->prev[i];
   }
 }
 
 static void m_item_skiplist_relocate(struct ybc_item *const dst,
-    struct ybc_item *const src, struct ybc_item **const prevs)
+    struct ybc_item *const src)
 {
-  size_t i = M_ITEM_SKIPLIST_HEIGHT - 1;
-  assert(src == prevs[i]->next[i]);
-  prevs[i]->next[i] = dst;
-  m_item_assert_less_equal(dst, src->next[i]);
-  dst->next[i] = src->next[i];
-  while (i > 0) {
+  *dst = *src;
+
+  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
-    if (src != prevs[i]->next[i]) {
+    if (src->next[i] == NULL) {
       break;
     }
-    prevs[i]->next[i] = dst;
-    m_item_assert_less_equal(dst, src->next[i]);
-    dst->next[i] = src->next[i];
+    m_item_skiplist_assert_valid(src, i);
+    src->prev[i]->next[i] = dst;
+    src->next[i]->prev[i] = dst;
   }
 }
 
@@ -2078,12 +2084,14 @@ static void m_sync_adjust_next_cursor(
 
   const size_t N = M_ITEM_SKIPLIST_HEIGHT - 1;
   const struct ybc_item *item = prevs[N]->next[N];
+  m_item_skiplist_assert_valid(item, N);
   while (item->payload.cursor.offset < next_cursor->offset) {
     if (item->is_add_txn) {
       *next_cursor = item->payload.cursor;
       break;
     }
     item = item->next[N];
+    m_item_skiplist_assert_valid(item, N);
   }
 }
 
@@ -2686,14 +2694,9 @@ static void m_item_register(struct ybc_item *const item,
   m_item_skiplist_add(item);
 }
 
-static void m_item_deregister(struct ybc_item *const item,
-    struct ybc_item *const acquired_items_head)
+static void m_item_deregister(struct ybc_item *const item)
 {
-  struct ybc_item *prevs[M_ITEM_SKIPLIST_HEIGHT];
-  m_item_skiplist_get_prevs(acquired_items_head, prevs,
-      item->payload.cursor.offset);
-  m_item_skiplist_adjust_prevs(item, prevs);
-  m_item_skiplist_del(item, prevs);
+  m_item_skiplist_del(item);
 }
 
 static void m_item_release(struct ybc_item *const item)
@@ -2701,7 +2704,7 @@ static void m_item_release(struct ybc_item *const item)
   struct ybc *const cache = item->cache;
 
   m_lock_lock(&cache->lock);
-  m_item_deregister(item, &cache->acquired_items_head);
+  m_item_deregister(item);
   m_lock_unlock(&cache->lock);
 
   item->cache = NULL;
@@ -2713,19 +2716,10 @@ static void m_item_release(struct ybc_item *const item)
  * Before the move dst must be uninitialized.
  * After the move src is considered uninitialized.
  */
-static void m_item_relocate(struct ybc_item *acquired_items_head,
-    struct ybc_item *const dst, struct ybc_item *const src)
+static void m_item_relocate(struct ybc_item *const dst,
+    struct ybc_item *const src)
 {
-  *dst = *src;
-
-  /*
-   * Fix up pointers to the item.
-   */
-  struct ybc_item **const prevs = dst->next;
-  m_item_skiplist_get_prevs(acquired_items_head, prevs,
-      src->payload.cursor.offset);
-  m_item_skiplist_adjust_prevs(src, prevs);
-  m_item_skiplist_relocate(dst, src, prevs);
+  m_item_skiplist_relocate(dst, src);
 }
 
 size_t ybc_add_txn_get_size(void)
@@ -2779,7 +2773,7 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn,
   m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &txn->key_digest, &txn->item.payload);
 
-  m_item_relocate(&cache->acquired_items_head, item, &txn->item);
+  m_item_relocate(item, &txn->item);
   item->is_add_txn = 0;
 
   m_lock_unlock(&cache->lock);
@@ -2957,9 +2951,9 @@ enum ybc_de_status ybc_item_get_de(struct ybc *const cache,
      * Though it looks like waiting on a condition (event) would be better
      * than periodic sleeping for a fixed amount of time, this isn't true.
      *
-     * I tried using condition here, but the resulting code was uglier,
-     * more intrusive, slower and less robust than the code based
-     * on periodic sleeping.
+     * Trust me - I tried using condition here, but the resulting code
+     * was uglier, more intrusive, slower and less robust than the code based
+     * on periodic sleepinig :)
      */
     m_sleep(M_DE_ITEM_SLEEP_TIME);
   }
