@@ -15,27 +15,27 @@ YBC features.
   32-bit platforms have much smaller limits (2^32), so use 32-bit builds
   only if your cache fits 4GB.
 
+* Persistence support. Cache data survives process restart if the cache
+  is explicitly backed by files.
+
 * Data file layout is optimized for HDD and SSD devices. The code
   prefers sequential I/O instead of random I/O. If random I/O is inevitable,
   the code tries hard localizing it in the smallest possible range.
-
-* Persistence support. Cache data survives process restart if the cache
-  is explicitly backed by files.
 
 * Automatic robust recovery from corrupted index files. Corruptions in data
   files may be left unnoticed due to performance reasons - it may be quite
   expensive validating multi-GB blobs on every access.
 
-* Dogpile effect (aka 'thundering herd') handling support.
+* Built-in handling of dogpile effect (aka 'thundering herd').
 
 * Cache data may be sharded among available backing store devices.
   Such sharding may linearly increase cache performance if frequently accessed
   items don't fit available physical RAM.
 
-* Multithreading support. The library is thread-safe out of the box.
+* The library is thread-safe out of the box.
 
-* Atomic updates. It is safe updating an item from multiple threads while other
-  threads are reading an old value for the item under the same key.
+* Concurrent atomic updates. It is safe updating an item from multiple threads
+  while other threads are reading an old value for the item under the same key.
 
 * 'Add transaction' support allows constructing item's value on the fly
   without serializing it into a temporary buffer (aka 'zero-copy').
