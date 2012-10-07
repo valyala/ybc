@@ -909,10 +909,10 @@ struct ybc_item
   size_t key_size;
 
   /*
-   * All acquired items are linked into a skiplist with a head
+   * All acquired items are organized into doubly linked skiplist with a head
    * at ybc->acquired_items_head and a tail at ybc->acquired_items_tail.
    *
-   * The skiplist helps quickly (in O(ln(n) time, where n is the number
+   * The skiplist helps quickly (in O(ln(n)) time, where n is the number
    * of currently acquired items) determining the location for newly added item
    * in the storage, so the item doesn't corrupt currently acquired items.
    */
