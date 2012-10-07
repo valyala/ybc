@@ -123,8 +123,8 @@ A: Because YBC is a cache, not a storage. They serve different pruposes:
    at any time during subsequent requests.
 
 Q: Can YBC cache small items, not large blobs?
-A: Yes. YBC works well with small items - it even supports zero-byte keys and
-   zero-byte values.
+A: Yes. YBC works well with small items - it even supports zero-byte key and
+   zero-byte value.
 
 Q: Why YBC cannot adjust backing files' size on-demand? I.e. automatically
    shrink files when the number of items in the cache is small and automatically
