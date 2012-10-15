@@ -2242,10 +2242,10 @@ static const uint64_t M_DE_ITEM_MIN_GRACE_TTL = 1;
  * Too low maximum grace ttl won't prevent from dogpile effect, when multiple
  * threads are busy with creation of the same item.
  *
- * Too high maximum grace ttl may result in too long m_de->pending_items list
- * if many distinct items are requested via ybc_item_get_de() with high
- * grace ttls. So the maximum grace ttl effectively limits the size
- * of m_de->pending_items list.
+ * Too high maximum grace ttl may result in too large m_de->pending_items
+ * hashtable if many distinct items are requested via ybc_item_get_de()
+ * with high grace ttls. So the maximum grace ttl effectively limits the size
+ * of m_de->pending_items hashtable.
  *
  * 10 minutes should be enough for any practical purposes ;)
  */
@@ -2273,7 +2273,7 @@ struct m_de_item
   /*
    * Pointer to the next item in the list.
    *
-   * List's header is located in the m_de->pending_items.
+   * List's header is located in the m_de->pending_items hashtable.
    */
   struct m_de_item *next;
 
@@ -2293,7 +2293,7 @@ struct m_de_item
 struct m_de
 {
   /*
-   * Lock for pending_items hash table.
+   * Lock for pending_items hashtable.
    */
   struct m_lock lock;
 
@@ -2399,9 +2399,10 @@ static int m_de_item_register(struct m_de *const de,
 
   const uint64_t current_time = m_get_current_time();
 
-  m_lock_lock(&de->lock);
   const size_t idx = m_key_digest_mod(key_digest, de->buckets_count);
   struct m_de_item **const pending_items_ptr = &de->pending_items[idx];
+
+  m_lock_lock(&de->lock);
 
   struct m_de_item *const de_item = m_de_item_get(pending_items_ptr, key_digest,
       current_time);
