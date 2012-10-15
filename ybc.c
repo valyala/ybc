@@ -2115,9 +2115,8 @@ static void m_sync_commit(struct m_lock *const cache_lock,
 
   const size_t sync_chunk_size = end_offset - start_offset;
   if (sync_chunk_size > 0) {
-    void *const ptr = m_storage_get_ptr(storage, start_offset);
-
     m_lock_unlock(cache_lock);
+    void *const ptr = m_storage_get_ptr(storage, start_offset);
     m_memory_sync(ptr, sync_chunk_size);
     m_lock_lock(cache_lock);
   }
