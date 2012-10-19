@@ -1231,25 +1231,37 @@ static int m_storage_allocate(struct m_storage *const storage,
  *
  * See also m_storage_metadata_check().
  *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_storage_payload_check(..., &next_cursor, ...);
+ *
  * Returns non-zero on successful check, zero on failure.
  */
 static int m_storage_payload_check(const struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor,
     const struct m_storage_payload *const payload)
 {
-  size_t max_offset = storage->next_cursor.offset;
+  size_t max_offset = next_cursor->offset;
 
   if (payload->expiration_time < m_get_current_time()) {
     /* The item has been expired. */
     return 0;
   }
 
-  if (payload->cursor.wrap_count != storage->next_cursor.wrap_count) {
-    if (payload->cursor.wrap_count != storage->next_cursor.wrap_count - 1) {
+  if (payload->cursor.wrap_count != next_cursor->wrap_count) {
+    if (payload->cursor.wrap_count != next_cursor->wrap_count - 1) {
       /* The item is oudated or it has invalid wrap_count. */
       return 0;
     }
 
-    if (payload->cursor.offset < storage->next_cursor.offset) {
+    if (payload->cursor.offset < next_cursor->offset) {
       /* The item is outdated. */
       return 0;
     }
@@ -1440,7 +1452,25 @@ static void m_ws_defragment(struct ybc *const cache,
   (void)ybc_item_add(cache, key, &value);
 }
 
+/*
+ * Checks whether the item pointed by the given payload should be defragmented.
+ *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_ws_should_defragment(..., &next_cursor, ...);
+ *
+ * Returns 1 if the item should be defragmented, i.e. should be moved
+ * to the front of the storage. Otherwise returns 0.
+ */
 static int m_ws_should_defragment(const struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor,
     const struct m_storage_payload *const payload, const size_t hot_data_size)
 {
   if (hot_data_size == 0) {
@@ -1449,9 +1479,9 @@ static int m_ws_should_defragment(const struct m_storage *const storage,
   }
 
   const size_t distance =
-      (storage->next_cursor.offset >= payload->cursor.offset) ?
-      (storage->next_cursor.offset - payload->cursor.offset) :
-      (storage->size - (payload->cursor.offset - storage->next_cursor.offset));
+      (next_cursor->offset >= payload->cursor.offset) ?
+      (next_cursor->offset - payload->cursor.offset) :
+      (storage->size - (payload->cursor.offset - next_cursor->offset));
 
   if (distance < hot_data_size) {
     /* Do not defragment recently added or defragmented items. */
@@ -1587,6 +1617,13 @@ static const size_t M_MAP_SLOTS_COUNT_LIMIT = (SIZE_MAX - M_MAP_AUX_DATA_SIZE) /
 
 /*
  * Hash map, which maps key digests to cache items from the storage.
+ *
+ * The code below intentionally omits serialization of concurrent access
+ * to key_digests and payloads, i.e. it intentially allows race conditions,
+ * which may lead to broken key_digest and/or payload values.
+ * Such breakage is expected - it is automatically recovered by clearing broken
+ * slots. m_storage_payload_check() and m_storage_metadata_check() are used
+ * for detecting broken slots in the map.
  */
 struct m_map
 {
@@ -1637,6 +1674,22 @@ static void m_map_fix_slots_count(size_t *const slots_count,
   }
 }
 
+static void m_map_init(struct m_map *const map, const size_t slots_count,
+    struct m_key_digest *const key_digests,
+    struct m_storage_payload *const payloads)
+{
+  map->slots_count = slots_count;
+  map->key_digests = key_digests;
+  map->payloads = payloads;
+}
+
+static void m_map_destroy(struct m_map *const map)
+{
+  map->slots_count = 0;
+  map->key_digests = NULL;
+  map->payloads = NULL;
+}
+
 /*
  * Looks up slot index for the given key digest.
  *
@@ -1670,8 +1723,23 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
   return 0;
 }
 
+/*
+ * Adds the given payload with the given key_digest into the map.
+ *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_map_add(..., &next_cursor, ...);
+ */
 static void m_map_add(const struct m_map *const map,
     const struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
     const struct m_storage_payload *const payload)
 {
@@ -1687,11 +1755,11 @@ static void m_map_add(const struct m_map *const map,
       slot_index = start_index + i;
       assert(slot_index < map->slots_count);
 
-      const struct m_storage_payload *const current_payload =
-          &map->payloads[slot_index];
+      const struct m_storage_payload current_payload =
+          map->payloads[slot_index];
 
       if (m_key_digest_is_empty(&map->key_digests[slot_index]) ||
-          !m_storage_payload_check(storage, current_payload)) {
+          !m_storage_payload_check(storage, next_cursor, &current_payload)) {
         /* Found an empty slot. */
         break;
       }
@@ -1704,8 +1772,8 @@ static void m_map_add(const struct m_map *const map,
        * which would expire first in the given bucket. We just 'accelerate' its'
        * expiration if all slots in the bucket are occupied.
        */
-      if (current_payload->expiration_time < min_expiration_time) {
-        min_expiration_time = current_payload->expiration_time;
+      if (current_payload.expiration_time < min_expiration_time) {
+        min_expiration_time = current_payload.expiration_time;
         victim_index = slot_index;
       }
     }
@@ -1733,49 +1801,47 @@ static void m_map_remove(const struct m_map *const map,
   }
 }
 
-static int m_map_get(
-    const struct m_map *const map, const struct m_storage *const storage,
+/*
+ * Obtains a payload with the given key_digest in the map.
+ *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_map_get(..., &next_cursor, ...);
+ *
+ * Returns 1 if a payload with the given key_digest has been found in the map.
+ * Returns 0 otherwise.
+ */
+static int m_map_get(const struct m_map *const map,
+    const struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
-    const struct ybc_key *const key, struct ybc_item *const item)
+    struct m_storage_payload *const payload)
 {
   size_t start_index, slot_index;
 
   if (!m_map_lookup_slot_index(map, key_digest, &start_index, &slot_index)) {
     return 0;
   }
+  *payload = map->payloads[slot_index];
 
-  struct m_storage_payload *const payload = &map->payloads[slot_index];
-
-  /*
-   * Do not merge m_storage_payload_check() with m_storage_metadata_check(),
-   * because m_storage_payload_check() operates only on map, while
-   * m_storage_metadata_check() accesses random location in the storage.
-   */
-  if (!m_storage_payload_check(storage, payload) ||
-      !m_storage_metadata_check(storage, payload, key)) {
+  if (!m_storage_payload_check(storage, next_cursor, payload)) {
     /*
-     * Optimization: clear key for invalid payload,
+     * Optimization: clear the key_digest for invalid payload,
      * so it won't be returned and checked next time.
      */
     m_key_digest_clear(&map->key_digests[slot_index]);
     return 0;
   }
 
-  /*
-   * There is non-zero probability of invalid value slipping here.
-   *
-   * The following conditions must be met for this to occur:
-   * - An item with the given key digest should exist.
-   * - The item should have valid payload and key.
-   *
-   * Since this is very unlikely case, let's close eyes on it.
-   * If you are paranoid, then embed integrity checking inside the value.
-   */
-
-  item->payload = *payload;
   return 1;
 }
-
 
 /*******************************************************************************
  * Map cache API.
@@ -1799,22 +1865,21 @@ static void m_map_cache_fix_slots_count(size_t *const slots_count,
   m_map_fix_slots_count(slots_count, SIZE_MAX);
 }
 
-static void m_map_cache_init(struct m_map *const map_cache)
+static void m_map_cache_init(struct m_map *const map_cache,
+    const size_t slots_count)
 {
-  map_cache->key_digests = NULL;
-  map_cache->payloads = NULL;
-
-  if (map_cache->slots_count == 0) {
+  if (slots_count == 0) {
     /* Map cache is disabled. */
+    m_map_init(map_cache, 0, NULL, NULL);
     return;
   }
 
-  assert(map_cache->slots_count <= SIZE_MAX / M_MAP_ITEM_SIZE);
-  const size_t map_cache_size = map_cache->slots_count * M_MAP_ITEM_SIZE;
+  assert(slots_count <= SIZE_MAX / M_MAP_ITEM_SIZE);
+  const size_t map_cache_size = slots_count * M_MAP_ITEM_SIZE;
 
-  map_cache->key_digests = m_malloc(map_cache_size);
-  map_cache->payloads = (struct m_storage_payload *)(map_cache->key_digests +
-      map_cache->slots_count);
+  struct m_key_digest *const key_digests = m_malloc(map_cache_size);
+  struct m_storage_payload *const payloads = (struct m_storage_payload *)
+      (key_digests + slots_count);
 
   /*
    * Though the code can gracefully handle invalid key digests and payloads,
@@ -1824,54 +1889,90 @@ static void m_map_cache_init(struct m_map *const map_cache)
    *   of memory. This eliminates possible minor pagefaults during the cache
    *   warm-up ( http://en.wikipedia.org/wiki/Page_fault#Minor ).
    */
-  memset(map_cache->key_digests, 0, map_cache_size);
+  memset(key_digests, 0, map_cache_size);
+
+  m_map_init(map_cache, slots_count, key_digests, payloads);
 }
 
 static void m_map_cache_destroy(struct m_map *const map_cache)
 {
   free(map_cache->key_digests);
+  m_map_destroy(map_cache);
 }
 
+/*
+ * Obtains a payload for the given key_digest in the map_cache and/or map.
+ *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_map_cace_get(..., &next_cursor, ...);
+ *
+ * Returns 1 if a payload with the given key_digest has been found
+ * in the map_cache and/or map. Otherwise returns 0.
+ */
 static int m_map_cache_get(const struct m_map *const map,
     const struct m_map *const map_cache, const struct m_storage *const storage,
-    const struct ybc_key *const key,
-    const struct m_key_digest *const key_digest, struct ybc_item *const item)
+    const struct m_storage_cursor *const next_cursor,
+    const struct m_key_digest *const key_digest,
+    struct m_storage_payload *const payload)
 {
   if (map_cache->slots_count == 0) {
     /* The map cache is disabled. Look up the item via map. */
-    return m_map_get(map, storage, key_digest, key, item);
+    return m_map_get(map, storage, next_cursor, key_digest, payload);
   }
 
   /*
    * Fast path: look up the item via the map cache.
    */
-  if (m_map_get(map_cache, storage, key_digest, key, item)) {
+  if (m_map_get(map_cache, storage, next_cursor, key_digest, payload)) {
     return 1;
   }
 
   /*
    * Slow path: fall back to looking up the item via map.
    */
-  if (!m_map_get(map, storage, key_digest, key, item)) {
+  if (!m_map_get(map, storage, next_cursor, key_digest, payload)) {
     return 0;
   }
 
   /*
    * Add the found item to the map cache.
    */
-  m_map_add(map_cache, storage, key_digest, &item->payload);
+  m_map_add(map_cache, storage, next_cursor, key_digest, payload);
   return 1;
 }
 
+/*
+ * Adds the given payload with the given key_digest into the map_cache and map.
+ *
+ * next_cursor must point to a thread-private copy of storage->next_cursor,
+ * which shouldn't be modified from other threads! Don't pass
+ * &storage->next_cursor here! Instead, make a copy under the ybc->lock
+ * and then pass a pointer to this copy here:
+ *
+ * m_lock_lock(cache->lock);
+ * next_cursor = storage->next_cursor;
+ * m_lock_unlock(cache->lock);
+ * ...
+ * m_map_cache_add(..., &next_cursor, ...);
+ */
 static void m_map_cache_add(const struct m_map *const map,
     const struct m_map *const map_cache, const struct m_storage *const storage,
+    const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
     const struct m_storage_payload *const payload)
 {
   if (map_cache->slots_count != 0) {
     m_map_remove(map_cache, key_digest);
   }
-  m_map_add(map, storage, key_digest, payload);
+  m_map_add(map, storage, next_cursor, key_digest, payload);
 }
 
 static void m_map_cache_remove(const struct m_map *const map,
@@ -1938,14 +2039,15 @@ static size_t m_index_get_file_size(const size_t slots_count)
   return slots_count * M_MAP_ITEM_SIZE + M_MAP_AUX_DATA_SIZE;
 }
 
-static int m_index_open(struct m_index *const index, const char *const filename,
-    const int force, int *const is_file_created,
+static int m_index_open(struct m_index *const index,
+    const size_t map_slots_count, const size_t map_cache_slots_count,
+    const char *const filename, const int force, int *const is_file_created,
     struct m_storage_cursor **const next_cursor)
 {
   struct m_file file;
   void *ptr;
 
-  const size_t file_size = m_index_get_file_size(index->map.slots_count);
+  const size_t file_size = m_index_get_file_size(map_slots_count);
 
   if (!m_file_open_or_create(&file, filename, file_size, force,
       is_file_created)) {
@@ -1987,12 +2089,12 @@ static int m_index_open(struct m_index *const index, const char *const filename,
    *
    * See M_MAP_BUCKET_SIZE description for more details.
    */
-  index->map.key_digests = ptr;
-  index->map.payloads = (struct m_storage_payload *)
-      (index->map.key_digests + index->map.slots_count);
+  struct m_key_digest *const key_digests = ptr;
+  struct m_storage_payload *const payloads = (struct m_storage_payload *)
+      (key_digests + map_slots_count);
+  m_map_init(&index->map, map_slots_count, key_digests, payloads);
 
-  *next_cursor = (struct m_storage_cursor *)
-      (index->map.payloads + index->map.slots_count);
+  *next_cursor = (struct m_storage_cursor *)(payloads + map_slots_count);
   index->hash_seed_ptr = (uint64_t *)(*next_cursor + 1);
   if (*is_file_created) {
     *index->hash_seed_ptr = m_get_current_time();
@@ -2003,7 +2105,7 @@ static int m_index_open(struct m_index *const index, const char *const filename,
    * discovers and fixes errors in the index file on the fly.
    */
 
-  m_map_cache_init(&index->map_cache);
+  m_map_cache_init(&index->map_cache, map_cache_slots_count);
 
   return 1;
 }
@@ -2013,8 +2115,9 @@ static void m_index_close(struct m_index *const index)
   m_map_cache_destroy(&index->map_cache);
 
   const size_t file_size = m_index_get_file_size(index->map.slots_count);
-
   m_memory_unmap(index->map.key_digests, file_size);
+
+  m_map_destroy(&index->map);
 }
 
 /*******************************************************************************
@@ -2092,8 +2195,7 @@ static void m_sync_adjust_next_cursor(
   }
 }
 
-static void m_sync_commit(struct m_lock *const cache_lock,
-    const struct m_storage *const storage,
+static void m_sync_commit(const struct m_storage *const storage,
     const size_t start_offset, const size_t end_offset)
 {
   assert(start_offset <= end_offset);
@@ -2115,34 +2217,30 @@ static void m_sync_commit(struct m_lock *const cache_lock,
 
   const size_t sync_chunk_size = end_offset - start_offset;
   if (sync_chunk_size > 0) {
-    m_lock_unlock(cache_lock);
     void *const ptr = m_storage_get_ptr(storage, start_offset);
     m_memory_sync(ptr, sync_chunk_size);
-    m_lock_lock(cache_lock);
   }
 }
 
 static void m_sync_flush_data(struct m_lock *const cache_lock,
     const struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
-    struct m_storage_cursor *const sync_cursor_ptr)
+    struct m_storage_cursor *const sync_cursor)
 {
   m_lock_lock(cache_lock);
-
-  const struct m_storage_cursor sync_cursor = *sync_cursor_ptr;
   struct m_storage_cursor next_cursor = storage->next_cursor;
+  m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+  m_lock_unlock(cache_lock);
 
-  m_sync_adjust_next_cursor(acquired_items_head, &sync_cursor, &next_cursor);
-
-  if (next_cursor.wrap_count == sync_cursor.wrap_count) {
+  if (next_cursor.wrap_count == sync_cursor->wrap_count) {
     /*
      * Storage didn't wrap since the previous sync.
      * Let's sync data till next_cursor.
      */
 
-    assert(sync_cursor.offset <= next_cursor.offset);
+    assert(sync_cursor->offset <= next_cursor.offset);
 
-    m_sync_commit(cache_lock, storage, sync_cursor.offset, next_cursor.offset);
+    m_sync_commit(storage, sync_cursor->offset, next_cursor.offset);
   }
   else {
     /*
@@ -2150,8 +2248,8 @@ static void m_sync_flush_data(struct m_lock *const cache_lock,
      * Figure out which parts of storage need to be synced.
      */
 
-    if (next_cursor.wrap_count - 1 == sync_cursor.wrap_count &&
-        next_cursor.offset < sync_cursor.offset) {
+    if (next_cursor.wrap_count - 1 == sync_cursor->wrap_count &&
+        next_cursor.offset < sync_cursor->offset) {
       /*
        * Storage wrapped once since the previous sync.
        * Let's sync data in two steps:
@@ -2159,10 +2257,10 @@ static void m_sync_flush_data(struct m_lock *const cache_lock,
        * - from the beginning of the storage till next_cursor.
        */
 
-      assert(sync_cursor.offset <= storage->size);
+      assert(sync_cursor->offset <= storage->size);
 
-      m_sync_commit(cache_lock, storage, sync_cursor.offset, storage->size);
-      m_sync_commit(cache_lock, storage, 0, next_cursor.offset);
+      m_sync_commit(storage, sync_cursor->offset, storage->size);
+      m_sync_commit(storage, 0, next_cursor.offset);
     }
     else {
       /*
@@ -2170,13 +2268,11 @@ static void m_sync_flush_data(struct m_lock *const cache_lock,
        * of unsynced data. Let's sync the whole storage.
        */
 
-      m_sync_commit(cache_lock, storage, 0, storage->size);
+      m_sync_commit(storage, 0, storage->size);
     }
   }
 
-  *sync_cursor_ptr = next_cursor;
-
-  m_lock_unlock(cache_lock);
+  *sync_cursor = next_cursor;
 }
 
 static void m_sync_thread_func(void *const ctx)
@@ -2547,15 +2643,14 @@ static int m_open(struct ybc *const cache,
   cache->storage.size = config->data_file_size;
   m_storage_fix_size(&cache->storage.size);
 
-  cache->index.map.slots_count = config->map_slots_count;
-  m_map_fix_slots_count(&cache->index.map.slots_count, cache->storage.size);
+  size_t map_slots_count = config->map_slots_count;
+  m_map_fix_slots_count(&map_slots_count, cache->storage.size);
 
-  cache->index.map_cache.slots_count = config->map_cache_slots_count;
-  m_map_cache_fix_slots_count(&cache->index.map_cache.slots_count,
-      cache->index.map.slots_count);
+  size_t map_cache_slots_count = config->map_cache_slots_count;
+  m_map_cache_fix_slots_count(&map_cache_slots_count, map_slots_count);
 
-  if (!m_index_open(&cache->index, config->index_file, force,
-      &is_index_file_created, &next_cursor)) {
+  if (!m_index_open(&cache->index, map_slots_count, map_cache_slots_count,
+      config->index_file, force, &is_index_file_created, &next_cursor)) {
     return 0;
   }
   if (next_cursor->offset > cache->storage.size) {
@@ -2684,26 +2779,27 @@ static uint64_t m_item_get_ttl(const struct ybc_item *const item)
 }
 
 static void m_item_register(struct ybc_item *const item,
+    struct m_lock *const cache_lock,
     struct ybc_item *const acquired_items_head)
 {
+  m_lock_lock(cache_lock);
   m_item_skiplist_get_prevs(acquired_items_head, item->next,
       item->payload.cursor.offset);
   m_item_skiplist_add(item);
+  m_lock_unlock(cache_lock);
 }
 
-static void m_item_deregister(struct ybc_item *const item)
+static void m_item_deregister(struct ybc_item *const item,
+    struct m_lock *const cache_lock)
 {
+  m_lock_lock(cache_lock);
   m_item_skiplist_del(item);
+  m_lock_unlock(cache_lock);
 }
 
 static void m_item_release(struct ybc_item *const item)
 {
-  struct ybc *const cache = item->cache;
-
-  m_lock_lock(&cache->lock);
-  m_item_deregister(item);
-  m_lock_unlock(&cache->lock);
-
+  m_item_deregister(item, &item->cache->lock);
   item->cache = NULL;
 }
 
@@ -2762,16 +2858,17 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
 
 void ybc_add_txn_commit(struct ybc_add_txn *const txn)
 {
+  struct m_storage_payload payload = txn->item.payload;
   struct ybc *const cache = txn->item.cache;
 
   m_lock_lock(&cache->lock);
+  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
+  m_lock_unlock(&cache->lock);
 
   m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
-      &txn->key_digest, &txn->item.payload);
+      &next_cursor, &txn->key_digest, &payload);
 
-  m_item_deregister(&txn->item);
-
-  m_lock_unlock(&cache->lock);
+  m_item_release(&txn->item);
 }
 
 void ybc_add_txn_commit_item(struct ybc_add_txn *const txn,
@@ -2780,14 +2877,13 @@ void ybc_add_txn_commit_item(struct ybc_add_txn *const txn,
   struct ybc *const cache = txn->item.cache;
 
   m_lock_lock(&cache->lock);
-
-  m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
-      &txn->key_digest, &txn->item.payload);
-
   m_item_relocate(item, &txn->item);
   item->is_add_txn = 0;
-
+  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   m_lock_unlock(&cache->lock);
+
+  m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
+      &next_cursor, &txn->key_digest, &item->payload);
 }
 
 void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
@@ -2811,25 +2907,29 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
     const struct ybc_key *const key,
     const struct m_key_digest *const key_digest)
 {
-  int should_defragment = 0;
-  int is_found;
-
   item->cache = cache;
   item->key_size = key->size;
   item->is_add_txn = 0;
 
   m_lock_lock(&cache->lock);
-  is_found = m_map_cache_get(&cache->index.map, &cache->index.map_cache,
-      &cache->storage, key, key_digest, item);
-  if (is_found) {
-    m_item_register(item, &cache->acquired_items_head);
-    should_defragment = m_ws_should_defragment(&cache->storage, &item->payload,
-        cache->hot_data_size);
-  }
+  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   m_lock_unlock(&cache->lock);
 
-  if (should_defragment) {
-    m_ws_defragment(cache, item, key);
+  int is_found = m_map_cache_get(&cache->index.map, &cache->index.map_cache,
+      &cache->storage, &next_cursor, key_digest, &item->payload);
+  if (is_found) {
+    m_item_register(item, &cache->lock, &cache->acquired_items_head);
+
+    assert(m_storage_payload_check(&cache->storage, &next_cursor,
+        &item->payload));
+    if (!m_storage_metadata_check(&cache->storage, &item->payload, key)) {
+      m_item_release(item);
+      return 0;
+    }
+    if (m_ws_should_defragment(&cache->storage, &next_cursor, &item->payload,
+        cache->hot_data_size)) {
+      m_ws_defragment(cache, item, key);
+    }
   }
 
   return is_found;
@@ -2874,16 +2974,13 @@ void ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
 {
   /*
    * Item with different key may be removed if it has the same key digest.
-   * But it should be OK, since this is a cache, not permanent storage.
+   * But it should be OK, since this is a cache, not a permanent storage.
    */
 
   struct m_key_digest key_digest;
 
   m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
-
-  m_lock_lock(&cache->lock);
   m_map_cache_remove(&cache->index.map, &cache->index.map_cache, &key_digest);
-  m_lock_unlock(&cache->lock);
 }
 
 int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,
@@ -2892,7 +2989,6 @@ int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,
   struct m_key_digest key_digest;
 
   m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
-
   return m_item_acquire(cache, item, key, &key_digest);
 }
 
