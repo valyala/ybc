@@ -71,7 +71,7 @@ YBC features.
   modified in the future versions of the library without breaking applications
   dynamically linked against older versions.
 
-* Small library size (can be packed to 18Kb with -Os).
+* Small library size (can be packed to 22Kb with -Os).
 
 
 ===============================================================================
