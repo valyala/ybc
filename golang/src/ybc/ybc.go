@@ -34,7 +34,7 @@ var (
 var (
 	configSize = int(C.ybc_config_get_size())
 	cacheSize  = int(C.ybc_get_size())
-	addTxnSize = int(C.ybc_add_txn_get_size())
+	addTxnSize = int(C.ybc_set_txn_get_size())
 	itemSize   = int(C.ybc_item_get_size())
 )
 
@@ -54,7 +54,7 @@ type Cache struct {
 	buf []byte
 }
 
-type AddTxn struct {
+type SetTxn struct {
 	dg             debugGuard
 	buf            []byte
 	unsafeBufCache []byte
@@ -215,11 +215,11 @@ func (cache *Cache) Close() error {
 	return nil
 }
 
-func (cache *Cache) Add(key []byte, value []byte, ttl time.Duration) error {
+func (cache *Cache) Set(key []byte, value []byte, ttl time.Duration) error {
 	cache.dg.CheckLive()
 	k := newKey(key)
 	v := newValue(value, ttl)
-	if C.ybc_item_add(cache.ctx(), &k, &v) == 0 {
+	if C.ybc_item_set(cache.ctx(), &k, &v) == 0 {
 		return ErrNoSpace
 	}
 	return nil
@@ -251,12 +251,12 @@ func (cache *Cache) Remove(key []byte) {
 	C.ybc_item_remove(cache.ctx(), &k)
 }
 
-func (cache *Cache) AddItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
+func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = acquireItem()
 	k := newKey(key)
 	v := newValue(value, ttl)
-	if C.ybc_item_add_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
+	if C.ybc_item_set_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -298,13 +298,13 @@ func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, e
 	panic("unreachable")
 }
 
-func (cache *Cache) NewAddTxn(key []byte, valueSize int, ttl time.Duration) (txn *AddTxn, err error) {
+func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
 	cache.dg.CheckLive()
 	checkNonNegative(valueSize)
 	checkNonNegativeDuration(ttl)
-	txn = acquireAddTxn()
+	txn = acquireSetTxn()
 	k := newKey(key)
-	if C.ybc_add_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
+	if C.ybc_set_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
@@ -322,10 +322,10 @@ func (cache *Cache) ctx() *C.struct_ybc {
 }
 
 /*******************************************************************************
- * AddTxn
+ * SetTxn
  ******************************************************************************/
 
-func (txn *AddTxn) Commit() (err error) {
+func (txn *SetTxn) Commit() (err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
 	if txn.offset != len(buf) {
@@ -333,19 +333,19 @@ func (txn *AddTxn) Commit() (err error) {
 		txn.Rollback()
 		return
 	}
-	C.ybc_add_txn_commit(txn.ctx())
+	C.ybc_set_txn_commit(txn.ctx())
 	txn.finish()
 	return
 }
 
-func (txn *AddTxn) Rollback() {
+func (txn *SetTxn) Rollback() {
 	txn.dg.CheckLive()
-	C.ybc_add_txn_rollback(txn.ctx())
+	C.ybc_set_txn_rollback(txn.ctx())
 	txn.finish()
 }
 
 // io.Writer interface implementation
-func (txn *AddTxn) Write(p []byte) (n int, err error) {
+func (txn *SetTxn) Write(p []byte) (n int, err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
 
@@ -359,7 +359,7 @@ func (txn *AddTxn) Write(p []byte) (n int, err error) {
 }
 
 // io.ReaderFrom interface implementation
-func (txn *AddTxn) ReadFrom(r io.Reader) (n int64, err error) {
+func (txn *SetTxn) ReadFrom(r io.Reader) (n int64, err error) {
 	txn.dg.CheckLive()
 	var nn int
 	buf := txn.unsafeBuf()
@@ -369,7 +369,7 @@ func (txn *AddTxn) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
-func (txn *AddTxn) CommitItem() (item *Item, err error) {
+func (txn *SetTxn) CommitItem() (item *Item, err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
 	if txn.offset != len(buf) {
@@ -378,30 +378,30 @@ func (txn *AddTxn) CommitItem() (item *Item, err error) {
 		return
 	}
 	item = acquireItem()
-	C.ybc_add_txn_commit_item(txn.ctx(), item.ctx())
+	C.ybc_set_txn_commit_item(txn.ctx(), item.ctx())
 	txn.finish()
 	item.dg.Init()
 	return
 }
 
-func (txn *AddTxn) finish() {
+func (txn *SetTxn) finish() {
 	txn.dg.Close()
 	txn.unsafeBufCache = nil
 	txn.offset = 0
-	releaseAddTxn(txn)
+	releaseSetTxn(txn)
 }
 
-func (txn *AddTxn) unsafeBuf() []byte {
+func (txn *SetTxn) unsafeBuf() []byte {
 	if txn.unsafeBufCache == nil {
-		mValue := C.struct_ybc_add_txn_value{}
-		C.ybc_add_txn_get_value(txn.ctx(), &mValue)
+		mValue := C.struct_ybc_set_txn_value{}
+		C.ybc_set_txn_get_value(txn.ctx(), &mValue)
 		txn.unsafeBufCache = newUnsafeSlice(mValue.ptr, int(mValue.size))
 	}
 	return txn.unsafeBufCache
 }
 
-func (txn *AddTxn) ctx() *C.struct_ybc_add_txn {
-	return (*C.struct_ybc_add_txn)(unsafe.Pointer(&txn.buf[0]))
+func (txn *SetTxn) ctx() *C.struct_ybc_set_txn {
+	return (*C.struct_ybc_set_txn)(unsafe.Pointer(&txn.buf[0]))
 }
 
 /*******************************************************************************
@@ -670,28 +670,28 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
 }
 
 /*******************************************************************************
- * Leaky buffers for AddTxn and Item.
+ * Leaky buffers for SetTxn and Item.
  *
  * See http://golang.org/doc/effective_go.html#leaky_buffer .
  ******************************************************************************/
 
 const addTxnsPoolSize = 1024
 
-var addTxnsPool = make(chan *AddTxn, addTxnsPoolSize)
+var addTxnsPool = make(chan *SetTxn, addTxnsPoolSize)
 
-func acquireAddTxn() *AddTxn {
+func acquireSetTxn() *SetTxn {
 	select {
 	case txn := <-addTxnsPool:
 		return txn
 	default:
-		return &AddTxn{
+		return &SetTxn{
 			buf: make([]byte, addTxnSize),
 		}
 	}
 	panic("unreachable")
 }
 
-func releaseAddTxn(txn *AddTxn) {
+func releaseSetTxn(txn *SetTxn) {
 	select {
 	case addTxnsPool <- txn:
 	default:

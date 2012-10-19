@@ -195,7 +195,7 @@ func checkValue(t *testing.T, expectedValue, actualValue []byte) {
 	}
 }
 
-func TestCache_Add_Get_Remove(t *testing.T) {
+func TestCache_Set_Get_Remove(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
@@ -210,7 +210,7 @@ func TestCache_Add_Get_Remove(t *testing.T) {
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cache.Add(key, value, MaxTtl)
+		err := cache.Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +247,7 @@ func TestCache_GetDe(t *testing.T) {
 	}
 
 	value := []byte("aaa")
-	err = cache.Add(key, value, MaxTtl)
+	err = cache.Set(key, value, MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestCache_Clear(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cache.Add(key, value, MaxTtl)
+		err := cache.Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -283,14 +283,14 @@ func TestCache_Clear(t *testing.T) {
 	}
 }
 
-func TestCache_AddItem(t *testing.T) {
+func TestCache_SetItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		item, err := cache.AddItem(key, value, MaxTtl)
+		item, err := cache.SetItem(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -314,7 +314,7 @@ func TestCache_GetItem(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cache.Add(key, value, MaxTtl)
+		err := cache.Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,7 +343,7 @@ func TestCache_GetDeItem(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cache.Add(key, value, MaxTtl)
+		err := cache.Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -357,14 +357,14 @@ func TestCache_GetDeItem(t *testing.T) {
 	}
 }
 
-func TestCache_NewAddTxn(t *testing.T) {
+func TestCache_NewSetTxn(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+		txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -390,16 +390,16 @@ func TestCache_NewAddTxn(t *testing.T) {
 }
 
 /*******************************************************************************
- * AddTxn
+ * SetTxn
  ******************************************************************************/
 
-func TestAddTxn_Commit(t *testing.T) {
+func TestSetTxn_Commit(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,13 +433,13 @@ func TestAddTxn_Commit(t *testing.T) {
 	checkValue(t, value, actualValue)
 }
 
-func TestAddTxn_Commit_Partial(t *testing.T) {
+func TestSetTxn_Commit_Partial(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,14 +459,14 @@ func TestAddTxn_Commit_Partial(t *testing.T) {
 	}
 }
 
-func TestAddTxn_Rollback(t *testing.T) {
+func TestSetTxn_Rollback(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
 
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,14 +489,14 @@ func TestAddTxn_Rollback(t *testing.T) {
 	}
 }
 
-func TestAddTxn_CommitItem(t *testing.T) {
+func TestSetTxn_CommitItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
 
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,14 +518,14 @@ func TestAddTxn_CommitItem(t *testing.T) {
 	checkValue(t, value, item.Value())
 }
 
-func TestAddTxn_ReadFrom(t *testing.T) {
+func TestSetTxn_ReadFrom(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
 
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func newCacheItem(t *testing.T) (cache *Cache, item *Item) {
 	value := []byte("value")
 
 	var err error
-	item, err = cache.AddItem(key, value, MaxTtl)
+	item, err = cache.SetItem(key, value, MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestItem_Value(t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 
-	item, err := cache.AddItem(key, value, MaxTtl)
+	item, err := cache.SetItem(key, value, MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +589,7 @@ func TestItem_Size(t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 
-	item, err := cache.AddItem(key, value, MaxTtl)
+	item, err := cache.SetItem(key, value, MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +607,7 @@ func TestItem_Ttl(t *testing.T) {
 	value := []byte("value")
 
 	ttl := time.Minute
-	item, err := cache.AddItem(key, value, ttl)
+	item, err := cache.SetItem(key, value, ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +785,7 @@ func TestCluster_Cache(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cluster.Cache(key).Add(key, value, MaxTtl)
+		err := cluster.Cache(key).Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}

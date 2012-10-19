@@ -180,8 +180,8 @@ static void simple_add(struct ybc *const cache, const size_t requests_count,
     value.size = m_rand_next(&rand_state) % (max_item_size + 1);
     m_memset(buf, (char)value.size, value.size);
 
-    if (!ybc_item_add(cache, &key, &value)) {
-      M_ERROR("Cannot add item to the cache");
+    if (!ybc_item_set(cache, &key, &value)) {
+      M_ERROR("Cannot store item in the cache");
     }
   }
 

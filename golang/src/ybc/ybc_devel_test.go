@@ -111,16 +111,16 @@ func TestCache_DoubleClose(t *testing.T) {
 }
 
 /*******************************************************************************
- * AddTxn
+ * SetTxn
  ******************************************************************************/
 
-func TestAddTxn_DoubleCommit(t *testing.T) {
+func TestSetTxn_DoubleCommit(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,13 +133,13 @@ func TestAddTxn_DoubleCommit(t *testing.T) {
 	expectPanic(t, func() { txn.Commit() })
 }
 
-func TestAddTxn_DoubleCommitItem(t *testing.T) {
+func TestSetTxn_DoubleCommitItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,13 +153,13 @@ func TestAddTxn_DoubleCommitItem(t *testing.T) {
 	expectPanic(t, func() { txn.CommitItem() })
 }
 
-func TestAddTxn_DoubleRollback(t *testing.T) {
+func TestSetTxn_DoubleRollback(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,13 +167,13 @@ func TestAddTxn_DoubleRollback(t *testing.T) {
 	expectPanic(t, func() { txn.Rollback() })
 }
 
-func TestAddTxn_CommitAfterRollback(t *testing.T) {
+func TestSetTxn_CommitAfterRollback(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,13 +182,13 @@ func TestAddTxn_CommitAfterRollback(t *testing.T) {
 	expectPanic(t, func() { txn.Commit() })
 }
 
-func TestAddTxn_RollbackAfterCommit(t *testing.T) {
+func TestSetTxn_RollbackAfterCommit(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
 	key := []byte("key")
 	value := []byte("value")
-	txn, err := cache.NewAddTxn(key, len(value), MaxTtl)
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
 	if err != nil {
 		t.Fatal(err)
 	}

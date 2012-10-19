@@ -932,10 +932,10 @@ struct ybc_item
   struct m_storage_payload payload;
 
   /*
-   * The flag indicating whether this item is being used in add transaction
+   * The flag indicating whether this item is being used in set transaction
    * and didn't commited yet.
    */
-  int is_add_txn;
+  int is_set_txn;
 };
 
 static void m_item_assert_less_equal(const struct ybc_item *const a,
@@ -1449,7 +1449,7 @@ static void m_ws_defragment(struct ybc *const cache,
   struct ybc_value value;
 
   ybc_item_get_value(item, &value);
-  (void)ybc_item_add(cache, key, &value);
+  (void)ybc_item_set(cache, key, &value);
 }
 
 /*
@@ -1735,9 +1735,9 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
  * next_cursor = storage->next_cursor;
  * m_lock_unlock(cache->lock);
  * ...
- * m_map_add(..., &next_cursor, ...);
+ * m_map_set(..., &next_cursor, ...);
  */
-static void m_map_add(const struct m_map *const map,
+static void m_map_set(const struct m_map *const map,
     const struct m_storage *const storage,
     const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
@@ -1945,7 +1945,7 @@ static int m_map_cache_get(const struct m_map *const map,
   /*
    * Add the found item to the map cache.
    */
-  m_map_add(map_cache, storage, next_cursor, key_digest, payload);
+  m_map_set(map_cache, storage, next_cursor, key_digest, payload);
   return 1;
 }
 
@@ -1961,9 +1961,9 @@ static int m_map_cache_get(const struct m_map *const map,
  * next_cursor = storage->next_cursor;
  * m_lock_unlock(cache->lock);
  * ...
- * m_map_cache_add(..., &next_cursor, ...);
+ * m_map_cache_set(..., &next_cursor, ...);
  */
-static void m_map_cache_add(const struct m_map *const map,
+static void m_map_cache_set(const struct m_map *const map,
     const struct m_map *const map_cache, const struct m_storage *const storage,
     const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
@@ -1972,7 +1972,7 @@ static void m_map_cache_add(const struct m_map *const map,
   if (map_cache->slots_count != 0) {
     m_map_remove(map_cache, key_digest);
   }
-  m_map_add(map, storage, next_cursor, key_digest, payload);
+  m_map_set(map, storage, next_cursor, key_digest, payload);
 }
 
 static void m_map_cache_remove(const struct m_map *const map,
@@ -2170,8 +2170,8 @@ struct m_sync
 
 /*
  * Adjusts next_cursor, so the range [sync_cursor ... next_cursor)
- * doesn't contain items with 'add_txn' state.
- * There is no sense in syncing items with 'add_txn' state, because their
+ * doesn't contain items with 'set_txn' state.
+ * There is no sense in syncing items with 'set_txn' state, because their
  * contents is likely to be modified in the near future.
  */
 static void m_sync_adjust_next_cursor(
@@ -2186,7 +2186,7 @@ static void m_sync_adjust_next_cursor(
   const struct ybc_item *item = prevs[N]->next[N];
   m_item_skiplist_assert_valid(item, N);
   while (item->payload.cursor.offset < next_cursor->offset) {
-    if (item->is_add_txn) {
+    if (item->is_set_txn) {
       *next_cursor = item->payload.cursor;
       break;
     }
@@ -2474,7 +2474,7 @@ static struct m_de_item *m_de_item_get(
   return NULL;
 }
 
-static void m_de_item_add(struct m_de_item **const pending_items_ptr,
+static void m_de_item_set(struct m_de_item **const pending_items_ptr,
     const struct m_key_digest *const key_digest, const uint64_t expiration_time)
 {
   struct m_de_item *const de_item = m_malloc(sizeof(*de_item));
@@ -2506,7 +2506,7 @@ static int m_de_item_register(struct m_de *const de,
     /* This assertion may break in very far future. */
     assert(grace_ttl <= UINT64_MAX - current_time);
 
-    m_de_item_add(pending_items_ptr, key_digest, grace_ttl + current_time);
+    m_de_item_set(pending_items_ptr, key_digest, grace_ttl + current_time);
   }
 
   m_lock_unlock(&de->lock);
@@ -2744,7 +2744,7 @@ void ybc_remove(const struct ybc_config *const config)
  * 'Add' transaction API.
  ******************************************************************************/
 
-struct ybc_add_txn
+struct ybc_set_txn
 {
   struct m_key_digest key_digest;
   struct ybc_item item;
@@ -2815,12 +2815,12 @@ static void m_item_relocate(struct ybc_item *const dst,
   m_item_skiplist_relocate(dst, src);
 }
 
-size_t ybc_add_txn_get_size(void)
+size_t ybc_set_txn_get_size(void)
 {
-  return sizeof(struct ybc_add_txn);
+  return sizeof(struct ybc_set_txn);
 }
 
-int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
+int ybc_set_txn_begin(struct ybc *const cache, struct ybc_set_txn *const txn,
     const struct ybc_key *const key, const size_t value_size,
     const uint64_t ttl)
 {
@@ -2832,7 +2832,7 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
 
   txn->item.cache = cache;
   txn->item.key_size = key->size;
-  txn->item.is_add_txn = 1;
+  txn->item.is_set_txn = 1;
 
   const size_t metadata_size = m_storage_metadata_get_size(key->size);
   assert(value_size <= SIZE_MAX - metadata_size);
@@ -2856,7 +2856,7 @@ int ybc_add_txn_begin(struct ybc *const cache, struct ybc_add_txn *const txn,
   return 1;
 }
 
-void ybc_add_txn_commit(struct ybc_add_txn *const txn)
+void ybc_set_txn_commit(struct ybc_set_txn *const txn)
 {
   struct m_storage_payload payload = txn->item.payload;
   struct ybc *const cache = txn->item.cache;
@@ -2865,34 +2865,34 @@ void ybc_add_txn_commit(struct ybc_add_txn *const txn)
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   m_lock_unlock(&cache->lock);
 
-  m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
+  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &next_cursor, &txn->key_digest, &payload);
 
   m_item_release(&txn->item);
 }
 
-void ybc_add_txn_commit_item(struct ybc_add_txn *const txn,
+void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
     struct ybc_item *const item)
 {
   struct ybc *const cache = txn->item.cache;
 
   m_lock_lock(&cache->lock);
   m_item_relocate(item, &txn->item);
-  item->is_add_txn = 0;
+  item->is_set_txn = 0;
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   m_lock_unlock(&cache->lock);
 
-  m_map_cache_add(&cache->index.map, &cache->index.map_cache, &cache->storage,
+  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &next_cursor, &txn->key_digest, &item->payload);
 }
 
-void ybc_add_txn_rollback(struct ybc_add_txn *const txn)
+void ybc_set_txn_rollback(struct ybc_set_txn *const txn)
 {
   m_item_release(&txn->item);
 }
 
-void ybc_add_txn_get_value(const struct ybc_add_txn *const txn,
-    struct ybc_add_txn_value *const value)
+void ybc_set_txn_get_value(const struct ybc_set_txn *const txn,
+    struct ybc_set_txn_value *const value)
 {
   value->ptr = m_item_get_value_ptr(&txn->item);
   value->size = m_item_get_size(&txn->item);
@@ -2909,7 +2909,7 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
 {
   item->cache = cache;
   item->key_size = key->size;
-  item->is_add_txn = 0;
+  item->is_set_txn = 0;
 
   m_lock_lock(&cache->lock);
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
@@ -2940,33 +2940,33 @@ size_t ybc_item_get_size(void)
   return sizeof(struct ybc_item);
 }
 
-int ybc_item_add(struct ybc *const cache, const struct ybc_key *const key,
+int ybc_item_set(struct ybc *const cache, const struct ybc_key *const key,
     const struct ybc_value *const value)
 {
-  struct ybc_add_txn txn;
+  struct ybc_set_txn txn;
 
-  if (!ybc_add_txn_begin(cache, &txn, key, value->size, value->ttl)) {
+  if (!ybc_set_txn_begin(cache, &txn, key, value->size, value->ttl)) {
     return 0;
   }
 
   void *const dst = m_item_get_value_ptr(&txn.item);
   memcpy(dst, value->ptr, value->size);
-  ybc_add_txn_commit(&txn);
+  ybc_set_txn_commit(&txn);
   return 1;
 }
 
-int ybc_item_add_item(struct ybc *const cache, struct ybc_item *const item,
+int ybc_item_set_item(struct ybc *const cache, struct ybc_item *const item,
     const struct ybc_key *const key, const struct ybc_value *const value)
 {
-  struct ybc_add_txn txn;
+  struct ybc_set_txn txn;
 
-  if (!ybc_add_txn_begin(cache, &txn, key, value->size, value->ttl)) {
+  if (!ybc_set_txn_begin(cache, &txn, key, value->size, value->ttl)) {
     return 0;
   }
 
   void *const dst = m_item_get_value_ptr(&txn.item);
   memcpy(dst, value->ptr, value->size);
-  ybc_add_txn_commit_item(&txn, item);
+  ybc_set_txn_commit_item(&txn, item);
   return 1;
 }
 
