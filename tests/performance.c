@@ -377,16 +377,14 @@ int main(void)
   const size_t items_count = 200 * 1000;
 
   for (size_t max_item_size = 8; max_item_size <= 4096; max_item_size *= 2) {
-
     measure_simple_ops(cache, requests_count, items_count, 0, max_item_size);
-
     for (size_t hot_items_count = 1000; hot_items_count <= items_count;
         hot_items_count *= 10) {
       measure_simple_ops(cache, requests_count, items_count, hot_items_count,
           max_item_size);
     }
 
-    for (size_t threads_count = 1; threads_count <= 8; threads_count *= 2) {
+    for (size_t threads_count = 1; threads_count <= 16; threads_count *= 2) {
       measure_multithreaded_ops(cache, threads_count, requests_count,
           items_count, 10 * 1000, max_item_size);
     }
