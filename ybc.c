@@ -12,10 +12,13 @@
  * Cache implementation.
  *
  * Naming conventions:
- * - public functions and structures start with ybc_
- * - public macros and constants start with YBC_
- * - private functions and structures start with m_
- * - private macros and constants start with M_
+ * - public functions and structures must start with ybc_
+ * - public macros and constants must start with YBC_
+ * - private functions and structures must start with m_
+ * - private macros and constants must start with M_
+ * - platform-specific functions and structures must start with p_.
+ * Such functions and structures must be defined in platform/<platform_name>.c
+ * files.
  *
  * Coding rules:
  * - All variables, which are expected to be immutable in the given code block,
