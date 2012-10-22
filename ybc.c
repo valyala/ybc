@@ -1,10 +1,11 @@
+#include "platform.h"  /* Platform-specific functions' implementation. */
 #include "ybc.h"
 
 #include <assert.h>  /* assert */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
-#include <stdlib.h>  /* rand, malloc, free */
-#include <string.h>  /* memcpy, memcmp, strdup, memset */
+#include <stdlib.h>  /* rand, free */
+#include <string.h>  /* memcpy, memcmp, memset */
 
 
 /*******************************************************************************
@@ -27,141 +28,6 @@
 /*******************************************************************************
  * Aux API.
  ******************************************************************************/
-
-#ifndef NDEBUG
-
-/*
- * m_less_* functions are used as a workaround for compiler warnings about
- * limited ranges of arguments.
- *
- * See http://stackoverflow.com/a/8658004/274937 .
- */
-
-static int m_less_equal(const uint64_t a, const uint64_t b)
-{
-  return (a <= b);
-}
-
-static int m_less(const uint64_t a, const uint64_t b)
-{
-  return (a < b);
-}
-
-#endif
-
-
-#ifdef YBC_HAVE_LINUX_ERROR_API
-
-#include <errno.h>   /* errno */
-#include <error.h>   /* error */
-#include <stdlib.h>  /* EXIT_FAILURE */
-
-#else  /* !YBC_HAVE_LINUX_ERROR_API */
-#error "Unsupported error API"
-#endif
-
-
-#ifdef YBC_HAVE_CLOCK_GETTIME
-
-#include <time.h>  /* clock_gettime, timespec */
-
-/*
- * Returns current time in milliseconds since the Epoch.
- *
- * The caller must be aware that the returned time can jump backwards
- * in the event of NTP adjustment ( http://www.ntp.org/ ) or manual adjustment
- * of system-wide clock.
- */
-static uint64_t m_get_current_time(void)
-{
-  struct timespec t;
-
-  /*
-   * Though CLOCK_MONOTONIC cannot jump backwards unlike CLOCK_REALTIME,
-   * it may be inconsistent between system reboots or between distinct systems.
-   * Such inconsistency makes cache persistence a joke, since all expiration
-   * times in persistent cache may become arbitrarily skewed after system reboot
-   * or cache files' migration to another system.
-   */
-  const int rv = clock_gettime(CLOCK_REALTIME, &t);
-  assert(rv == 0);
-  (void)rv;
-
-  assert(m_less_equal(t.tv_sec, (UINT64_MAX - 1000) / 1000));
-  assert(m_less(t.tv_nsec, (uint64_t)1000 * 1000 * 1000));
-  return ((uint64_t)t.tv_sec) * 1000 + t.tv_nsec / (1000 * 1000);
-}
-
-#else  /* !YBC_HAVE_CLOCK_GETTIME */
-#error "Unsupported time implementation"
-#endif
-
-
-#ifdef YBC_HAVE_NANOSLEEP
-
-#include <time.h>  /* nanosleep */
-
-/*
- * Suspends the current thread for the given number of milliseconds.
- */
-static void m_sleep(const uint64_t milliseconds)
-{
-  struct timespec req = {
-      .tv_sec = milliseconds / 1000,
-      .tv_nsec = (milliseconds % 1000) * 1000 * 1000,
-  };
-  struct timespec rem;
-
-  for (;;) {
-    if (nanosleep(&req, &rem) != -1) {
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "nanosleep(milliseconds=%d)", (int)milliseconds);
-    }
-
-    req = rem;
-  }
-}
-
-#else  /* !YBC_HAVE_NANOSLEEP */
-#error "Unsupported sleep implementation"
-#endif
-
-/*
- * Allocates the given amount of memory. Always returns non-NULL.
- */
-static void *m_malloc(const size_t size)
-{
-  void *const ptr = malloc(size);
-  if (ptr == NULL) {
-    error(EXIT_FAILURE, ENOMEM, "malloc(size=%zu)", size);
-  }
-  return ptr;
-}
-
-/*
- * Frees memory occupied by *dst and makes a duplicate from src.
- *
- * If src is NULL, then makes *dst NULL.
- *
- * *dst must be freed with free().
- */
-static void m_strdup(char **const dst, const char *const src)
-{
-  free(*dst);
-
-  if (src == NULL) {
-    *dst = NULL;
-    return;
-  }
-
-  *dst = strdup(src);
-  if (*dst == NULL) {
-    error(EXIT_FAILURE, ENOMEM, "strdup(s=[%s])", src);
-  }
-}
 
 /*
  * Calculates hash for size bytes starting from ptr using
@@ -195,429 +61,13 @@ static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
 
 
 /*******************************************************************************
- * Thread API.
- ******************************************************************************/
-
-typedef void (*m_thread_func)(void *);
-
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>    /* pthread_* */
-#include <sys/types.h>  /* pthread_*_t */
-
-struct m_thread
-{
-  pthread_t t;
-  m_thread_func func;
-  void *ctx;
-};
-
-static void *m_thread_main_func(void *const ctx)
-{
-  struct m_thread *const t = ctx;
-
-  t->func(t->ctx);
-
-  return NULL;
-}
-
-static void m_thread_init_and_start(struct m_thread *const t,
-    const m_thread_func func, void *const ctx)
-{
-  t->func = func;
-  t->ctx = ctx;
-
-  const int rv = pthread_create(&t->t, NULL, m_thread_main_func, t);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_create()");
-  }
-}
-
-static void m_thread_join_and_destroy(struct m_thread *const t)
-{
-  const int rv = pthread_join(t->t, NULL);
-  assert(rv == 0);
-  (void)rv;
-}
-
-#else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported thread implementation"
-#endif
-
-
-/*******************************************************************************
- * Mutex API.
- ******************************************************************************/
-
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>    /* pthread_* */
-#include <sys/types.h>  /* pthread_*_t */
-
-struct m_lock
-{
-  pthread_mutex_t mutex;
-};
-
-static void m_lock_init(struct m_lock *const lock)
-{
-  pthread_mutexattr_t attr;
-  int rv;
-
-  rv = pthread_mutexattr_init(&attr);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_mutexattr_init()");
-  }
-
-#ifdef NDEBUG
-  const int type = PTHREAD_MUTEX_DEFAULT;
-#else
-  const int type = PTHREAD_MUTEX_ERRORCHECK;
-#endif
-
-  rv = pthread_mutexattr_settype(&attr, type);
-  assert(rv == 0);
-
-  rv = pthread_mutex_init(&lock->mutex, &attr);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_mutex_init()");
-  }
-
-  rv = pthread_mutexattr_destroy(&attr);
-  assert(rv == 0);
-}
-
-static void m_lock_destroy(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_destroy(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-static void m_lock_lock(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_lock(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-static void m_lock_unlock(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_unlock(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-#else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported lock implementation"
-#endif
-
-
-/*******************************************************************************
- * Event API.
- ******************************************************************************/
-
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>    /* pthread_* */
-#include <sys/types.h>  /* pthread_*_t */
-#include <time.h>       /* timespec */
-
-struct m_event
-{
-  pthread_cond_t cond;
-  pthread_mutex_t mutex;
-  int is_set;
-};
-
-static void m_event_init(struct m_event *const e)
-{
-  int rv = pthread_cond_init(&e->cond, NULL);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_cond_init()");
-  }
-
-  rv = pthread_mutex_init(&e->mutex, NULL);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "pthread_mutex_init()");
-  }
-
-  e->is_set = 0;
-}
-
-static void m_event_destroy(struct m_event *const e)
-{
-  int rv;
-
-  rv = pthread_mutex_destroy(&e->mutex);
-  assert(rv == 0);
-
-  rv = pthread_cond_destroy(&e->cond);
-  assert(rv == 0);
-
-  (void)rv;
-}
-
-static void m_event_set(struct m_event *const e)
-{
-  int rv;
-
-  rv = pthread_mutex_lock(&e->mutex);
-  assert(rv == 0);
-
-  e->is_set = 1;
-  rv = pthread_cond_broadcast(&e->cond);
-  assert(rv == 0);
-
-  rv = pthread_mutex_unlock(&e->mutex);
-  assert(rv == 0);
-
-  (void)rv;
-}
-
-static int m_event_wait_with_timeout(struct m_event *const e,
-    const uint64_t timeout)
-{
-  int rv;
-  int is_set;
-
-  rv = pthread_mutex_lock(&e->mutex);
-  assert(rv == 0);
-
-  if (!e->is_set) {
-    const uint64_t current_time = m_get_current_time();
-    const uint64_t exp_time = ((timeout <= UINT64_MAX - current_time) ?
-        (current_time + timeout) : UINT64_MAX);
-
-    struct timespec t = {
-        .tv_sec = exp_time / 1000,
-        .tv_nsec = (exp_time % 1000) * 1000 * 1000,
-    };
-    rv = pthread_cond_timedwait(&e->cond, &e->mutex, &t);
-    if (rv != ETIMEDOUT) {
-      assert(rv == 0);
-    }
-  }
-  is_set = e->is_set;
-
-  rv = pthread_mutex_unlock(&e->mutex);
-  assert(rv == 0);
-
-  return is_set;
-}
-
-#else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported event implementation"
-#endif
-
-
-/*******************************************************************************
  * File API.
  ******************************************************************************/
 
-#ifdef YBC_HAVE_LINUX_FILE_API
-
-#include <fcntl.h>      /* open, posix_allocate, readahead, posix_fadvise,
-                         * fcntl
-                         */
-#include <stdio.h>      /* tmpfile, fileno, fclose */
-#include <sys/stat.h>   /* open, fstat */
-#include <sys/types.h>  /* open, fstat */
-#include <unistd.h>     /* close, fstat, access, unlink, dup, fcntl */
-
-struct m_file
-{
-  int fd;
-};
-
-static void m_file_dup(int *const dst_fd, const int src_fd)
-{
-  for (;;) {
-    *dst_fd = dup(src_fd);
-    if (*dst_fd != -1) {
-
-      /* Close duplicated file descriptor on exec() for security reasons. */
-      if (fcntl(*dst_fd, F_SETFD, FD_CLOEXEC) == -1) {
-        error(EXIT_FAILURE, errno, "fcntl(fd=%d, F_SETFD, FD_CLOEXEC)",
-            *dst_fd);
-      }
-
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "dup(fd=%d)", src_fd);
-    }
-  }
-}
-
-/*
- * Creates an anonymous temporary file, which will be automatically deleted
- * after the file is closed.
- */
-static void m_file_create_anonymous(struct m_file *const file)
-{
-  for (;;) {
-    FILE *const fp = tmpfile();
-
-    if (fp != NULL) {
-      const int fd = fileno(fp);
-      assert(fd != -1);
-
-      m_file_dup(&file->fd, fd);
-      fclose(fp);
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "tmpfile()");
-    }
-  }
-}
-
-static int m_file_exists(const char *const filename)
-{
-  if (access(filename, F_OK) == -1) {
-    if (errno != ENOENT) {
-      error(EXIT_FAILURE, errno, "access(file=[%s])", filename);
-    }
-    return 0;
-  }
-
-  return 1;
-}
-
-static void m_file_create(struct m_file *const file, const char *const filename)
-{
-  const int mode = S_IRUSR | S_IWUSR;
-  int flags = O_CREAT | O_TRUNC | O_RDWR;
-
-  flags |= O_EXCL;     /* Fail if the file already exists. */
-  flags |= O_CLOEXEC;  /* Close file on exec for security reasons. */
-  flags |= O_NOATIME;  /* Don't update access time for performance reasons. */
-
-  for (;;) {
-    file->fd = open(filename, flags, mode);
-    if (file->fd != -1) {
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "open(mode=%d, flags=%d, file=[%s])",
-          mode, flags, filename);
-    }
-  }
-}
-
-static void m_file_open(struct m_file *const file, const char *const filename)
-{
-  int flags = O_RDWR;
-
-  flags |= O_CLOEXEC;  /* Close file on exec for security reasons. */
-  flags |= O_NOATIME;  /* Don't update access time for performance reasons. */
-
-  for (;;) {
-    file->fd = open(filename, flags);
-    if (file->fd != -1) {
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "open(flags=%d, file=[%s])", flags, filename);
-    }
-  }
-}
-
-static void m_file_close(const struct m_file *const file)
-{
-  /*
-   * Do not use fsync() before closing the file, because this may be
-   * extremely slow in certain filesystems.
-   * Rely on OS for flushing file's data to storage device instead.
-   */
-
-  for (;;) {
-    if (close(file->fd) != -1) {
-      return;
-    }
-
-    if (errno != EINTR) {
-      error(EXIT_FAILURE, errno, "close(fd=%d)", file->fd);
-    }
-  }
-}
-
-static void m_file_remove(const char *const filename)
-{
-  /*
-   * According to manpages, unlink() cannot generate EINTR,
-   * so don't handle this case.
-   */
-  if (unlink(filename) == -1) {
-    error(EXIT_FAILURE, errno, "unlink(file=[%s])", filename);
-  }
-}
-
-static void m_file_get_size(const struct m_file *const file, size_t *const size)
-{
-  /*
-   * According to manpages, fstat() cannot generate EINTR,
-   * so don't handle this case.
-   */
-
-  struct stat st;
-
-  if (fstat(file->fd, &st) == -1) {
-    error(EXIT_FAILURE, errno, "fstat(fd=%d)", file->fd);
-  }
-
-  *size = st.st_size;
-}
-
-/*
- * Resizes the file to the given size and makes sure the underlying space
- * in the file is actually allocated (i.e. avoids creating sparse files).
- */
-static void m_file_resize_and_preallocate(const struct m_file *const file,
-    const size_t size)
-{
-  const int rv = posix_fallocate(file->fd, 0, size);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "posix_fallocate(fd=%d, size=%zu)", file->fd, size);
-  }
-}
-
-static void m_file_advise_random_access(const struct m_file *const file,
-    const size_t size)
-{
-  const int rv = posix_fadvise(file->fd, 0, size, POSIX_FADV_RANDOM);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "posix_fadvise(fd=%d, size=%zu, random)",
-        file->fd, size);
-  }
-}
-
-static void m_file_cache_in_ram(const struct m_file *const file,
-    const size_t size)
-{
-  /*
-   * According to manpages, readahead() cannot generate EINTR,
-   * so don't handle this case.
-   */
-  if (readahead(file->fd, 0, size) == -1) {
-    error(EXIT_FAILURE, errno, "readahead(fd=%d, size=%zu)", file->fd, size);
-  }
-}
-
-#else  /* !YBC_HAVE_LINUX_FILE_API */
-#error "Unsupported file implementation"
-#endif
-
-
 static void m_file_remove_if_exists(const char *const filename)
 {
-  if (filename != NULL && m_file_exists(filename)) {
-    m_file_remove(filename);
+  if (filename != NULL && p_file_exists(filename)) {
+    p_file_remove(filename);
   }
 }
 
@@ -634,7 +84,7 @@ static void m_file_remove_if_exists(const char *const filename)
  * Sets is_file_created to 1 if new file has been created (including
  * anonymous file).
  */
-static int m_file_open_or_create(struct m_file *const file,
+static int m_file_open_or_create(struct p_file *const file,
     const char *const filename, const size_t expected_file_size,
     const int force, int *const is_file_created)
 {
@@ -656,28 +106,28 @@ static int m_file_open_or_create(struct m_file *const file,
      * - Sequential VM pages backed by anonymous file are mapped to sequential
      *   pages in the anonymous file. This eliminates random I/O during
      *   sequential access to the mapped memory. Of course this is true only
-     *   if the file isn't fragmented. See m_file_resize_and_preallocate() call,
+     *   if the file isn't fragmented. See p_file_resize_and_preallocate() call,
      *   which is aimed towards reducing file fragmentation.
      */
-    m_file_create_anonymous(file);
+    p_file_create_anonymous(file);
     *is_file_created = 1;
   }
-  else if (!m_file_exists(filename)) {
+  else if (!p_file_exists(filename)) {
     if (!force) {
       return 0;
     }
 
-    m_file_create(file, filename);
+    p_file_create(file, filename);
     *is_file_created = 1;
   }
   else {
-    m_file_open(file, filename);
+    p_file_open(file, filename);
   }
 
-  m_file_get_size(file, &actual_file_size);
+  p_file_get_size(file, &actual_file_size);
   if (actual_file_size != expected_file_size) {
     if (!force) {
-      m_file_close(file);
+      p_file_close(file);
       if (*is_file_created) {
         m_file_remove_if_exists(filename);
         *is_file_created = 0;
@@ -689,109 +139,11 @@ static int m_file_open_or_create(struct m_file *const file,
      * Pre-allocate file space at the moment in order to minimize file
      * fragmentation in the future.
      */
-    m_file_resize_and_preallocate(file, expected_file_size);
+    p_file_resize_and_preallocate(file, expected_file_size);
   }
 
   return 1;
 }
-
-
-/*******************************************************************************
- * Memory management API
- ******************************************************************************/
-
-#ifdef YBC_HAVE_LINUX_MMAN_API
-
-#include <sys/mman.h>   /* mmap, munmap, msync */
-#include <unistd.h>     /* sysconf */
-
-/*
- * The page mask is determined at runtime. See m_memory_init().
- */
-static size_t m_memory_page_mask = 0;
-
-/*
- * Initializes memory API.
- *
- * This function must be called first before using other m_memory_* functions.
- * This function may be called multiple times.
- */
-static void m_memory_init(void)
-{
-  if (m_memory_page_mask == 0) {
-    const long rv = sysconf(_SC_PAGESIZE);
-    assert(rv > 0);
-
-    /*
-     * Make sure that the page size is a power of 2.
-     */
-    if ((rv & (rv - 1)) != 0) {
-      error(EXIT_FAILURE, 0, "Unexpected page size=%ld", rv);
-    }
-
-    m_memory_page_mask = (size_t)(rv - 1);
-  }
-  else {
-    assert((m_memory_page_mask & (m_memory_page_mask + 1)) == 0);
-  }
-}
-
-/*
- * Maps size bytes of the given file into memory and stores memory pointer
- * to *ptr.
- */
-static void m_memory_map(void **const ptr, const struct m_file *const file,
-    const size_t size)
-{
-  /*
-   * Accodring to manpages, mmap() cannot return EINTR, so don't handle it.
-   */
-  *ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file->fd, 0);
-  if (*ptr == MAP_FAILED) {
-    error(EXIT_FAILURE, errno, "mmap(fd=%d, size=%zu)", file->fd, size);
-  }
-
-  assert((uintptr_t)size <= UINTPTR_MAX - (uintptr_t)*ptr);
-}
-
-/*
- * Unmaps size bytes pointed by ptr from memory.
- */
-static void m_memory_unmap(void *const ptr, const size_t size)
-{
-  /*
-   * According to manpages, munmap() cannot return EINTR, so don't handle it.
-   */
-  if (munmap(ptr, size) == -1) {
-    error(EXIT_FAILURE, errno, "munmap(ptr=%p, size=%zu)", ptr, size);
-  }
-}
-
-/*
- * Flushes size bytes pointed by ptr to backing storage.
- */
-static void m_memory_sync(void *const ptr, const size_t size)
-{
-  assert(m_memory_page_mask != 0);
-  assert((m_memory_page_mask & (m_memory_page_mask + 1)) == 0);
-
-  /*
-   * Adjust ptr to the nearest floor page boundary, because msync()
-   * accepts only pointers to page boundaries.
-   */
-  const size_t delta = ((uintptr_t)ptr) & m_memory_page_mask;
-  void *const adjusted_ptr = ((char *)ptr) - delta;
-  const size_t adjusted_size = size + delta;
-
-  if (msync(adjusted_ptr, adjusted_size, MS_SYNC) == -1) {
-    error(EXIT_FAILURE, errno, "msync(ptr=%p, size=%zu)",
-        adjusted_ptr, adjusted_size);
-  }
-}
-
-#else  /* !YBC_HAVE_LINUX_MMAN_API */
-#error "Unsupported memory management implementation"
-#endif
 
 
 /*******************************************************************************
@@ -1080,7 +432,7 @@ static void m_storage_fix_size(size_t *const size)
 static int m_storage_open(struct m_storage *const storage,
     const char *const filename, const int force, int *const is_file_created)
 {
-  struct m_file file;
+  struct p_file file;
   void *ptr;
 
   if (!m_file_open_or_create(&file, filename, storage->size, force,
@@ -1094,14 +446,14 @@ static int m_storage_open(struct m_storage *const storage,
    * caching.
    */
 
-  m_memory_map(&ptr, &file, storage->size);
+  p_memory_map(&ptr, &file, storage->size);
   assert((uintptr_t)storage->size <= UINTPTR_MAX - (uintptr_t)ptr);
 
   /*
    * It is assumed that memory mapping of the file remains active after the file
    * is closed.
    */
-  m_file_close(&file);
+  p_file_close(&file);
 
   storage->data = ptr;
 
@@ -1123,7 +475,7 @@ static int m_storage_open(struct m_storage *const storage,
 
 static void m_storage_close(struct m_storage *const storage)
 {
-  m_memory_unmap(storage->data, storage->size);
+  p_memory_unmap(storage->data, storage->size);
 }
 
 static void *m_storage_get_ptr(const struct m_storage *const storage,
@@ -1236,9 +588,9 @@ static int m_storage_allocate(struct m_storage *const storage,
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_storage_payload_check(..., &next_cursor, ...);
  *
@@ -1250,7 +602,7 @@ static int m_storage_payload_check(const struct m_storage *const storage,
 {
   size_t max_offset = next_cursor->offset;
 
-  if (payload->expiration_time < m_get_current_time()) {
+  if (payload->expiration_time < p_get_current_time()) {
     /* The item has been expired. */
     return 0;
   }
@@ -1460,9 +812,9 @@ static void m_ws_defragment(struct ybc *const cache,
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_ws_should_defragment(..., &next_cursor, ...);
  *
@@ -1731,9 +1083,9 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_map_set(..., &next_cursor, ...);
  */
@@ -1809,9 +1161,9 @@ static void m_map_remove(const struct m_map *const map,
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_map_get(..., &next_cursor, ...);
  *
@@ -1877,7 +1229,7 @@ static void m_map_cache_init(struct m_map *const map_cache,
   assert(slots_count <= SIZE_MAX / M_MAP_ITEM_SIZE);
   const size_t map_cache_size = slots_count * M_MAP_ITEM_SIZE;
 
-  struct m_key_digest *const key_digests = m_malloc(map_cache_size);
+  struct m_key_digest *const key_digests = p_malloc(map_cache_size);
   struct m_storage_payload *const payloads = (struct m_storage_payload *)
       (key_digests + slots_count);
 
@@ -1908,9 +1260,9 @@ static void m_map_cache_destroy(struct m_map *const map_cache)
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_map_cace_get(..., &next_cursor, ...);
  *
@@ -1957,9 +1309,9 @@ static int m_map_cache_get(const struct m_map *const map,
  * &storage->next_cursor here! Instead, make a copy under the ybc->lock
  * and then pass a pointer to this copy here:
  *
- * m_lock_lock(cache->lock);
+ * p_lock_lock(cache->lock);
  * next_cursor = storage->next_cursor;
- * m_lock_unlock(cache->lock);
+ * p_lock_unlock(cache->lock);
  * ...
  * m_map_cache_set(..., &next_cursor, ...);
  */
@@ -2044,7 +1396,7 @@ static int m_index_open(struct m_index *const index,
     const char *const filename, const int force, int *const is_file_created,
     struct m_storage_cursor **const next_cursor)
 {
-  struct m_file file;
+  struct p_file file;
   void *ptr;
 
   const size_t file_size = m_index_get_file_size(map_slots_count);
@@ -2066,21 +1418,21 @@ static int m_index_open(struct m_index *const index,
    * at creation time.
    * See m_file_open_or_create() for details.
    */
-  m_file_cache_in_ram(&file, file_size);
+  p_file_cache_in_ram(&file, file_size);
 
   /*
    * Hint the OS about random access pattern to index file contents.
    */
-  m_file_advise_random_access(&file, file_size);
+  p_file_advise_random_access(&file, file_size);
 
-  m_memory_map(&ptr, &file, file_size);
+  p_memory_map(&ptr, &file, file_size);
   assert((uintptr_t)file_size <= UINTPTR_MAX - (uintptr_t)ptr);
 
   /*
    * It is assumed that memory mapping of the file remains active after the file
    * is closed.
    */
-  m_file_close(&file);
+  p_file_close(&file);
 
   /*
    * Key digests must be aligned to CPU cache line size for faster lookups.
@@ -2097,7 +1449,7 @@ static int m_index_open(struct m_index *const index,
   *next_cursor = (struct m_storage_cursor *)(payloads + map_slots_count);
   index->hash_seed_ptr = (uint64_t *)(*next_cursor + 1);
   if (*is_file_created) {
-    *index->hash_seed_ptr = m_get_current_time();
+    *index->hash_seed_ptr = p_get_current_time();
   }
 
   /*
@@ -2115,7 +1467,7 @@ static void m_index_close(struct m_index *const index)
   m_map_cache_destroy(&index->map_cache);
 
   const size_t file_size = m_index_get_file_size(index->map.slots_count);
-  m_memory_unmap(index->map.key_digests, file_size);
+  p_memory_unmap(index->map.key_digests, file_size);
 
   m_map_destroy(&index->map);
 }
@@ -2155,17 +1507,17 @@ struct m_sync
   /*
    * A pointer to ybc->lock.
    */
-  struct m_lock *cache_lock;
+  struct p_lock *cache_lock;
 
   /*
    * An event for indicating when the sync_thread should be stopped.
    */
-  struct m_event stop_event;
+  struct p_event stop_event;
 
   /*
    * A thread responsible for data syncing.
    */
-  struct m_thread sync_thread;
+  struct p_thread sync_thread;
 };
 
 /*
@@ -2218,19 +1570,19 @@ static void m_sync_commit(const struct m_storage *const storage,
   const size_t sync_chunk_size = end_offset - start_offset;
   if (sync_chunk_size > 0) {
     void *const ptr = m_storage_get_ptr(storage, start_offset);
-    m_memory_sync(ptr, sync_chunk_size);
+    p_memory_sync(ptr, sync_chunk_size);
   }
 }
 
-static void m_sync_flush_data(struct m_lock *const cache_lock,
+static void m_sync_flush_data(struct p_lock *const cache_lock,
     const struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
     struct m_storage_cursor *const sync_cursor)
 {
-  m_lock_lock(cache_lock);
+  p_lock_lock(cache_lock);
   struct m_storage_cursor next_cursor = storage->next_cursor;
   m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
-  m_lock_unlock(cache_lock);
+  p_lock_unlock(cache_lock);
 
   if (next_cursor.wrap_count == sync_cursor->wrap_count) {
     /*
@@ -2279,7 +1631,7 @@ static void m_sync_thread_func(void *const ctx)
 {
   struct m_sync *const sc = ctx;
 
-  while (!m_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
+  while (!p_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
     m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_head,
         sc->sync_cursor);
   }
@@ -2292,7 +1644,7 @@ static void m_sync_init(struct m_sync *const sc,
     const uint64_t sync_interval, struct m_storage_cursor *const sync_cursor,
     struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
-    struct m_lock *const cache_lock)
+    struct p_lock *const cache_lock)
 {
   sc->sync_interval = sync_interval;
   sc->sync_cursor = sync_cursor;
@@ -2301,17 +1653,17 @@ static void m_sync_init(struct m_sync *const sc,
   sc->cache_lock = cache_lock;
 
   if (sync_interval > 0) {
-    m_event_init(&sc->stop_event);
-    m_thread_init_and_start(&sc->sync_thread, &m_sync_thread_func, sc);
+    p_event_init(&sc->stop_event);
+    p_thread_init_and_start(&sc->sync_thread, &m_sync_thread_func, sc);
   }
 }
 
 static void m_sync_destroy(struct m_sync *const sc)
 {
   if (sc->sync_interval > 0) {
-    m_event_set(&sc->stop_event);
-    m_thread_join_and_destroy(&sc->sync_thread);
-    m_event_destroy(&sc->stop_event);
+    p_event_set(&sc->stop_event);
+    p_thread_join_and_destroy(&sc->sync_thread);
+    p_event_destroy(&sc->stop_event);
   }
   else {
     /* Syncing is disabled, so just update sync cursor. */
@@ -2390,7 +1742,7 @@ struct m_de
   /*
    * Lock for pending_items hashtable.
    */
-  struct m_lock lock;
+  struct p_lock lock;
 
   /*
    * The number of buckets in pending_items hash table.
@@ -2407,13 +1759,13 @@ struct m_de
 static void m_de_init(struct m_de *const de, const size_t buckets_count)
 {
 
-  m_lock_init(&de->lock);
+  p_lock_init(&de->lock);
 
   de->buckets_count = buckets_count;
 
   assert(buckets_count > 0);
   assert(buckets_count <= SIZE_MAX / sizeof(*de->pending_items));
-  de->pending_items = m_malloc(buckets_count * sizeof(*de->pending_items));
+  de->pending_items = p_malloc(buckets_count * sizeof(*de->pending_items));
   for (size_t i = 0; i < buckets_count; ++i) {
     de->pending_items[i] = NULL;
   }
@@ -2441,7 +1793,7 @@ static void m_de_destroy(struct m_de *const de)
   }
   free(de->pending_items);
 
-  m_lock_destroy(&de->lock);
+  p_lock_destroy(&de->lock);
 }
 
 static struct m_de_item *m_de_item_get(
@@ -2477,7 +1829,7 @@ static struct m_de_item *m_de_item_get(
 static void m_de_item_set(struct m_de_item **const pending_items_ptr,
     const struct m_key_digest *const key_digest, const uint64_t expiration_time)
 {
-  struct m_de_item *const de_item = m_malloc(sizeof(*de_item));
+  struct m_de_item *const de_item = p_malloc(sizeof(*de_item));
 
   de_item->next = *pending_items_ptr;
   de_item->key_digest = *key_digest;
@@ -2492,12 +1844,12 @@ static int m_de_item_register(struct m_de *const de,
   assert(grace_ttl >= M_DE_ITEM_MIN_GRACE_TTL);
   assert(grace_ttl <= M_DE_ITEM_MAX_GRACE_TTL);
 
-  const uint64_t current_time = m_get_current_time();
+  const uint64_t current_time = p_get_current_time();
 
   const size_t idx = m_key_digest_mod(key_digest, de->buckets_count);
   struct m_de_item **const pending_items_ptr = &de->pending_items[idx];
 
-  m_lock_lock(&de->lock);
+  p_lock_lock(&de->lock);
 
   struct m_de_item *const de_item = m_de_item_get(pending_items_ptr, key_digest,
       current_time);
@@ -2509,7 +1861,7 @@ static int m_de_item_register(struct m_de *const de,
     m_de_item_set(pending_items_ptr, key_digest, grace_ttl + current_time);
   }
 
-  m_lock_unlock(&de->lock);
+  p_lock_unlock(&de->lock);
 
   return (de_item == NULL);
 }
@@ -2581,13 +1933,13 @@ void ybc_config_set_data_file_size(struct ybc_config *const config,
 void ybc_config_set_index_file(struct ybc_config *const config,
     const char *const filename)
 {
-  m_strdup(&config->index_file, filename);
+  p_strdup(&config->index_file, filename);
 }
 
 void ybc_config_set_data_file(struct ybc_config *const config,
     const char *const filename)
 {
-  m_strdup(&config->data_file, filename);
+  p_strdup(&config->data_file, filename);
 }
 
 void ybc_config_set_hot_items_count(struct ybc_config *const config,
@@ -2622,7 +1974,7 @@ void ybc_config_set_sync_interval(struct ybc_config *const config,
 
 struct ybc
 {
-  struct m_lock lock;
+  struct p_lock lock;
   struct m_index index;
   struct m_storage storage;
   struct m_sync sc;
@@ -2638,7 +1990,7 @@ static int m_open(struct ybc *const cache,
   struct m_storage_cursor *next_cursor;
   int is_index_file_created, is_storage_file_created;
 
-  m_memory_init();
+  p_memory_init();
 
   cache->storage.size = config->data_file_size;
   m_storage_fix_size(&cache->storage.size);
@@ -2676,7 +2028,7 @@ static int m_open(struct ybc *const cache,
    * Do not move initialization of the lock above, because it must be destroyed
    * in the error paths above, i.e. more lines of code is required.
    */
-  m_lock_init(&cache->lock);
+  p_lock_init(&cache->lock);
 
   m_sync_init(&cache->sc, config->sync_interval, next_cursor, &cache->storage,
       &cache->acquired_items_head, &cache->lock);
@@ -2716,7 +2068,7 @@ void ybc_close(struct ybc *const cache)
 
   m_sync_destroy(&cache->sc);
 
-  m_lock_destroy(&cache->lock);
+  p_lock_destroy(&cache->lock);
 
   m_storage_close(&cache->storage);
 
@@ -2770,7 +2122,7 @@ static size_t m_item_get_size(const struct ybc_item *const item)
 
 static uint64_t m_item_get_ttl(const struct ybc_item *const item)
 {
-  const uint64_t current_time = m_get_current_time();
+  const uint64_t current_time = p_get_current_time();
   if (item->payload.expiration_time < current_time) {
     return 0;
   }
@@ -2779,22 +2131,22 @@ static uint64_t m_item_get_ttl(const struct ybc_item *const item)
 }
 
 static void m_item_register(struct ybc_item *const item,
-    struct m_lock *const cache_lock,
+    struct p_lock *const cache_lock,
     struct ybc_item *const acquired_items_head)
 {
-  m_lock_lock(cache_lock);
+  p_lock_lock(cache_lock);
   m_item_skiplist_get_prevs(acquired_items_head, item->next,
       item->payload.cursor.offset);
   m_item_skiplist_add(item);
-  m_lock_unlock(cache_lock);
+  p_lock_unlock(cache_lock);
 }
 
 static void m_item_deregister(struct ybc_item *const item,
-    struct m_lock *const cache_lock)
+    struct p_lock *const cache_lock)
 {
-  m_lock_lock(cache_lock);
+  p_lock_lock(cache_lock);
   m_item_skiplist_del(item);
-  m_lock_unlock(cache_lock);
+  p_lock_unlock(cache_lock);
 }
 
 static void m_item_release(struct ybc_item *const item)
@@ -2838,14 +2190,14 @@ int ybc_set_txn_begin(struct ybc *const cache, struct ybc_set_txn *const txn,
   assert(value_size <= SIZE_MAX - metadata_size);
   txn->item.payload.size = metadata_size + value_size;
 
-  const uint64_t current_time = m_get_current_time();
+  const uint64_t current_time = p_get_current_time();
   txn->item.payload.expiration_time = (ttl > UINT64_MAX - current_time) ?
       UINT64_MAX : (ttl + current_time);
 
-  m_lock_lock(&cache->lock);
+  p_lock_lock(&cache->lock);
   int is_success = m_storage_allocate(&cache->storage,
       &cache->acquired_items_head, &txn->item);
-  m_lock_unlock(&cache->lock);
+  p_lock_unlock(&cache->lock);
 
   if (!is_success) {
     return 0;
@@ -2861,9 +2213,9 @@ void ybc_set_txn_commit(struct ybc_set_txn *const txn)
   struct m_storage_payload payload = txn->item.payload;
   struct ybc *const cache = txn->item.cache;
 
-  m_lock_lock(&cache->lock);
+  p_lock_lock(&cache->lock);
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
-  m_lock_unlock(&cache->lock);
+  p_lock_unlock(&cache->lock);
 
   m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &next_cursor, &txn->key_digest, &payload);
@@ -2876,11 +2228,11 @@ void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
 {
   struct ybc *const cache = txn->item.cache;
 
-  m_lock_lock(&cache->lock);
+  p_lock_lock(&cache->lock);
   m_item_relocate(item, &txn->item);
   item->is_set_txn = 0;
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
-  m_lock_unlock(&cache->lock);
+  p_lock_unlock(&cache->lock);
 
   m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
       &next_cursor, &txn->key_digest, &item->payload);
@@ -2911,9 +2263,9 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
   item->key_size = key->size;
   item->is_set_txn = 0;
 
-  m_lock_lock(&cache->lock);
+  p_lock_lock(&cache->lock);
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
-  m_lock_unlock(&cache->lock);
+  p_lock_unlock(&cache->lock);
 
   int is_found = m_map_cache_get(&cache->index.map, &cache->index.map_cache,
       &cache->storage, &next_cursor, key_digest, &item->payload);
@@ -3077,7 +2429,7 @@ enum ybc_de_status ybc_item_get_de(struct ybc *const cache,
      * was uglier, more intrusive, slower and less robust than the code based
      * on periodic sleepinig :)
      */
-    m_sleep(M_DE_ITEM_SLEEP_TIME);
+    p_sleep(M_DE_ITEM_SLEEP_TIME);
   }
 }
 

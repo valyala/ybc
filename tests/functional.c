@@ -2,6 +2,7 @@
  * Functional tests.
  */
 
+#include "../platform.h"
 #include "../ybc.h"
 
 /* Since tests rely on assert(), NDEBUG must be undefined. */
@@ -12,58 +13,7 @@
 #include <stdlib.h>  /* malloc, free, rand */
 #include <string.h>  /* memcmp, memcpy, memset */
 
-#ifdef YBC_HAVE_NANOSLEEP
-
-#include <time.h>  /* nanosleep */
-
 #define M_ERROR(error_message)  assert(0 && (error_message))
-
-static void m_sleep(const uint64_t sleep_time)
-{
-  struct timespec req = {
-      .tv_sec = sleep_time / 1000,
-      .tv_nsec = (sleep_time % 1000) * 1000 * 1000,
-  };
-
-  const int rv = nanosleep(&req, NULL);
-  assert(rv != -1);
-}
-
-#else  /* !YBC_HAVE_NANOSLEEP */
-#error "Unsupported sleep implementation"
-#endif
-
-
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>
-
-struct thread
-{
-  pthread_t t;
-};
-
-static void start_thread(struct thread *const t, void *(*func)(void *),
-    void *const ctx)
-{
-  if (pthread_create(&t->t, NULL, func, ctx) != 0) {
-    M_ERROR("Cannot create new thread");
-  }
-}
-
-static void *join_thread(struct thread *const t)
-{
-  void *retval;
-  if (pthread_join(t->t, &retval) != 0) {
-    M_ERROR("Cannot join thread");
-  }
-  return retval;
-}
-
-#else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported thread implementation"
-#endif
-
 
 static void test_anonymous_cache_create(struct ybc *const cache)
 {
@@ -392,7 +342,7 @@ static void test_expiration(struct ybc *const cache)
   };
   expect_item_set(cache, &key, &value);
 
-  m_sleep(300);
+  p_sleep(300);
 
   /* The item should expire now. */
   expect_item_miss(cache, &key);
@@ -1151,7 +1101,7 @@ static void test_small_sync_interval(struct ybc *const cache)
       key.size = sizeof(j);
       expect_item_set(cache, &key, &value);
     }
-    m_sleep(31);
+    p_sleep(31);
   }
 
   ybc_close(cache);
@@ -1199,7 +1149,7 @@ struct thread_task
   int should_exit;
 };
 
-static void *thread_func(void *const ctx)
+static void thread_func(void *const ctx)
 {
   struct thread_task *const task = ctx;
 
@@ -1239,8 +1189,6 @@ static void *thread_func(void *const ctx)
       }
     }
   }
-
-  return NULL;
 }
 
 static void test_multithreaded_access(struct ybc *const cache,
@@ -1248,22 +1196,21 @@ static void test_multithreaded_access(struct ybc *const cache,
 {
   m_open_anonymous(cache);
 
-  struct thread threads[threads_count];
+  struct p_thread threads[threads_count];
   struct thread_task task = {
       .cache = cache,
       .should_exit = 0,
   };
 
   for (size_t i = 0; i < threads_count; ++i) {
-    start_thread(&threads[i], thread_func, &task);
+    p_thread_init_and_start(&threads[i], thread_func, &task);
   }
 
-  m_sleep(300);
+  p_sleep(300);
   task.should_exit = 1;
 
   for (size_t i = 0; i < threads_count; ++i) {
-    void *const retval = join_thread(&threads[i]);
-    assert(retval == NULL);
+    p_thread_join_and_destroy(&threads[i]);
   }
 
   ybc_close(cache);

@@ -2,6 +2,7 @@
  * Performance tests.
  */
 
+#include "../platform.h"
 #include "../ybc.h"
 
 #include <assert.h>
@@ -16,92 +17,6 @@
   exit(EXIT_FAILURE); \
 } while (0)
 
-
-#ifdef YBC_HAVE_CLOCK_GETTIME
-
-#include <time.h>  /* clock_gettime, timespec */
-
-static double m_get_current_time(void)
-{
-  struct timespec t;
-
-  const int rv = clock_gettime(CLOCK_MONOTONIC, &t);
-  assert(rv == 0);
-  (void)rv;
-
-  return t.tv_sec + t.tv_nsec / (1000.0 * 1000 * 1000);
-}
-
-#else  /* !YBC_HAVE_CLOCK_GETTIME */
-#error "Unsupported time implementation"
-#endif
-
-
-#ifdef YBC_HAVE_PTHREAD
-
-#include <pthread.h>
-#include <sys/types.h>  /* pthread_*_t */
-
-struct thread
-{
-  pthread_t t;
-};
-
-static void start_thread(struct thread *const t, void *(*func)(void *),
-    void *const ctx)
-{
-  if (pthread_create(&t->t, NULL, func, ctx) != 0) {
-    M_ERROR("Cannot create new thread");
-  }
-}
-
-static void *join_thread(struct thread *const t)
-{
-  void *retval;
-  if (pthread_join(t->t, &retval) != 0) {
-    M_ERROR("Cannot join thread");
-  }
-  return retval;
-}
-
-struct m_lock
-{
-  pthread_mutex_t mutex;
-};
-
-static void m_lock_init(struct m_lock *const lock)
-{
-  if (pthread_mutex_init(&lock->mutex, NULL) != 0) {
-    M_ERROR("pthread_mutex_init()");
-  }
-}
-
-static void m_lock_destroy(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_destroy(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-static void m_lock_lock(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_lock(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-static void m_lock_unlock(struct m_lock *const lock)
-{
-  const int rv = pthread_mutex_unlock(&lock->mutex);
-  assert(rv == 0);
-  (void)rv;
-}
-
-#else  /* !YBC_HAVE_PTHREAD */
-#error "Unsupported thread implementation"
-#endif
-
-
 struct m_rand_state
 {
   uint64_t s;
@@ -109,7 +24,7 @@ struct m_rand_state
 
 static void m_rand_init(struct m_rand_state *const rs)
 {
-  rs->s = m_get_current_time() * 1000;
+  rs->s = p_get_current_time();
 }
 
 static uint64_t m_rand_next(struct m_rand_state *const rs)
@@ -256,24 +171,24 @@ static void measure_simple_ops(struct ybc *const cache,
       "hot_items_count=%zu, max_item_size=%zu)\n",
       requests_count, items_count, hot_items_count, max_item_size);
 
-  start_time = m_get_current_time();
+  start_time = p_get_current_time();
   const double first_start_time = start_time;
   simple_add(cache, requests_count, items_count, max_item_size);
-  end_time = m_get_current_time();
+  end_time = p_get_current_time();
 
-  qps = requests_count / (end_time - start_time);
+  qps = requests_count / (end_time - start_time) * 1000;
   printf("  simple_add: %.02f qps\n", qps);
 
   const size_t get_items_count = hot_items_count ? hot_items_count :
       items_count;
-  start_time = m_get_current_time();
+  start_time = p_get_current_time();
   simple_get(cache, requests_count, get_items_count, max_item_size);
-  end_time = m_get_current_time();
+  end_time = p_get_current_time();
 
-  qps = requests_count / (end_time - start_time);
+  qps = requests_count / (end_time - start_time) * 1000;
   printf("  simple_get: %.02f qps\n", qps);
 
-  qps = 2 * requests_count / (end_time - first_start_time);
+  qps = 2 * requests_count / (end_time - first_start_time) * 1000;
   printf("  avg %.02f qps\n", qps);
 
   ybc_close(cache);
@@ -281,7 +196,7 @@ static void measure_simple_ops(struct ybc *const cache,
 
 struct thread_task
 {
-  struct m_lock lock;
+  struct p_lock lock;
   struct ybc *cache;
   size_t requests_count;
   size_t items_count;
@@ -289,7 +204,7 @@ struct thread_task
   size_t max_item_size;
 };
 
-static void *thread_func(void *const ctx)
+static void thread_func(void *const ctx)
 {
   static const size_t batch_requests_count = 10000;
 
@@ -301,7 +216,7 @@ static void *thread_func(void *const ctx)
     /*
      * Grab and process requests in batches.
      */
-    m_lock_lock(&task->lock);
+    p_lock_lock(&task->lock);
     if (task->requests_count > batch_requests_count) {
       requests_count = batch_requests_count;
     }
@@ -309,7 +224,7 @@ static void *thread_func(void *const ctx)
       requests_count = task->requests_count;
     }
     task->requests_count -= requests_count;
-    m_lock_unlock(&task->lock);
+    p_lock_unlock(&task->lock);
 
     if (requests_count == 0) {
       break;
@@ -321,8 +236,6 @@ static void *thread_func(void *const ctx)
     simple_get(task->cache, requests_count, task->get_items_count,
         task->max_item_size);
   }
-
-  return NULL;
 }
 
 static void measure_multithreaded_ops(struct ybc *const cache,
@@ -335,7 +248,7 @@ static void measure_multithreaded_ops(struct ybc *const cache,
 
   m_open(cache, items_count, hot_items_count, max_item_size);
 
-  struct thread threads[threads_count];
+  struct p_thread threads[threads_count];
 
   struct thread_task task = {
       .cache = cache,
@@ -345,21 +258,21 @@ static void measure_multithreaded_ops(struct ybc *const cache,
       .max_item_size = max_item_size,
   };
 
-  m_lock_init(&task.lock);
+  p_lock_init(&task.lock);
 
-  start_time = m_get_current_time();
+  start_time = p_get_current_time();
   for (size_t i = 0; i < threads_count; ++i) {
-    start_thread(&threads[i], thread_func, &task);
+    p_thread_init_and_start(&threads[i], thread_func, &task);
   }
 
   for (size_t i = 0; i < threads_count; ++i) {
-    join_thread(&threads[i]);
+    p_thread_join_and_destroy(&threads[i]);
   }
-  end_time = m_get_current_time();
+  end_time = p_get_current_time();
 
-  m_lock_destroy(&task.lock);
+  p_lock_destroy(&task.lock);
 
-  qps = 2 * requests_count / (end_time - start_time);
+  qps = 2 * requests_count / (end_time - start_time) * 1000;
   printf("multithreaded_ops(threads_count=%zu, requests_count=%zu, "
       "items_count=%zu, hot_items_count=%zu, max_item_size=%zu): %.2f qps\n",
       threads_count, requests_count, items_count, hot_items_count,
