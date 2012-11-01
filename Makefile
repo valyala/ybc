@@ -4,13 +4,12 @@ GOCC = go
 PWD = `pwd`
 
 COMMON_FLAGS = -Wall -Wextra -Werror -pedantic -std=c99 -pthread -flto -D_GNU_SOURCE -D_REENTRANT -D_THREAD_SAFE -DYBC_PLATFORM_LINUX
-MULTI_THREADED_FLAGS = $(COMMON_FLAGS)
 
-RELEASE_FLAGS = -O2 -DNDEBUG $(MULTI_THREADED_FLAGS)
-DEBUG_FLAGS = -g $(MULTI_THREADED_FLAGS)
+RELEASE_FLAGS = -O2 -DNDEBUG $(COMMON_FLAGS)
+DEBUG_FLAGS = -g $(COMMON_FLAGS)
 LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
-TEST_FLAGS = -g $(MULTI_THREADED_FLAGS) -fwhole-program -lrt -Wno-unused-function
-PERFTEST_FLAGS = $(MULTI_THREADED_FLAGS) -fwhole-program -lrt -Wno-unused-function
+TEST_FLAGS = -g $(COMMON_FLAGS) -fwhole-program -lrt -Wno-unused-function
+PERFTEST_FLAGS = $(COMMON_FLAGS) -fwhole-program -lrt -Wno-unused-function
 GO_CFLAGS = -I$(PWD)
 GO_LDFLAGS = -L$(PWD)
 
