@@ -1743,14 +1743,14 @@ struct m_de_item
 struct m_de
 {
   /*
-   * Lock for pending_items hashtable.
-   */
-  struct p_lock lock;
-
-  /*
    * The number of buckets in pending_items hash table.
    */
   size_t buckets_count;
+
+  /*
+   * Locks for pending_items buckets.
+   */
+  struct p_lock *locks;
 
   /*
    * A hash table of buckets with items, which are pending to be added
@@ -1761,15 +1761,17 @@ struct m_de
 
 static void m_de_init(struct m_de *const de, const size_t buckets_count)
 {
-
-  p_lock_init(&de->lock);
-
+  assert(buckets_count > 0);
   de->buckets_count = buckets_count;
 
-  assert(buckets_count > 0);
-  assert(buckets_count <= SIZE_MAX / sizeof(*de->pending_items));
-  de->pending_items = p_malloc(buckets_count * sizeof(*de->pending_items));
+  const size_t item_with_lock_size = sizeof(*de->locks) +
+      sizeof(*de->pending_items);
+  assert(buckets_count <= SIZE_MAX / item_with_lock_size);
+  de->locks = p_malloc(buckets_count * item_with_lock_size);
+  de->pending_items = (struct m_de_item **)(de->locks + buckets_count);
+
   for (size_t i = 0; i < buckets_count; ++i) {
+    p_lock_init(&de->locks[i]);
     de->pending_items[i] = NULL;
   }
 }
@@ -1793,10 +1795,10 @@ static void m_de_destroy(struct m_de *const de)
    */
   for (size_t i = 0; i < de->buckets_count; ++i) {
     m_de_item_destroy_all(de->pending_items[i]);
+    p_lock_destroy(&de->locks[i]);
   }
-  free(de->pending_items);
 
-  p_lock_destroy(&de->lock);
+  free(de->locks);
 }
 
 static struct m_de_item *m_de_item_get(
@@ -1852,7 +1854,7 @@ static int m_de_item_register(struct m_de *const de,
   const size_t idx = m_key_digest_mod(key_digest, de->buckets_count);
   struct m_de_item **const pending_items_ptr = &de->pending_items[idx];
 
-  p_lock_lock(&de->lock);
+  p_lock_lock(&de->locks[idx]);
 
   struct m_de_item *const de_item = m_de_item_get(pending_items_ptr, key_digest,
       current_time);
@@ -1864,7 +1866,7 @@ static int m_de_item_register(struct m_de *const de,
     m_de_item_set(pending_items_ptr, key_digest, grace_ttl + current_time);
   }
 
-  p_lock_unlock(&de->lock);
+  p_lock_unlock(&de->locks[idx]);
 
   return (de_item == NULL);
 }
