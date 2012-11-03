@@ -98,10 +98,10 @@ tests: build-tests
 	tests/functional-shared-release
 
 go-tests-debug:
-	cd bindings/go && $(GOCC) test
+	cd bindings/go/ybc && $(GOCC) test
 
 go-tests-release:
-	cd bindings/go && $(GOCC) test -tags release
+	cd bindings/go/ybc && $(GOCC) test -tags release
 
 go-tests: go-tests-debug go-tests-release
 
