@@ -10,8 +10,6 @@ DEBUG_FLAGS = -g $(COMMON_FLAGS)
 LIBYBC_FLAGS = -DYBC_BUILD_LIBRARY -shared -fpic -fwhole-program -lrt
 TEST_FLAGS = -g $(COMMON_FLAGS) -fwhole-program -lrt -Wno-unused-function
 PERFTEST_FLAGS = $(COMMON_FLAGS) -fwhole-program -lrt -Wno-unused-function
-GO_CFLAGS = -I$(PWD)
-GO_LDFLAGS = -L$(PWD)
 
 VALGRIND_FLAGS = --suppressions=valgrind.supp --track-fds=yes
 
@@ -91,14 +89,6 @@ build-perftests-32-debug: ybc-32-debug $(PERFTEST_SRCS)
 build-perftests-64-debug: ybc-64-debug $(PERFTEST_SRCS)
 	$(CC) $(PERFTEST_SRCS) ybc-64-debug.o $(PERFTEST_FLAGS) -g -m64 -o tests/performance-64-debug
 
-build-golang-tests-debug: libybc-debug
-	CGO_CFLAGS=$(GO_CFLAGS) CGO_LDFLAGS=$(GO_LDFLAGS) GOPATH=$(PWD)/golang $(GOCC) test -c ybc
-	mv ybc.test tests/golang-debug
-
-build-golang-tests-release: libybc-release
-	CGO_CFLAGS=$(GO_CFLAGS) CGO_LDFLAGS=$(GO_LDFLAGS) GOPATH=$(PWD)/golang $(GOCC) test -c -tags release ybc
-	mv ybc.test tests/golang-release
-
 tests: build-tests
 	tests/functional-32-debug
 	tests/functional-64-debug
@@ -107,9 +97,13 @@ tests: build-tests
 	tests/functional-shared-debug
 	tests/functional-shared-release
 
-golang-tests: build-golang-tests-debug build-golang-tests-release
-	LD_LIBRARY_PATH=$(PWD) tests/golang-debug
-	LD_LIBRARY_PATH=$(PWD) tests/golang-release
+go-tests-debug:
+	cd bindings/go && $(GOCC) test
+
+go-tests-release:
+	cd bindings/go && $(GOCC) test -tags release
+
+go-tests: go-tests-debug go-tests-release
 
 valgrind-tests: build-tests-shared-debug build-tests-shared-release
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
@@ -138,5 +132,3 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
-	rm -f tests/golang-release
-	rm -f tests/golang-debug

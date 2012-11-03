@@ -1,7 +1,8 @@
 package ybc
 
-// #cgo !release LDFLAGS: -lybc-debug
-// #cgo release LDFLAGS: -lybc-release
+// #cgo release CFLAGS: -O2 -DNDEBUG
+// #cgo linux CFLAGS: -std=gnu99 -DYBC_PLATFORM_LINUX
+// #cgo linux LDFLAGS: -lrt
 // #include "ybc.h"
 // #include <stdlib.h> // free
 import "C"
