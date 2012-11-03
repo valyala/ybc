@@ -18,6 +18,15 @@
  * to ybc.c compilation unit).
  ******************************************************************************/
 
+#ifdef YBC_PLATFORM_LINUX
+  /*
+   * Required for certain linux-specific extensions such as O_NOATIME flag
+   * in open() syscall.
+   * This macro must be defined before any #include's.
+   */
+  #define _GNU_SOURCE
+#endif
+
 #include <stddef.h>     /* size_t */
 #include <stdint.h>     /* uint*_t */
 
@@ -218,7 +227,7 @@ static void p_memory_sync(void *ptr, size_t size);
 
 
 #ifdef YBC_PLATFORM_LINUX
-#include "platform/linux.c"
+  #include "platform/linux.c"
 #else
-#error "unsupported platform"
+  #error "unsupported platform"
 #endif

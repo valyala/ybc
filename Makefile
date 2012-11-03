@@ -3,7 +3,7 @@ GOCC = go
 
 PWD = `pwd`
 
-COMMON_FLAGS = -Wall -Wextra -Werror -pedantic -std=c99 -pthread -flto -D_GNU_SOURCE -DYBC_PLATFORM_LINUX
+COMMON_FLAGS = -Wall -Wextra -Werror -pedantic -std=c99 -pthread -flto -DYBC_PLATFORM_LINUX
 
 RELEASE_FLAGS = -O2 -DNDEBUG $(COMMON_FLAGS)
 DEBUG_FLAGS = -g $(COMMON_FLAGS)
