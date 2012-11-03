@@ -37,7 +37,7 @@ build-perftests: build-perftests-debug build-perftests-release
 
 all: release debug tests valgrind-tests perftests
 
-ybc.c: ybc.h
+ybc.c: ybc.h platform.h platform/linux.c
 
 tests/functional.c: ybc.h
 
