@@ -70,7 +70,7 @@ func responsesReceiver(r *bufio.Reader, responses <-chan task, c net.Conn, done 
 	}
 }
 
-func handleConnection(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan task) {
+func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan task) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", addr, err)
@@ -94,10 +94,10 @@ func handleConnection(addr string, readBufferSize, writeBufferSize, maxPendingRe
 	sendRecvDone.Wait()
 }
 
-func connectionHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan task, done *sync.WaitGroup) {
+func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan task, done *sync.WaitGroup) {
 	defer done.Done()
 	for {
-		handleConnection(addr, readBufferSize, writeBufferSize, maxPendingResponsesCount, reconnectTimeout, requests)
+		handleAddr(addr, readBufferSize, writeBufferSize, maxPendingResponsesCount, reconnectTimeout, requests)
 		// Check whether the requests channel is drained and closed.
 		select {
 		case t, ok := <-requests:
@@ -115,8 +115,6 @@ func connectionHandler(addr string, readBufferSize, writeBufferSize, maxPendingR
 const (
 	defaultConnectionsCount        = 1
 	defaultMaxPendingRequestsCount = 100
-	defaultReadBufferSize          = 4096
-	defaultWriteBufferSize         = 4096
 	defaultReconnectTimeout        = time.Second
 )
 
@@ -164,12 +162,12 @@ func (c *Client) init() {
 func (c *Client) run() {
 	defer c.done.Done()
 
-	connectionsDone := &sync.WaitGroup{}
+	connsDone := &sync.WaitGroup{}
 	for i := 0; i < c.ConnectionsCount; i++ {
-		connectionsDone.Add(1)
-		go connectionHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connectionsDone)
+		connsDone.Add(1)
+		go addrHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connsDone)
 	}
-	connectionsDone.Wait()
+	connsDone.Wait()
 }
 
 func (c *Client) do(t task) bool {
@@ -320,6 +318,10 @@ func (t *taskGet) ReadResponse(r *bufio.Reader) bool {
 	}
 	if n != 4 {
 		log.Printf("Unexpected number of arguments in VALUE line of 'get' response for key=[%s]", t.key)
+		return false
+	}
+	if t.item.Key != t.key {
+		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", t.item.Key, t.key)
 		return false
 	}
 	t.item.Value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
