@@ -98,20 +98,20 @@ tests: build-tests
 	tests/functional-shared-release
 
 go-tests-debug:
-	cd bindings/go/ybc && $(GOCC) test -a
-	cd libs/go/memcache && $(GOCC) test -a
+	$(GOCC) test -a ./bindings/go/ybc
+	$(GOCC) test -a ./libs/go/memcache
 
 go-tests-release:
-	cd bindings/go/ybc && $(GOCC) test -a -tags release
-	cd libs/go/memcache && $(GOCC) test -a -tags release
+	$(GOCC) test -a -tags release ./bindings/go/ybc
+	$(GOCC) test -a -tags release ./libs/go/memcache
 
 go-tests: go-tests-debug go-tests-release
 
 go-perftests-debug:
-	cd libs/go/memcache && $(GOCC) test -a -test.bench=".*"
+	$(GOCC) test -a -test.bench=".*" ./libs/go/memcache
 
 go-perftests-release:
-	cd libs/go/memcache && $(GOCC) test -a -tags release -test.bench=".*"
+	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
 
 go-perftests: go-perftests-debug go-perftests-release
 
@@ -124,6 +124,12 @@ perftests: build-perftests
 	tests/performance-64-debug
 	tests/performance-32-release
 	tests/performance-64-release
+
+go-memcached-debug:
+	$(GOCC) build -o memcached-debug -a ./apps/go/memcached
+
+go-memcached-release:
+	$(GOCC) build -o memcached-release -a -tags release ./apps/go/memcached
 
 clean:
 	rm -f ybc-32-release.o
@@ -142,3 +148,5 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
+	rm -f memcached-debug
+	rm -f memcached-release
