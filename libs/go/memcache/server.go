@@ -117,8 +117,10 @@ func protocolError(w *bufio.Writer) {
 func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
-		log.Printf("There is no item with key=[%s]", key)
-		return true
+		if err == ybc.ErrNotFound {
+			return true
+		}
+		log.Fatalf("Unexpected error returned by cache.GetItem(): [%s]", err)
 	}
 	defer item.Close()
 
