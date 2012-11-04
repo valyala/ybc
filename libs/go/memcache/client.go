@@ -113,7 +113,7 @@ func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingRespons
 
 const (
 	defaultConnectionsCount        = 1
-	defaultMaxPendingRequestsCount = 100
+	defaultMaxPendingRequestsCount = 1024
 	defaultReconnectTimeout        = time.Second
 )
 

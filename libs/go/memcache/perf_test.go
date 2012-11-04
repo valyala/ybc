@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func newBenchClientServerCache_BuffersSize(buffersSize int, b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
+func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
 	config := ybc.NewConfig(1000*1000, 10*1000*1000)
 	defer config.Close()
 
@@ -28,6 +28,7 @@ func newBenchClientServerCache_BuffersSize(buffersSize int, b *testing.B) (c *Cl
 		ConnectAddr:     testAddr,
 		ReadBufferSize:  buffersSize,
 		WriteBufferSize: buffersSize,
+		MaxPendingRequestsCount: maxPendingRequestsCount,
 	}
 	c.Start()
 
@@ -35,7 +36,7 @@ func newBenchClientServerCache_BuffersSize(buffersSize int, b *testing.B) (c *Cl
 }
 
 func newBenchClientServerCache(b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
-	return newBenchClientServerCache_BuffersSize(4*1024, b)
+	return newBenchClientServerCache_Ext(0, 0, b)
 }
 
 func BenchmarkClientServer_Set(b *testing.B) {
@@ -154,8 +155,8 @@ func BenchmarkClientServer_GetMulti_64Items(b *testing.B) {
 	getMulti(64, b)
 }
 
-func setNowait(buffersSize int, b *testing.B) {
-	c, s, cache := newBenchClientServerCache_BuffersSize(buffersSize, b)
+func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
+	c, s, cache := newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount, b)
 	defer cache.Close()
 	defer s.Stop()
 	defer c.Stop()
@@ -171,23 +172,47 @@ func setNowait(buffersSize int, b *testing.B) {
 }
 
 func BenchmarkClientServer_SetNowait_256Buffers(b *testing.B) {
-	setNowait(256, b)
+	setNowait(256, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_512Buffers(b *testing.B) {
-	setNowait(512, b)
+	setNowait(512, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_1KBuffers(b *testing.B) {
-	setNowait(1*1024, b)
+	setNowait(1*1024, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_2KBuffers(b *testing.B) {
-	setNowait(2*1024, b)
+	setNowait(2*1024, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_4KBuffers(b *testing.B) {
-	setNowait(4*1024, b)
+	setNowait(4*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_32PendingRequests(b *testing.B) {
+	setNowait(0, 32, b)
+}
+
+func BenchmarkClientServer_SetNowait_64PendingRequests(b *testing.B) {
+	setNowait(0, 64, b)
+}
+
+func BenchmarkClientServer_SetNowait_128PendingRequests(b *testing.B) {
+	setNowait(0, 128, b)
+}
+
+func BenchmarkClientServer_SetNowait_256PendingRequests(b *testing.B) {
+	setNowait(0, 256, b)
+}
+
+func BenchmarkClientServer_SetNowait_512PendingRequests(b *testing.B) {
+	setNowait(0, 512, b)
+}
+
+func BenchmarkClientServer_SetNowait_1KPendingRequests(b *testing.B) {
+	setNowait(0, 1024, b)
 }
 
 type WorkerFunc func(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
