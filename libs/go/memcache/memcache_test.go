@@ -113,24 +113,24 @@ func TestClient_GetSet(t *testing.T) {
 		t.Fatalf("Unexpected err=[%s] for client.Get(%s)", err, key)
 	}
 
-        item = &Item{
-                Key: key,
-                Value: value,
-        }
-        err = c.Set(item)
-        if err != nil {
-                t.Fatalf("error in client.Set(): [%s]", err)
-        }
-        item, err = c.Get(key)
-        if err != nil {
-                t.Fatalf("cannot obtain value for key=[%s] from memcache: [%s]", key, err)
-        }
-        if item.Key != key {
-                t.Fatalf("Invalid key=[%s] returned. Expected [%s]", item.Key, key)
-        }
-        if !bytes.Equal(item.Value, value) {
-                t.Fatalf("invalid value=[%s] returned. Expected [%s]", item.Value, value)
-        }
+	item = &Item{
+		Key:   key,
+		Value: value,
+	}
+	err = c.Set(item)
+	if err != nil {
+		t.Fatalf("error in client.Set(): [%s]", err)
+	}
+	item, err = c.Get(key)
+	if err != nil {
+		t.Fatalf("cannot obtain value for key=[%s] from memcache: [%s]", key, err)
+	}
+	if item.Key != key {
+		t.Fatalf("Invalid key=[%s] returned. Expected [%s]", item.Key, key)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("invalid value=[%s] returned. Expected [%s]", item.Value, value)
+	}
 }
 
 func checkItems(c *Client, orig_items map[string]*Item, t *testing.T) {
@@ -163,7 +163,7 @@ func TestClient_GetMulti(t *testing.T) {
 	items := make(map[string]*Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &Item{
-			Key: fmt.Sprintf("key_%d", i),
+			Key:   fmt.Sprintf("key_%d", i),
 			Value: []byte(fmt.Sprintf("value_%d", i)),
 		}
 		err := c.Set(item)
@@ -188,7 +188,7 @@ func TestClient_SetNowait(t *testing.T) {
 	items := make(map[string]*Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &Item{
-			Key: fmt.Sprintf("key_%d", i),
+			Key:   fmt.Sprintf("key_%d", i),
 			Value: []byte(fmt.Sprintf("value_%d", i)),
 		}
 		c.SetNowait(item)
