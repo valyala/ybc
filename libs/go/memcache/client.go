@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,12 +26,8 @@ type task interface {
 	Wait() bool
 }
 
-func doneSuccess(done chan<- bool) {
-	done <- true
-}
-
-func requestsSender(w *bufio.Writer, requests <-chan task, responses chan<- task, c net.Conn, done chan<- bool) {
-	defer doneSuccess(done)
+func requestsSender(w *bufio.Writer, requests <-chan task, responses chan<- task, c net.Conn, done *sync.WaitGroup) {
+	defer done.Done()
 	defer w.Flush()
 	defer close(responses)
 	for {
@@ -58,8 +55,8 @@ func requestsSender(w *bufio.Writer, requests <-chan task, responses chan<- task
 	}
 }
 
-func responsesReceiver(r *bufio.Reader, responses <-chan task, c net.Conn, done chan<- bool) {
-	defer doneSuccess(done)
+func responsesReceiver(r *bufio.Reader, responses <-chan task, c net.Conn, done *sync.WaitGroup) {
+	defer done.Done()
 	for t := range responses {
 		if !t.ReadResponse(r) {
 			t.Done(false)
@@ -89,16 +86,16 @@ func handleConnection(addr string, readBufferSize, writeBufferSize, maxPendingRe
 	w := bufio.NewWriterSize(c, writeBufferSize)
 
 	responses := make(chan task, maxPendingResponsesCount)
-	sendRecvDone := make(chan bool, 2)
+	sendRecvDone := &sync.WaitGroup{}
+	sendRecvDone.Add(2)
 	go requestsSender(w, requests, responses, c, sendRecvDone)
 	go responsesReceiver(r, responses, c, sendRecvDone)
 
-	<-sendRecvDone
-	<-sendRecvDone
+	sendRecvDone.Wait()
 }
 
-func connectionHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan task, done chan<- bool) {
-	defer doneSuccess(done)
+func connectionHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan task, done *sync.WaitGroup) {
+	defer done.Done()
 	for {
 		handleConnection(addr, readBufferSize, writeBufferSize, maxPendingResponsesCount, reconnectTimeout, requests)
 		// Check whether the requests channel is drained and closed.
@@ -124,14 +121,15 @@ const (
 )
 
 type Client struct {
-	Addr                    string
+	ConnectAddr             string
 	ConnectionsCount        int
 	MaxPendingRequestsCount int
 	ReadBufferSize          int
 	WriteBufferSize         int
-	ReconnectTimeout	time.Duration
-	requests                chan task
-	done                    chan bool
+	ReconnectTimeout        time.Duration
+
+	requests chan task
+	done     *sync.WaitGroup
 }
 
 type Item struct {
@@ -157,22 +155,21 @@ func (c *Client) init() {
 	if c.ReconnectTimeout == time.Duration(0) {
 		c.ReconnectTimeout = defaultReconnectTimeout
 	}
+
 	c.requests = make(chan task, c.MaxPendingRequestsCount)
-	c.done = make(chan bool, 1)
+	c.done = &sync.WaitGroup{}
+	c.done.Add(1)
 }
 
 func (c *Client) run() {
-	defer doneSuccess(c.done)
+	defer c.done.Done()
 
-	connectionsCount := c.ConnectionsCount
-	connectionDone := make(chan bool, connectionsCount)
-	for i := 0; i < connectionsCount; i++ {
-		go connectionHandler(c.Addr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connectionDone)
+	connectionsDone := &sync.WaitGroup{}
+	for i := 0; i < c.ConnectionsCount; i++ {
+		connectionsDone.Add(1)
+		go connectionHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connectionsDone)
 	}
-
-	for i := 0; i < connectionsCount; i++ {
-		<-connectionDone
-	}
+	connectionsDone.Wait()
 }
 
 func (c *Client) do(t task) bool {
@@ -190,7 +187,7 @@ func (c *Client) Start() {
 
 func (c *Client) Stop() {
 	close(c.requests)
-	<-c.done
+	c.done.Wait()
 	c.requests = nil
 	c.done = nil
 }

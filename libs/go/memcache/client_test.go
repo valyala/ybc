@@ -7,7 +7,7 @@ import (
 
 func TestClient_StartStop(t *testing.T) {
 	c := &Client{
-		Addr: "localhost:12221",
+		ConnectAddr:      "localhost:12221",
 		ReconnectTimeout: time.Millisecond * time.Duration(10),
 	}
 	c.Start()
@@ -16,7 +16,7 @@ func TestClient_StartStop(t *testing.T) {
 
 func TestClient_StartStop_Multi(t *testing.T) {
 	c := &Client{
-		Addr: "localhost:12221",
+		ConnectAddr:      "localhost:12221",
 		ReconnectTimeout: time.Millisecond * time.Duration(10),
 	}
 	for i := 0; i < 3; i++ {
