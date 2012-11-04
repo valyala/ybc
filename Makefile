@@ -98,12 +98,14 @@ tests: build-tests
 	tests/functional-shared-release
 
 go-tests-debug:
-	cd bindings/go/ybc && $(GOCC) test
-	cd libs/go/memcache && $(GOCC) test
+	cd bindings/go/ybc && $(GOCC) test -a
+	cd libs/go/memcache && $(GOCC) test -a
 
 go-tests-release:
-	cd bindings/go/ybc && $(GOCC) test -tags release
-	cd libs/go/memcache && $(GOCC) test -tags release
+	cd bindings/go/ybc && $(GOCC) test -a -tags release
+	cd libs/go/memcache && $(GOCC) test -a -tags release
+
+go-tests: go-tests-debug go-tests-release
 
 go-perftests-debug:
 	cd libs/go/memcache && $(GOCC) test -a -test.bench=".*"
@@ -111,7 +113,7 @@ go-perftests-debug:
 go-perftests-release:
 	cd libs/go/memcache && $(GOCC) test -a -tags release -test.bench=".*"
 
-go-tests: go-tests-debug go-tests-release
+go-perftests: go-perftests-debug go-perftests-release
 
 valgrind-tests: build-tests-shared-debug build-tests-shared-release
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
