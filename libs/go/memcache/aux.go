@@ -6,6 +6,11 @@ import (
 	"log"
 )
 
+const (
+	defaultReadBufferSize  = 4096
+	defaultWriteBufferSize = 4096
+)
+
 func readByte(r *bufio.Reader, ch byte) bool {
 	c, err := r.ReadByte()
 	if err != nil {
