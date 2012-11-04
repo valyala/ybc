@@ -99,9 +99,11 @@ tests: build-tests
 
 go-tests-debug:
 	cd bindings/go/ybc && $(GOCC) test
+	cd libs/go/memcache && $(GOCC) test
 
 go-tests-release:
 	cd bindings/go/ybc && $(GOCC) test -tags release
+	cd libs/go/memcache && $(GOCC) test -tags release
 
 go-tests: go-tests-debug go-tests-release
 
