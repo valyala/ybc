@@ -195,10 +195,7 @@ func checkValue(t *testing.T, expectedValue, actualValue []byte) {
 	}
 }
 
-func TestCache_Set_Get_Remove(t *testing.T) {
-	cache := newCache(t)
-	defer cache.Close()
-
+func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
@@ -236,10 +233,14 @@ func TestCache_Set_Get_Remove(t *testing.T) {
 	}
 }
 
-func TestCache_GetDe(t *testing.T) {
+func TestCache_Set_Get_Remove(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_Set_Get_Remove(cache, t)
+}
+
+func cacher_GetDe(cache Cacher, t *testing.T) {
 	key := []byte("test")
 	_, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
 	if err != ErrNotFound {
@@ -259,10 +260,14 @@ func TestCache_GetDe(t *testing.T) {
 	checkValue(t, value, actualValue)
 }
 
-func TestCache_Clear(t *testing.T) {
+func TestCache_GetDe(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_GetDe(cache, t)
+}
+
+func cacher_Clear(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -283,10 +288,14 @@ func TestCache_Clear(t *testing.T) {
 	}
 }
 
-func TestCache_SetItem(t *testing.T) {
+func TestCache_Clear(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_Clear(cache, t)
+}
+
+func cacher_SetItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -299,10 +308,14 @@ func TestCache_SetItem(t *testing.T) {
 	}
 }
 
-func TestCache_GetItem(t *testing.T) {
+func TestCache_SetItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_SetItem(cache, t)
+}
+
+func cacher_GetItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetItem(key)
@@ -328,10 +341,14 @@ func TestCache_GetItem(t *testing.T) {
 	}
 }
 
-func TestCache_GetDeItem(t *testing.T) {
+func TestCache_GetItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_GetItem(cache, t)
+}
+
+func cacher_GetDeItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetDeItem(key, time.Second)
@@ -357,10 +374,14 @@ func TestCache_GetDeItem(t *testing.T) {
 	}
 }
 
-func TestCache_NewSetTxn(t *testing.T) {
+func TestCache_GetDeItem(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
 
+	cacher_GetDeItem(cache, t)
+}
+
+func cacher_NewSetTxn(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -387,6 +408,13 @@ func TestCache_NewSetTxn(t *testing.T) {
 		}
 		checkValue(t, value, actualValue)
 	}
+}
+
+func TestCache_NewSetTxn(t *testing.T) {
+	cache := newCache(t)
+	defer cache.Close()
+
+	cacher_NewSetTxn(cache, t)
 }
 
 /*******************************************************************************
@@ -761,6 +789,17 @@ func TestClusterConfig_OpenCluster(t *testing.T) {
  * Cluster
  ******************************************************************************/
 
+func newCluster(t *testing.T) *Cluster {
+	config := newClusterConfig(3)
+	defer config.Close()
+
+	cluster, err := config.OpenCluster(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cluster
+}
+
 func TestCluster_Cache(t *testing.T) {
 	config := newClusterConfig(2)
 	defer config.Close()
@@ -796,4 +835,53 @@ func TestCluster_Cache(t *testing.T) {
 		}
 		checkValue(t, value, actualValue)
 	}
+}
+
+func TestCluster_Set_Get_Remove(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_Set_Get_Remove(cluster, t)
+}
+
+func TestCluster_GetDe(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_GetDe(cluster, t)
+}
+
+func TestCluster_Clear(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_Clear(cluster, t)
+}
+
+func TestCluster_SetItem(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_SetItem(cluster, t)
+}
+
+func TestCluster_GetItem(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_GetItem(cluster, t)
+}
+
+func TestCluster_GetDeItem(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_GetDeItem(cluster, t)
+}
+
+func TestCluster_NewSetTxn(t *testing.T) {
+	cluster := newCluster(t)
+	defer cluster.Close()
+
+	cacher_NewSetTxn(cluster, t)
 }

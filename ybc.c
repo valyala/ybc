@@ -2612,3 +2612,15 @@ struct ybc *ybc_cluster_get_cache(struct ybc_cluster *const cluster,
 
   return &caches[i];
 }
+
+void ybc_cluster_clear(struct ybc_cluster *cluster)
+{
+	assert(cluster->caches_count > 0);
+	const size_t caches_count = cluster->caches_count;
+
+	struct ybc *const caches = m_cluster_get_caches(cluster);
+
+	for (size_t i = 0; i < caches_count; ++i) {
+		ybc_clear(&caches[i]);
+	}
+}

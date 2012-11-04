@@ -856,6 +856,14 @@ YBC_API void ybc_cluster_close(struct ybc_cluster *cluster);
 YBC_API struct ybc *ybc_cluster_get_cache(struct ybc_cluster *cluster,
     const struct ybc_key *key);
 
+/*
+ * Discards all the items in the given cache cluster.
+ *
+ * This function is very fast and its' speed doesn't depend on the number
+ * and the size of items stored in the cluster.
+ */
+YBC_API void ybc_cluster_clear(struct ybc_cluster *cluster);
+
 #ifdef __cplusplus
 }
 #endif

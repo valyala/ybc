@@ -114,7 +114,7 @@ func protocolError(w *bufio.Writer) {
 	w.WriteString("ERROR\r\n")
 }
 
-func getItem(c *bufio.ReadWriter, cache *ybc.Cache, key []byte) bool {
+func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		log.Printf("There is no item with key=[%s]", key)
@@ -146,7 +146,7 @@ func getItem(c *bufio.ReadWriter, cache *ybc.Cache, key []byte) bool {
 	return true
 }
 
-func processGetCmd(c *bufio.ReadWriter, cache *ybc.Cache, cmdLine []byte) bool {
+func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, cmdLine []byte) bool {
 	last := -1
 	cmdLineSize := len(cmdLine)
 	for last < cmdLineSize {
@@ -242,7 +242,7 @@ func parseSetCmd(cmdLine []byte, cmd *setCmd) bool {
 	return true
 }
 
-func processSetCmd(c *bufio.ReadWriter, cache *ybc.Cache, cmdLine []byte, cmd *setCmd) bool {
+func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, cmdLine []byte, cmd *setCmd) bool {
 	cmd.noreply = nil
 	if !parseSetCmd(cmdLine, cmd) {
 		clientError(c.Writer, "unrecognized 'set' command")
@@ -300,7 +300,7 @@ func processSetCmd(c *bufio.ReadWriter, cache *ybc.Cache, cmdLine []byte, cmd *s
 	return true
 }
 
-func processRequest(c *bufio.ReadWriter, cache *ybc.Cache, cmdLineBuf *[]byte, cmd *setCmd) bool {
+func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, cmdLineBuf *[]byte, cmd *setCmd) bool {
 	if !readCmdLine(c.Reader, cmdLineBuf) {
 		protocolError(c.Writer)
 		return false
@@ -323,7 +323,7 @@ func processRequest(c *bufio.ReadWriter, cache *ybc.Cache, cmdLineBuf *[]byte, c
 	return false
 }
 
-func handleConn(conn net.Conn, cache *ybc.Cache, readBufferSize, writeBufferSize int, done *sync.WaitGroup) {
+func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup) {
 	defer conn.Close()
 	defer done.Done()
 	r := bufio.NewReaderSize(conn, readBufferSize)
@@ -344,7 +344,7 @@ func handleConn(conn net.Conn, cache *ybc.Cache, readBufferSize, writeBufferSize
 }
 
 type Server struct {
-	Cache           *ybc.Cache
+	Cache           ybc.Cacher
 	ListenAddr      string
 	ReadBufferSize  int
 	WriteBufferSize int

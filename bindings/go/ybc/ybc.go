@@ -82,6 +82,19 @@ type Cluster struct {
 	cachesCache map[uintptr]*Cache
 }
 
+// Cache and Cluster implement this interface
+type Cacher interface {
+	Set(key []byte, value []byte, ttl time.Duration) error
+	Get(key []byte) (value []byte, err error)
+	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
+	Remove(key []byte)
+	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
+	GetItem(key []byte) (item *Item, err error)
+	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
+	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
+	Clear()
+}
+
 // TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
 // Currently amd64's sizeof(int) = 4. See http://golang.org/doc/go_faq.html#q_int_sizes .
 //
@@ -619,6 +632,42 @@ func (cluster *Cluster) Cache(key []byte) *Cache {
 		cluster.cachesCache[uintptr(p)] = cache
 	}
 	return cache
+}
+
+func (cluster *Cluster) Set(key []byte, value []byte, ttl time.Duration) error {
+	return cluster.Cache(key).Set(key, value, ttl)
+}
+
+func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
+	return cluster.Cache(key).Get(key)
+}
+
+func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
+	return cluster.Cache(key).GetDe(key, graceTtl)
+}
+
+func (cluster *Cluster) Remove(key []byte) {
+	cluster.Cache(key).Remove(key)
+}
+
+func (cluster *Cluster) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
+	return cluster.Cache(key).SetItem(key, value, ttl)
+}
+
+func (cluster *Cluster) GetItem(key []byte) (item *Item, err error) {
+	return cluster.Cache(key).GetItem(key)
+}
+
+func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
+	return cluster.Cache(key).GetDeItem(key, graceTtl)
+}
+
+func (cluster *Cluster) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
+	return cluster.Cache(key).NewSetTxn(key, valueSize, ttl)
+}
+
+func (cluster *Cluster) Clear() {
+	C.ybc_cluster_clear(cluster.ctx())
 }
 
 func (cluster *Cluster) ctx() *C.struct_ybc_cluster {
