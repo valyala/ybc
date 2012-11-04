@@ -5,65 +5,12 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
-	"io"
 	"log"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 )
-
-func readByte(r *bufio.Reader, ch byte) bool {
-	c, err := r.ReadByte()
-	if err != nil {
-		log.Printf("Unexpected error when reading [%d]: [%s]", ch, err)
-		return false
-	}
-	if c != ch {
-		log.Printf("Unexpected byte read=[%d]. Expected [%d]", c, ch)
-		return false
-	}
-	return true
-}
-
-func readBytesUntil(r *bufio.Reader, endCh byte, cmdLineBuf *[]byte) bool {
-	cmdLine := *cmdLineBuf
-	cmdLine = cmdLine[0:0]
-	for {
-		c, err := r.ReadByte()
-		if err != nil {
-			if err == io.EOF && len(cmdLine) == 0 {
-				break
-			}
-			log.Printf("Error when reading bytes until endCh=[%s]: [%s]", endCh, err)
-			return false
-		}
-		if c == endCh {
-			break
-		}
-		cmdLine = append(cmdLine, c)
-	}
-	*cmdLineBuf = cmdLine
-	return true
-}
-
-func readCmdLine(r *bufio.Reader, cmdLineBuf *[]byte) bool {
-	if !readBytesUntil(r, '\n', cmdLineBuf) {
-		return false
-	}
-	cmdLine := *cmdLineBuf
-	if len(cmdLine) == 0 {
-		return true
-	}
-	lastN := len(cmdLine) - 1
-	if cmdLine[lastN] != '\r' {
-		log.Printf("Unexpected byte read=[%d]. Expected \\r", cmdLine[lastN])
-		return false
-	}
-	cmdLine = cmdLine[:lastN]
-	*cmdLineBuf = cmdLine
-	return true
-}
 
 func readCrLf(r *bufio.Reader) bool {
 	if !readByte(r, '\r') {
@@ -148,21 +95,21 @@ func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
 	return true
 }
 
-func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, cmdLine []byte) bool {
+func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 	last := -1
-	cmdLineSize := len(cmdLine)
-	for last < cmdLineSize {
+	lineSize := len(line)
+	for last < lineSize {
 		first := last + 1
-		last = bytes.IndexByte(cmdLine[first:], ' ')
+		last = bytes.IndexByte(line[first:], ' ')
 		if last == -1 {
-			last = cmdLineSize
+			last = lineSize
 		} else {
 			last += first
 		}
 		if first == last {
 			continue
 		}
-		key := cmdLine[first:last]
+		key := line[first:last]
 		if !getItem(c, cache, key) {
 			return false
 		}
@@ -184,59 +131,59 @@ type setCmd struct {
 	noreply []byte
 }
 
-func nextToken(cmdLine []byte, first int, entity string) (s []byte, last int) {
+func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	first += 1
-	if first >= len(cmdLine) {
-		log.Printf("No enough space for [%s] in 'set' command=[%s]", entity, cmdLine)
+	if first >= len(line) {
+		log.Printf("No enough space for [%s] in 'set' command=[%s]", entity, line)
 		return
 	}
-	last = bytes.IndexByte(cmdLine[first:], ' ')
+	last = bytes.IndexByte(line[first:], ' ')
 	if last == -1 {
-		last = len(cmdLine)
+		last = len(line)
 	} else {
 		last += first
 	}
 	if first == last {
-		log.Printf("Cannot find [%s] in 'set' command=[%s]", entity, cmdLine)
+		log.Printf("Cannot find [%s] in 'set' command=[%s]", entity, line)
 		return
 	}
-	s = cmdLine[first:last]
+	s = line[first:last]
 	return
 }
 
-func parseSetCmd(cmdLine []byte, cmd *setCmd) bool {
+func parseSetCmd(line []byte, cmd *setCmd) bool {
 	var s []byte
 	n := -1
 
-	s, n = nextToken(cmdLine, n, "key")
+	s, n = nextToken(line, n, "key")
 	if s == nil {
 		return false
 	}
 	cmd.key = s
 
-	s, n = nextToken(cmdLine, n, "flags")
+	s, n = nextToken(line, n, "flags")
 	if s == nil {
 		return false
 	}
 	cmd.flags = s
 
-	s, n = nextToken(cmdLine, n, "exptime")
+	s, n = nextToken(line, n, "exptime")
 	if s == nil {
 		return false
 	}
 	cmd.exptime = s
 
-	s, n = nextToken(cmdLine, n, "size")
+	s, n = nextToken(line, n, "size")
 	if s == nil {
 		return false
 	}
 	cmd.size = s
 
-	if n == len(cmdLine) {
+	if n == len(line) {
 		return true
 	}
 
-	s, n = nextToken(cmdLine, n, "noreply")
+	s, n = nextToken(line, n, "noreply")
 	if s == nil {
 		return false
 	}
@@ -244,9 +191,9 @@ func parseSetCmd(cmdLine []byte, cmd *setCmd) bool {
 	return true
 }
 
-func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, cmdLine []byte, cmd *setCmd) bool {
+func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setCmd) bool {
 	cmd.noreply = nil
-	if !parseSetCmd(cmdLine, cmd) {
+	if !parseSetCmd(line, cmd) {
 		clientError(c.Writer, "unrecognized 'set' command")
 		return false
 	}
@@ -302,25 +249,25 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, cmdLine []byte, cmd *s
 	return true
 }
 
-func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, cmdLineBuf *[]byte, cmd *setCmd) bool {
-	if !readCmdLine(c.Reader, cmdLineBuf) {
+func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, lineBuf *[]byte, cmd *setCmd) bool {
+	if !readLine(c.Reader, lineBuf) {
 		protocolError(c.Writer)
 		return false
 	}
-	cmdLine := *cmdLineBuf
-	if len(cmdLine) == 0 {
+	line := *lineBuf
+	if len(line) == 0 {
 		return false
 	}
-	if bytes.HasPrefix(cmdLine, []byte("get ")) {
-		return processGetCmd(c, cache, cmdLine[4:])
+	if bytes.HasPrefix(line, []byte("get ")) {
+		return processGetCmd(c, cache, line[4:])
 	}
-	if bytes.HasPrefix(cmdLine, []byte("gets ")) {
-		return processGetCmd(c, cache, cmdLine[5:])
+	if bytes.HasPrefix(line, []byte("gets ")) {
+		return processGetCmd(c, cache, line[5:])
 	}
-	if bytes.HasPrefix(cmdLine, []byte("set ")) {
-		return processSetCmd(c, cache, cmdLine[4:], cmd)
+	if bytes.HasPrefix(line, []byte("set ")) {
+		return processSetCmd(c, cache, line[4:], cmd)
 	}
-	log.Printf("Unrecognized command=[%s]", cmdLine)
+	log.Printf("Unrecognized command=[%s]", line)
 	protocolError(c.Writer)
 	return false
 }
@@ -333,10 +280,10 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	c := bufio.NewReadWriter(r, w)
 	defer w.Flush()
 
-	cmdLineBuf := make([]byte, 0, 1024)
+	lineBuf := make([]byte, 0, 1024)
 	cmd := setCmd{}
 	for {
-		if !processRequest(c, cache, &cmdLineBuf, &cmd) {
+		if !processRequest(c, cache, &lineBuf, &cmd) {
 			break
 		}
 		if r.Buffered() == 0 {
@@ -377,6 +324,7 @@ func (s *Server) run() {
 	defer s.done.Done()
 
 	connsDone := &sync.WaitGroup{}
+	defer connsDone.Wait()
 	for {
 		conn, err := s.listenSocket.Accept()
 		if err != nil {
@@ -386,7 +334,6 @@ func (s *Server) run() {
 		connsDone.Add(1)
 		go handleConn(conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, connsDone)
 	}
-	connsDone.Wait()
 }
 
 func (s *Server) Start() {

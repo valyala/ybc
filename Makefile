@@ -105,6 +105,12 @@ go-tests-release:
 	cd bindings/go/ybc && $(GOCC) test -tags release
 	cd libs/go/memcache && $(GOCC) test -tags release
 
+go-perftests-debug:
+	cd libs/go/memcache && $(GOCC) test -a -test.bench=".*"
+
+go-perftests-release:
+	cd libs/go/memcache && $(GOCC) test -a -tags release -test.bench=".*"
+
 go-tests: go-tests-debug go-tests-release
 
 valgrind-tests: build-tests-shared-debug build-tests-shared-release

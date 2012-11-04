@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -20,9 +19,9 @@ var (
 )
 
 type tasker interface {
-	WriteRequest(*bufio.Writer) bool
-	ReadResponse(*bufio.Reader) bool
-	Done(bool)
+	WriteRequest(w *bufio.Writer) bool
+	ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool
+	Done(ok bool)
 	Wait() bool
 }
 
@@ -57,8 +56,9 @@ func requestsSender(w *bufio.Writer, requests <-chan tasker, responses chan<- ta
 
 func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, done *sync.WaitGroup) {
 	defer done.Done()
+	line := make([]byte, 0, 1024)
 	for t := range responses {
-		if !t.ReadResponse(r) {
+		if !t.ReadResponse(r, &line) {
 			t.Done(false)
 			c.Close()
 			break
@@ -87,11 +87,10 @@ func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponse
 
 	responses := make(chan tasker, maxPendingResponsesCount)
 	sendRecvDone := &sync.WaitGroup{}
+	defer sendRecvDone.Wait()
 	sendRecvDone.Add(2)
 	go requestsSender(w, requests, responses, c, sendRecvDone)
 	go responsesReceiver(r, responses, c, sendRecvDone)
-
-	sendRecvDone.Wait()
 }
 
 func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan tasker, done *sync.WaitGroup) {
@@ -163,11 +162,11 @@ func (c *Client) run() {
 	defer c.done.Done()
 
 	connsDone := &sync.WaitGroup{}
+	defer connsDone.Wait()
 	for i := 0; i < c.ConnectionsCount; i++ {
 		connsDone.Add(1)
 		go addrHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connsDone)
 	}
-	connsDone.Wait()
 }
 
 func (c *Client) do(t tasker) bool {
@@ -208,20 +207,19 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readItem(r *bufio.Reader, keys []string) (item *Item, ok bool) {
-	ok = true
-	line, err := r.ReadBytes('\n')
-	if err != nil {
-		log.Printf("Error when reading 'get' response for keys=[%s]: [%s]", keys, err)
+func readItem(r *bufio.Reader, keys []string, lineBuf *[]byte) (item *Item, ok bool) {
+	if !readLine(r, lineBuf) {
 		ok = false
 		return
 	}
-	if bytes.Equal(line, []byte("END\r\n")) {
+	line := *lineBuf
+	if bytes.Equal(line, []byte("END")) {
+		ok = true
 		return
 	}
 	var size, casid_unused int
 	item = &Item{}
-	n, err := fmt.Sscanf(string(line), "VALUE %s %d %d %d\r\n",
+	n, err := fmt.Sscanf(string(line), "VALUE %s %d %d %d",
 		&item.Key, &item.Flags, &size, &casid_unused)
 	if err != nil {
 		log.Printf("Error when reading VALUE header from 'get' response for keys=[%s]: [%s]", keys, err)
@@ -245,22 +243,35 @@ func readItem(r *bufio.Reader, keys []string) (item *Item, ok bool) {
 		return
 	}
 	item.Value = item.Value[:size]
+	ok = true
 	return
 }
 
 func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
-	_, err := fmt.Fprintf(w, "gets %s\r\n", strings.Join(t.keys, " "))
+	_, err := w.Write([]byte("gets "))
 	if err != nil {
 		log.Printf("Cannot issue 'gets' request for keys=[%s]: [%s]", t.keys, err)
+		return false
+	}
+	for _, key := range t.keys {
+		_, err = w.Write([]byte(key))
+		if err != nil {
+			log.Printf("Cannot send key=[%s] in 'gets' request: [%s]", key, err)
+			return false
+		}
+	}
+	_, err = w.Write([]byte("\r\n"))
+	if err != nil {
+		log.Printf("Cannot write \\r\\n in the end of 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
 	}
 	return true
 }
 
-func (t *taskGetMulti) ReadResponse(r *bufio.Reader) bool {
+func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	items := t.items
 	for {
-		item, ok := readItem(r, t.keys)
+		item, ok := readItem(r, t.keys, lineBuf)
 		if !ok {
 			return false
 		}
@@ -303,9 +314,12 @@ func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
 	return true
 }
 
-func (t *taskGet) ReadResponse(r *bufio.Reader) bool {
-	line, err := r.ReadBytes('\n')
-	if bytes.Equal(line, []byte("END\r\n")) {
+func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
+	if !readLine(r, lineBuf) {
+		return false
+	}
+	line := *lineBuf
+	if bytes.Equal(line, []byte("END")) {
 		return true
 	}
 	var size, casid_unused int
@@ -387,7 +401,7 @@ func (t *taskSet) WriteRequest(w *bufio.Writer) bool {
 	return writeSetRequest(w, t.item, false)
 }
 
-func (t *taskSet) ReadResponse(r *bufio.Reader) bool {
+func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	_, err := fmt.Fscanf(r, "STORED\r\n")
 	if err != nil {
 		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d", t.item.Key, len(t.item.Value))
@@ -427,7 +441,7 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer) bool {
 	return writeSetRequest(w, t.item, true)
 }
 
-func (t *taskSetNowait) ReadResponse(r *bufio.Reader) bool {
+func (t *taskSetNowait) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	return true
 }
 
