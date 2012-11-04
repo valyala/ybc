@@ -763,7 +763,7 @@ func TestClusterConfig_Config(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		c := config.Config(i)
 		c.SetMaxItemsCount(1000)
-		c.SetDataFileSize(1000*1000)
+		c.SetDataFileSize(1000 * 1000)
 	}
 }
 

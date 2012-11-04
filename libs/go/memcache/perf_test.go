@@ -17,16 +17,16 @@ func newBenchClientServerCache_BuffersSize(buffersSize int, b *testing.B) (c *Cl
 	}
 
 	s = &Server{
-		Cache:      cache,
-		ListenAddr: testAddr,
-		ReadBufferSize: buffersSize,
+		Cache:           cache,
+		ListenAddr:      testAddr,
+		ReadBufferSize:  buffersSize,
 		WriteBufferSize: buffersSize,
 	}
 	s.Start()
 
 	c = &Client{
-		ConnectAddr: testAddr,
-		ReadBufferSize: buffersSize,
+		ConnectAddr:     testAddr,
+		ReadBufferSize:  buffersSize,
 		WriteBufferSize: buffersSize,
 	}
 	c.Start()
@@ -35,7 +35,7 @@ func newBenchClientServerCache_BuffersSize(buffersSize int, b *testing.B) (c *Cl
 }
 
 func newBenchClientServerCache(b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
-	return newBenchClientServerCache_BuffersSize(4 * 1024, b)
+	return newBenchClientServerCache_BuffersSize(4*1024, b)
 }
 
 func BenchmarkClientServer_Set(b *testing.B) {
@@ -161,7 +161,7 @@ func setNowait(buffersSize int, b *testing.B) {
 	defer c.Stop()
 
 	item := &Item{
-		Key: "key",
+		Key:   "key",
 		Value: []byte("value"),
 	}
 
@@ -179,15 +179,15 @@ func BenchmarkClientServer_SetNowait_512Buffers(b *testing.B) {
 }
 
 func BenchmarkClientServer_SetNowait_1KBuffers(b *testing.B) {
-	setNowait(1 * 1024, b)
+	setNowait(1*1024, b)
 }
 
 func BenchmarkClientServer_SetNowait_2KBuffers(b *testing.B) {
-	setNowait(2 * 1024, b)
+	setNowait(2*1024, b)
 }
 
 func BenchmarkClientServer_SetNowait_4KBuffers(b *testing.B) {
-	setNowait(4 * 1024, b)
+	setNowait(4*1024, b)
 }
 
 type WorkerFunc func(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
@@ -215,7 +215,7 @@ func concurrentOps(workerFunc WorkerFunc, workersCount int, b *testing.B) {
 func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := &Item{
-		Key: fmt.Sprintf("key_%d", i),
+		Key:   fmt.Sprintf("key_%d", i),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
 	for _ = range ch {
@@ -261,7 +261,7 @@ func BenchmarkClientServer_ConcurrentSet_64Workers(b *testing.B) {
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := &Item{
-		Key: fmt.Sprintf("key_%d", i),
+		Key:   fmt.Sprintf("key_%d", i),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
 	err := c.Set(item)
