@@ -19,19 +19,19 @@ var (
 	ErrCommunicationFailure = errors.New("communication failure")
 )
 
-type task interface {
+type tasker interface {
 	WriteRequest(*bufio.Writer) bool
 	ReadResponse(*bufio.Reader) bool
 	Done(bool)
 	Wait() bool
 }
 
-func requestsSender(w *bufio.Writer, requests <-chan task, responses chan<- task, c net.Conn, done *sync.WaitGroup) {
+func requestsSender(w *bufio.Writer, requests <-chan tasker, responses chan<- tasker, c net.Conn, done *sync.WaitGroup) {
 	defer done.Done()
 	defer w.Flush()
 	defer close(responses)
 	for {
-		var t task
+		var t tasker
 		var ok bool
 
 		// Flush w only if there are no pending requests.
@@ -55,7 +55,7 @@ func requestsSender(w *bufio.Writer, requests <-chan task, responses chan<- task
 	}
 }
 
-func responsesReceiver(r *bufio.Reader, responses <-chan task, c net.Conn, done *sync.WaitGroup) {
+func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, done *sync.WaitGroup) {
 	defer done.Done()
 	for t := range responses {
 		if !t.ReadResponse(r) {
@@ -70,7 +70,7 @@ func responsesReceiver(r *bufio.Reader, responses <-chan task, c net.Conn, done 
 	}
 }
 
-func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan task) {
+func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan tasker) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", addr, err)
@@ -85,7 +85,7 @@ func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponse
 	r := bufio.NewReaderSize(c, readBufferSize)
 	w := bufio.NewWriterSize(c, writeBufferSize)
 
-	responses := make(chan task, maxPendingResponsesCount)
+	responses := make(chan tasker, maxPendingResponsesCount)
 	sendRecvDone := &sync.WaitGroup{}
 	sendRecvDone.Add(2)
 	go requestsSender(w, requests, responses, c, sendRecvDone)
@@ -94,7 +94,7 @@ func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponse
 	sendRecvDone.Wait()
 }
 
-func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan task, done *sync.WaitGroup) {
+func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan tasker, done *sync.WaitGroup) {
 	defer done.Done()
 	for {
 		handleAddr(addr, readBufferSize, writeBufferSize, maxPendingResponsesCount, reconnectTimeout, requests)
@@ -126,7 +126,7 @@ type Client struct {
 	WriteBufferSize         int
 	ReconnectTimeout        time.Duration
 
-	requests chan task
+	requests chan tasker
 	done     *sync.WaitGroup
 }
 
@@ -154,7 +154,7 @@ func (c *Client) init() {
 		c.ReconnectTimeout = defaultReconnectTimeout
 	}
 
-	c.requests = make(chan task, c.MaxPendingRequestsCount)
+	c.requests = make(chan tasker, c.MaxPendingRequestsCount)
 	c.done = &sync.WaitGroup{}
 	c.done.Add(1)
 }
@@ -170,7 +170,7 @@ func (c *Client) run() {
 	connsDone.Wait()
 }
 
-func (c *Client) do(t task) bool {
+func (c *Client) do(t tasker) bool {
 	c.requests <- t
 	return t.Wait()
 }
