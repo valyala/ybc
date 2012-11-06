@@ -552,6 +552,18 @@ static void test_cluster_ops(const size_t cluster_size,
     expect_item_set(cache, &key, &value);
   }
 
+  ybc_cluster_clear(cluster);
+
+  for (size_t i = 0; i < iterations_count; ++i) {
+    key.ptr = &i;
+    key.size = sizeof(i);
+    value.ptr = &i;
+    value.size = sizeof(i);
+
+    struct ybc *const cache = ybc_cluster_get_cache(cluster, &key);
+    expect_item_miss(cache, &key);
+  }
+
   ybc_cluster_close(cluster);
 }
 
