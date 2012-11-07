@@ -431,9 +431,12 @@ func (t *taskSet) WriteRequest(w *bufio.Writer) bool {
 }
 
 func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	_, err := fmt.Fscanf(r, "STORED\r\n")
-	if err != nil {
-		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d", t.item.Key, len(t.item.Value))
+	if !readLine(r, lineBuf) {
+		return false
+	}
+	line := *lineBuf
+	if !bytes.Equal(line, []byte("STORED")) {
+		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d: [%s]", t.item.Key, len(t.item.Value), line)
 		return false
 	}
 	return true
