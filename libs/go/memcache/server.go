@@ -49,7 +49,51 @@ func protocolError(w *bufio.Writer) {
 	w.WriteString("ERROR\r\n")
 }
 
-func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
+func  writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
+	_, err := w.Write([]byte("VALUE "))
+	if err != nil {
+		log.Printf("Error when writing VALUE response: [%s]", err)
+		return false
+	}
+	_, err = w.Write(key)
+	if err != nil {
+		log.Printf("Error when writing key=[%s] to 'get' response: [%s]", key, err)
+		return false
+	}
+	_, err = w.Write([]byte(" 0 "))
+	if err != nil {
+		log.Printf("Error when writing ' 0 ' to 'get' response: [%s]", err)
+		return false
+	}
+	size := item.Size()
+	_, err = w.Write([]byte(strconv.Itoa(size)))
+	if err != nil {
+		log.Printf("Error when writing size=[%d] to 'get' response: [%s]", size, err)
+		return false
+	}
+	_, err = w.Write([]byte(" 0\r\n"))
+	if err != nil {
+		log.Printf("Error when writing 0\\r\\n to 'get' response: [%s]", err)
+		return false
+	}
+	n, err := item.WriteTo(w)
+	if err != nil {
+		log.Printf("Error when writing payload: [%s]", err)
+		return false
+	}
+	if n != int64(size) {
+		log.Printf("Invalid length of payload=[%d]. Expected [%d]", n, size)
+		return false
+	}
+	_, err = w.Write([]byte("\r\n"))
+	if err != nil {
+		log.Printf("Error when writing \\r\\n to response: [%s]", err)
+		return false
+	}
+	return true
+}
+
+func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		if err == ybc.ErrNotFound {
@@ -59,27 +103,7 @@ func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
 	}
 	defer item.Close()
 
-	size := item.Size()
-	_, err = fmt.Fprintf(c, "VALUE %s 0 %d 0\r\n", key, size)
-	if err != nil {
-		log.Printf("Error when writing response: [%s]", err)
-		return false
-	}
-	n, err := item.WriteTo(c)
-	if err != nil {
-		log.Printf("Error when writing payload: [%s]", err)
-		return false
-	}
-	if n != int64(size) {
-		log.Printf("Invalid length of payload=[%d]. Expected [%d]", n, size)
-		return false
-	}
-	_, err = c.WriteString("\r\n")
-	if err != nil {
-		log.Printf("Error when writing \\r\\n to response: [%s]", err)
-		return false
-	}
-	return true
+	return writeGetResponse(w, key, item)
 }
 
 func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
@@ -97,12 +121,12 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 			continue
 		}
 		key := line[first:last]
-		if !getItem(c, cache, key) {
+		if !getItemAndWriteResponse(c.Writer, cache, key) {
 			return false
 		}
 	}
 
-	_, err := c.WriteString("END\r\n")
+	_, err := c.Write([]byte("END\r\n"))
 	if err != nil {
 		log.Printf("Error when writing END to response: [%s]", err)
 		return false

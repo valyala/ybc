@@ -339,9 +339,19 @@ type taskGet struct {
 }
 
 func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
-	_, err := fmt.Fprintf(w, "get %s\r\n", t.key)
+	_, err := w.Write([]byte("get "))
 	if err != nil {
 		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.key, err)
+		return false
+	}
+	_, err = w.Write([]byte(t.key))
+	if err != nil {
+		log.Printf("Cannot issue key=[%s] for 'get' request: [%s]", t.key, err)
+		return false
+	}
+	_, err = w.Write([]byte("\r\n"))
+	if err != nil {
+		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.key, err)
 		return false
 	}
 	return true
