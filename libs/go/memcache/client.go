@@ -133,7 +133,6 @@ type Item struct {
 	Key        string
 	Value      []byte
 	Expiration int
-	Flags      int
 }
 
 func (c *Client) init() {
@@ -409,8 +408,8 @@ func writeSetRequest(w *bufio.Writer, item *Item, isNoreply bool) bool {
 	if isNoreply {
 		noreply = " noreply"
 	}
-	_, err := fmt.Fprintf(w, "set %s %d %d %d%s\r\n",
-		item.Key, item.Flags, item.Expiration, len(item.Value), noreply)
+	_, err := fmt.Fprintf(w, "set %s 0 %d %d%s\r\n",
+		item.Key, item.Expiration, len(item.Value), noreply)
 	if err != nil {
 		log.Printf("Cannot issue 'set' request for key=[%s], len(value)=%d: [%s]", item.Key, len(item.Value), err)
 		return false

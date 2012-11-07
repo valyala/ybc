@@ -59,9 +59,8 @@ func getItem(c *bufio.ReadWriter, cache ybc.Cacher, key []byte) bool {
 	}
 	defer item.Close()
 
-	flags := "0"
 	size := item.Size()
-	_, err = fmt.Fprintf(c, "VALUE %s %s %d 0\r\n", key, flags, size)
+	_, err = fmt.Fprintf(c, "VALUE %s 0 %d 0\r\n", key, size)
 	if err != nil {
 		log.Printf("Error when writing response: [%s]", err)
 		return false
@@ -113,7 +112,6 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 
 type setCmd struct {
 	key     []byte
-	flags   []byte
 	exptime []byte
 	size    []byte
 	noreply []byte
@@ -126,8 +124,8 @@ func parseSetCmd(line []byte, cmd *setCmd) bool {
 	if cmd.key == nil {
 		return false
 	}
-	cmd.flags, n = nextToken(line, n, "flags")
-	if cmd.flags == nil {
+	flagsUnused, n := nextToken(line, n, "flags")
+	if flagsUnused == nil {
 		return false
 	}
 	cmd.exptime, n = nextToken(line, n, "exptime")
