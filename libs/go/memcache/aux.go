@@ -2,8 +2,10 @@ package memcache
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"log"
+	"strconv"
 )
 
 const (
@@ -61,4 +63,36 @@ func readLine(r *bufio.Reader, lineBuf *[]byte) bool {
 	line = line[:lastN]
 	*lineBuf = line
 	return true
+}
+
+func nextToken(line []byte, first int, entity string) (s []byte, last int) {
+	first += 1
+	if first >= len(line) {
+		log.Printf("No enough space for [%s] in 'set' command=[%s]", entity, line)
+		return
+	}
+	last = bytes.IndexByte(line[first:], ' ')
+	if last == -1 {
+		last = len(line)
+	} else {
+		last += first
+	}
+	if first == last {
+		log.Printf("Cannot find [%s] in 'set' command=[%s]", entity, line)
+		return
+	}
+	s = line[first:last]
+	return
+}
+
+func parseSize(s []byte) (size int, ok bool) {
+	var err error
+	size, err = strconv.Atoi(string(s))
+	if err != nil {
+		log.Printf("Cannot convert size=[%s] to integer: [%s]", s, err)
+		ok = false
+		return
+	}
+	ok = true
+	return
 }

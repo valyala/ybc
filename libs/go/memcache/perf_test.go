@@ -25,9 +25,9 @@ func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *
 	s.Start()
 
 	c = &Client{
-		ConnectAddr:     testAddr,
-		ReadBufferSize:  buffersSize,
-		WriteBufferSize: buffersSize,
+		ConnectAddr:             testAddr,
+		ReadBufferSize:          buffersSize,
+		WriteBufferSize:         buffersSize,
 		MaxPendingRequestsCount: maxPendingRequestsCount,
 	}
 	c.Start()

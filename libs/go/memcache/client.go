@@ -207,6 +207,44 @@ type taskGetMulti struct {
 	taskSync
 }
 
+func readValueResponse(line []byte) (key []byte, size int, ok bool) {
+	if !bytes.Equal(line[:6], []byte("VALUE ")) {
+		log.Printf("Unexpected start of line: [%s]. Expected [VALUE ]", line[:6])
+		ok = false
+		return
+	}
+	line = line[6:]
+
+	n := -1
+
+	key, n = nextToken(line, n, "key")
+	if key == nil {
+		ok = false
+		return
+	}
+	flagsUnused, n := nextToken(line, n, "flags")
+	if flagsUnused == nil {
+		ok = false
+		return
+	}
+	sizeStr, n := nextToken(line, n, "size")
+	if sizeStr == nil {
+		ok = false
+		return
+	}
+	size, ok = parseSize(sizeStr)
+	if !ok {
+		return
+	}
+	casidUnused, n := nextToken(line, n, "casid")
+	if casidUnused == nil {
+		ok = false
+		return
+	}
+	ok = (n == len(line))
+	return
+}
+
 func readItem(r *bufio.Reader, keys []string, lineBuf *[]byte) (item *Item, ok bool) {
 	if !readLine(r, lineBuf) {
 		ok = false
@@ -217,32 +255,28 @@ func readItem(r *bufio.Reader, keys []string, lineBuf *[]byte) (item *Item, ok b
 		ok = true
 		return
 	}
-	var size, casid_unused int
-	item = &Item{}
-	n, err := fmt.Sscanf(string(line), "VALUE %s %d %d %d",
-		&item.Key, &item.Flags, &size, &casid_unused)
+
+	var key []byte
+	var size int
+	key, size, ok = readValueResponse(line)
+	if !ok {
+		return
+	}
+	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+2))
 	if err != nil {
-		log.Printf("Error when reading VALUE header from 'get' response for keys=[%s]: [%s]", keys, err)
+		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
 		ok = false
 		return
 	}
-	if n != 4 {
-		log.Printf("Unexpected number of arguments in VALUE line of 'get' response for keys=[%s]", keys)
-		ok = false
-		return
-	}
-	item.Value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)+2))
-	if err != nil {
-		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", item.Key, err)
-		ok = false
-		return
-	}
-	if !bytes.HasSuffix(item.Value, []byte("\r\n")) {
+	if !bytes.HasSuffix(value, []byte("\r\n")) {
 		log.Printf("There is no crlf found in 'get' response value for key=[%s]", item.Key)
 		ok = false
 		return
 	}
-	item.Value = item.Value[:size]
+	item = &Item{
+		Key:   string(key),
+		Value: value[:size],
+	}
 	ok = true
 	return
 }
@@ -322,32 +356,27 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	if bytes.Equal(line, []byte("END")) {
 		return true
 	}
-	var size, casid_unused int
-	t.item = &Item{}
-	n, err := fmt.Sscanf(string(line), "VALUE %s %d %d %d\r\n",
-		&t.item.Key, &t.item.Flags, &size, &casid_unused)
-	if err != nil {
-		log.Printf("Error when reading VALUE header from 'get' response for key=[%s]: [%s]", t.key, err)
+	key, size, ok := readValueResponse(line)
+	if !ok {
 		return false
 	}
-	if n != 4 {
-		log.Printf("Unexpected number of arguments in VALUE line of 'get' response for key=[%s]", t.key)
+	if !bytes.Equal(key, []byte(t.key)) {
+		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.key)
 		return false
 	}
-	if t.item.Key != t.key {
-		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", t.item.Key, t.key)
-		return false
-	}
-	t.item.Value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
+	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
 	if err != nil {
 		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", t.key, err)
 		return false
 	}
-	if !bytes.HasSuffix(t.item.Value, []byte("\r\nEND\r\n")) {
+	if !bytes.HasSuffix(value, []byte("\r\nEND\r\n")) {
 		log.Printf("There is no crlf found in 'get' response value for key=[%s]", t.key)
 		return false
 	}
-	t.item.Value = t.item.Value[:size]
+	t.item = &Item{
+		Key:   t.key,
+		Value: value[:size],
+	}
 	return true
 }
 

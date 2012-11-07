@@ -37,18 +37,6 @@ func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 	return
 }
 
-func parseSize(s []byte) (size int, ok bool) {
-	var err error
-	size, err = strconv.Atoi(string(s))
-	if err != nil {
-		log.Printf("Cannot convert size=[%s] to integer: [%s]", s, err)
-		ok = false
-		return
-	}
-	ok = true
-	return
-}
-
 func clientError(w *bufio.Writer, s string) {
 	fmt.Fprintf(w, "CLIENT_ERROR %s\r\n", s)
 }
@@ -131,64 +119,35 @@ type setCmd struct {
 	noreply []byte
 }
 
-func nextToken(line []byte, first int, entity string) (s []byte, last int) {
-	first += 1
-	if first >= len(line) {
-		log.Printf("No enough space for [%s] in 'set' command=[%s]", entity, line)
-		return
-	}
-	last = bytes.IndexByte(line[first:], ' ')
-	if last == -1 {
-		last = len(line)
-	} else {
-		last += first
-	}
-	if first == last {
-		log.Printf("Cannot find [%s] in 'set' command=[%s]", entity, line)
-		return
-	}
-	s = line[first:last]
-	return
-}
-
 func parseSetCmd(line []byte, cmd *setCmd) bool {
-	var s []byte
 	n := -1
 
-	s, n = nextToken(line, n, "key")
-	if s == nil {
+	cmd.key, n = nextToken(line, n, "key")
+	if cmd.key == nil {
 		return false
 	}
-	cmd.key = s
-
-	s, n = nextToken(line, n, "flags")
-	if s == nil {
+	cmd.flags, n = nextToken(line, n, "flags")
+	if cmd.flags == nil {
 		return false
 	}
-	cmd.flags = s
-
-	s, n = nextToken(line, n, "exptime")
-	if s == nil {
+	cmd.exptime, n = nextToken(line, n, "exptime")
+	if cmd.exptime == nil {
 		return false
 	}
-	cmd.exptime = s
-
-	s, n = nextToken(line, n, "size")
-	if s == nil {
+	cmd.size, n = nextToken(line, n, "size")
+	if cmd.size == nil {
 		return false
 	}
-	cmd.size = s
 
 	if n == len(line) {
 		return true
 	}
 
-	s, n = nextToken(line, n, "noreply")
-	if s == nil {
+	cmd.noreply, n = nextToken(line, n, "noreply")
+	if cmd.noreply == nil {
 		return false
 	}
-	cmd.noreply = s
-	return true
+	return n == len(line)
 }
 
 func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setCmd) bool {
