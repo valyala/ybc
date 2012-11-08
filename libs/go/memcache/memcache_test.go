@@ -105,7 +105,7 @@ func TestClient_GetSet(t *testing.T) {
 	c.Start()
 	defer c.Stop()
 
-	key := "key"
+	key := []byte("key")
 	value := []byte("value")
 
 	item, err := c.Get(key)
@@ -125,7 +125,7 @@ func TestClient_GetSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot obtain value for key=[%s] from memcache: [%s]", key, err)
 	}
-	if item.Key != key {
+	if !bytes.Equal(item.Key, key) {
 		t.Fatalf("Invalid key=[%s] returned. Expected [%s]", item.Key, key)
 	}
 	if !bytes.Equal(item.Value, value) {
@@ -133,20 +133,32 @@ func TestClient_GetSet(t *testing.T) {
 	}
 }
 
-func checkItems(c *Client, orig_items map[string]*Item, t *testing.T) {
-	keys := make([]string, 0, len(orig_items))
-	for key := range orig_items {
-		keys = append(keys, key)
+func lookupItem(items []*Item, key []byte) *Item {
+	for _, item := range items {
+		if bytes.Equal(item.Key, key) {
+			return item
+		}
+	}
+	return nil
+}
+
+func checkItems(c *Client, orig_items []*Item, t *testing.T) {
+	keys := make([][]byte, 0, len(orig_items))
+	for _, item := range orig_items {
+		keys = append(keys, item.Key)
 	}
 
 	items, err := c.GetMulti(keys)
 	if err != nil {
 		t.Fatalf("Error in client.GetMulti(): [%s]", err)
 	}
-	for key, item := range items {
-		orig_item := orig_items[key]
+	for _, item := range items {
+		orig_item := lookupItem(orig_items, item.Key)
+		if orig_item == nil {
+			t.Fatalf("Cannot find original item with key=[%s]", item.Key)
+		}
 		if !bytes.Equal(item.Value, orig_item.Value) {
-			t.Fatalf("Values mismatch for key=[%s]. Returned=[%s], expected=[%s]", key, item.Value, orig_item.Value)
+			t.Fatalf("Values mismatch for key=[%s]. Returned=[%s], expected=[%s]", item.Key, item.Value, orig_item.Value)
 		}
 	}
 }
@@ -160,17 +172,17 @@ func TestClient_GetMulti(t *testing.T) {
 	defer c.Stop()
 
 	itemsCount := 100
-	items := make(map[string]*Item, itemsCount)
+	items := make([]*Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &Item{
-			Key:   fmt.Sprintf("key_%d", i),
+			Key:   []byte(fmt.Sprintf("key_%d", i)),
 			Value: []byte(fmt.Sprintf("value_%d", i)),
 		}
 		err := c.Set(item)
 		if err != nil {
 			t.Fatalf("error in client.Set(): [%s]", err)
 		}
-		items[item.Key] = item
+		items[i] = item
 	}
 
 	checkItems(c, items, t)
@@ -185,14 +197,14 @@ func TestClient_SetNowait(t *testing.T) {
 	defer c.Stop()
 
 	itemsCount := 100
-	items := make(map[string]*Item, itemsCount)
+	items := make([]*Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &Item{
-			Key:   fmt.Sprintf("key_%d", i),
+			Key:   []byte(fmt.Sprintf("key_%d", i)),
 			Value: []byte(fmt.Sprintf("value_%d", i)),
 		}
 		c.SetNowait(item)
-		items[item.Key] = item
+		items[i] = item
 	}
 
 	checkItems(c, items, t)

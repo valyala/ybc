@@ -46,7 +46,7 @@ func BenchmarkClientServer_Set(b *testing.B) {
 	defer c.Stop()
 
 	item := &Item{
-		Key:   "key",
+		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
 
@@ -64,7 +64,7 @@ func BenchmarkClientServer_GetHit(b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	key := "key"
+	key := []byte("key")
 	item := &Item{
 		Key:   key,
 		Value: []byte("value"),
@@ -88,7 +88,7 @@ func BenchmarkClientServer_GetMiss(b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	key := "key"
+	key := []byte("key")
 
 	for i := 0; i < b.N; i++ {
 		_, err := c.Get(key)
@@ -104,7 +104,7 @@ func getMulti(batchSize int, b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	key := "key"
+	key := []byte("key")
 	item := &Item{
 		Key:   key,
 		Value: []byte("value"),
@@ -114,7 +114,7 @@ func getMulti(batchSize int, b *testing.B) {
 		b.Fatalf("Error in client.Set(): [%s]", err)
 	}
 
-	var keys []string
+	var keys [][]byte
 	for i := 0; i < batchSize; i++ {
 		keys = append(keys, key)
 	}
@@ -162,7 +162,7 @@ func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
 	defer c.Stop()
 
 	item := &Item{
-		Key:   "key",
+		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
 
@@ -240,7 +240,7 @@ func concurrentOps(workerFunc WorkerFunc, workersCount int, b *testing.B) {
 func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := &Item{
-		Key:   fmt.Sprintf("key_%d", i),
+		Key:   []byte(fmt.Sprintf("key_%d", i)),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
 	for _ = range ch {
@@ -286,7 +286,7 @@ func BenchmarkClientServer_ConcurrentSet_64Workers(b *testing.B) {
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := &Item{
-		Key:   fmt.Sprintf("key_%d", i),
+		Key:   []byte(fmt.Sprintf("key_%d", i)),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
 	err := c.Set(item)
