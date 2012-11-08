@@ -188,7 +188,6 @@ func (c *Client) Stop() {
 	c.done = nil
 }
 
-
 var doneChansPool = make(chan (chan bool), 1024)
 
 func acquireDoneChan() chan bool {
