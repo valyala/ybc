@@ -49,7 +49,7 @@ func protocolError(w *bufio.Writer) {
 	w.WriteString("ERROR\r\n")
 }
 
-func  writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
+func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 	_, err := w.Write([]byte("VALUE "))
 	if err != nil {
 		log.Printf("Error when writing VALUE response: [%s]", err)
@@ -205,7 +205,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 		return false
 	}
 	defer txn.Commit()
-	n, err := txn.ReadFrom(c)
+	n, err := txn.ReadFrom(c.Reader)
 	if err != nil {
 		log.Printf("Error when reading payload for key=[%s], size=[%d]: [%s]", key, size, err)
 		clientError(c.Writer, "cannot read payload")
