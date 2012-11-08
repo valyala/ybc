@@ -217,7 +217,6 @@ func (t *taskSync) Done(ok bool) {
 }
 
 func (t *taskSync) Wait() bool {
-	t.done = acquireDoneChan()
 	ok := <-t.done
 	releaseDoneChan(t.done)
 	return ok
@@ -340,6 +339,9 @@ func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 	t := taskGetMulti{
 		keys:  keys,
 		items: make([]Item, 0, len(keys)),
+		taskSync: taskSync{
+			done: acquireDoneChan(),
+		},
 	}
 	if !c.do(&t) {
 		err = ErrCommunicationFailure
@@ -405,6 +407,9 @@ func (c *Client) Get(item *Item) error {
 	t := taskGet{
 		item:      item,
 		itemFound: false,
+		taskSync: taskSync{
+			done: acquireDoneChan(),
+		},
 	}
 	if !c.do(&t) {
 		return ErrCommunicationFailure
@@ -486,6 +491,9 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 func (c *Client) Set(item *Item) (err error) {
 	t := taskSet{
 		item: item,
+		taskSync: taskSync{
+			done: acquireDoneChan(),
+		},
 	}
 	if !c.do(&t) {
 		err = ErrCommunicationFailure
