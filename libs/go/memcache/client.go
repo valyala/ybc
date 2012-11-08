@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -413,15 +413,48 @@ type taskSet struct {
 	taskSync
 }
 
-func writeSetRequest(w *bufio.Writer, item *Item, isNoreply bool) bool {
-	noreply := ""
-	if isNoreply {
-		noreply = " noreply"
-	}
-	_, err := fmt.Fprintf(w, "set %s 0 %d %d%s\r\n",
-		item.Key, item.Expiration, len(item.Value), noreply)
+func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
+	_, err := w.Write([]byte("set "))
 	if err != nil {
-		log.Printf("Cannot issue 'set' request for key=[%s], len(value)=%d: [%s]", item.Key, len(item.Value), err)
+		log.Printf("Cannot issue 'set' request for key=[%s]: [%s]", item.Key, err)
+		return false
+	}
+	_, err = w.Write([]byte(item.Key))
+	if err != nil {
+		log.Printf("Cannot write key=[%s] into 'set' request: [%s]", item.Key, err)
+		return false
+	}
+	_, err = w.Write([]byte(" 0 "))
+	if err != nil {
+		log.Printf("Cannot write ' 0 ' into 'set' request: [%s]", err)
+		return false
+	}
+	_, err = w.Write([]byte(strconv.Itoa(item.Expiration)))
+	if err != nil {
+		log.Printf("Cannot write expiration into 'set' request: [%s]", err)
+		return false
+	}
+	_, err = w.Write([]byte{' '})
+	if err != nil {
+		log.Printf("Cannot write ' ' into 'set' request: [%s]", err)
+		return false
+	}
+	size := len(item.Value)
+	_, err = w.Write([]byte(strconv.Itoa(size)))
+	if err != nil {
+		log.Printf("Cannot write iltem size=%d into 'set' request: [%s]", size, err)
+		return false
+	}
+	if noreply {
+		_, err = w.Write([]byte(" noreply"))
+		if err != nil {
+			log.Printf("Cannot write ' noreply' into 'set' request: [%s]", err)
+			return false
+		}
+	}
+	_, err = w.Write([]byte("\r\n"))
+	if err != nil {
+		log.Printf("Cannot write \\r\\n into 'set' request: [%s]", err)
 		return false
 	}
 	if _, err = w.Write(item.Value); err != nil {
