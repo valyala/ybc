@@ -213,7 +213,6 @@ func (cfg *Config) internal() *configInternal {
 		C.ybc_config_set_hot_data_size(ctx, C.size_t(hotDataSize))
 	}
 	if cfg.DeHashtableSize != 0 {
-		checkNonNegative(cfg.DeHashtableSize)
 		C.ybc_config_set_de_hashtable_size(ctx, C.size_t(cfg.DeHashtableSize))
 	}
 	if cfg.SyncInterval != 0 {
@@ -221,7 +220,6 @@ func (cfg *Config) internal() *configInternal {
 		if syncInterval == ConfigDisableSync {
 			syncInterval = 0
 		}
-		checkNonNegativeDuration(syncInterval)
 		C.ybc_config_set_sync_interval(ctx, C.uint64_t(syncInterval/time.Millisecond))
 	}
 
