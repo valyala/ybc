@@ -17,12 +17,13 @@ import (
 
 var (
 	// Public errors
-	ErrOpenFailed        = errors.New("cannot open the cache")
-	ErrNotFound          = errors.New("the item is not found in the cache")
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
+	ErrNotFound          = errors.New("the item is not found in the cache")
+	ErrOpenFailed        = errors.New("cannot open the cache")
 	ErrOutOfRange        = errors.New("out of range")
 	ErrPartialCommit     = errors.New("partial commit")
 	ErrUnsupportedWhence = errors.New("unsupported whence")
+	ErrWouldBlock        = errors.New("the operation would block")
 
 	// Errors for internal use only
 	errPanic = errors.New("panic")
@@ -87,10 +88,12 @@ type Cacher interface {
 	Set(key []byte, value []byte, ttl time.Duration) error
 	Get(key []byte) (value []byte, err error)
 	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
+	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
 	Remove(key []byte)
 	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
 	GetItem(key []byte) (item *Item, err error)
 	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
+	GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error)
 	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
 	Clear()
 }
@@ -259,6 +262,16 @@ func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err
 	return
 }
 
+func (cache *Cache) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
+	item, err := cache.GetDeAsyncItem(key, graceTtl)
+	if err != nil {
+		return
+	}
+	defer item.Close()
+	value = item.Value()
+	return
+}
+
 func (cache *Cache) Remove(key []byte) {
 	cache.dg.CheckLive()
 	k := newKey(key)
@@ -271,6 +284,7 @@ func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *
 	k := newKey(key)
 	v := newValue(value, ttl)
 	if C.ybc_item_set_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
+		releaseItem(item)
 		err = ErrNoSpace
 		return
 	}
@@ -283,6 +297,7 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	item = acquireItem()
 	k := newKey(key)
 	if C.ybc_item_get(cache.ctx(), item.ctx(), &k) == 0 {
+		releaseItem(item)
 		err = ErrNotFound
 		return
 	}
@@ -291,23 +306,35 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 }
 
 func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
+	for {
+		item, err = cache.GetDeAsyncItem(key, graceTtl)
+		if err == ErrWouldBlock {
+			time.Sleep(time.Millisecond * 100)
+			continue
+		}
+		return
+	}
+	panic("not reachable")
+}
+
+func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	checkNonNegativeDuration(graceTtl)
 	item = acquireItem()
 	k := newKey(key)
 	mGraceTtl := C.uint64_t(graceTtl / time.Millisecond)
-	for {
-		switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
-		case C.YBC_DE_WOULDBLOCK:
-			time.Sleep(time.Millisecond * 100)
-			continue
-		case C.YBC_DE_NOTFOUND:
-			err = ErrNotFound
-			return
-		case C.YBC_DE_SUCCESS:
-			item.dg.Init()
-			return
-		}
+	switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
+	case C.YBC_DE_WOULDBLOCK:
+		releaseItem(item)
+		err = ErrWouldBlock
+		return
+	case C.YBC_DE_NOTFOUND:
+		releaseItem(item)
+		err = ErrNotFound
+		return
+	case C.YBC_DE_SUCCESS:
+		item.dg.Init()
+		return
 	}
 	panic("unreachable")
 }
@@ -646,6 +673,10 @@ func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte,
 	return cluster.Cache(key).GetDe(key, graceTtl)
 }
 
+func (cluster *Cluster) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
+	return cluster.Cache(key).GetDeAsync(key, graceTtl)
+}
+
 func (cluster *Cluster) Remove(key []byte) {
 	cluster.Cache(key).Remove(key)
 }
@@ -660,6 +691,10 @@ func (cluster *Cluster) GetItem(key []byte) (item *Item, err error) {
 
 func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	return cluster.Cache(key).GetDeItem(key, graceTtl)
+}
+
+func (cluster *Cluster) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
+	return cluster.Cache(key).GetDeAsyncItem(key, graceTtl)
 }
 
 func (cluster *Cluster) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {

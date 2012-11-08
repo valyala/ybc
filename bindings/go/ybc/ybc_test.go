@@ -246,6 +246,10 @@ func cacher_GetDe(cache Cacher, t *testing.T) {
 	if err != ErrNotFound {
 		t.Fatal(err)
 	}
+	_, err = cache.GetDeAsync(key, time.Millisecond*time.Duration(100))
+	if err != ErrWouldBlock {
+		t.Fatal(err)
+	}
 
 	value := []byte("aaa")
 	err = cache.Set(key, value, MaxTtl)
@@ -353,6 +357,10 @@ func cacher_GetDeItem(cache Cacher, t *testing.T) {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetDeItem(key, time.Second)
 		if err != ErrNotFound {
+			t.Fatal(err)
+		}
+		_, err = cache.GetDeAsyncItem(key, time.Second)
+		if err != ErrWouldBlock {
 			t.Fatal(err)
 		}
 	}
