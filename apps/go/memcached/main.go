@@ -5,6 +5,7 @@ import (
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"github.com/valyala/ybc/libs/go/memcache"
 	"log"
+	"runtime"
 	"time"
 )
 
@@ -12,6 +13,7 @@ var (
 	cacheFilePath   = flag.String("cacheFilePath", "", "Path to cache file. Leave empty for anonymous cache")
 	cacheSize       = flag.Uint64("cacheSize", 100*1000*1000, "Cache size in bytes")
 	deHashtableSize = flag.Int("deHashtableSize", 1, "Dogpile effect hashtable size")
+	goMaxProcs      = flag.Int("goMaxProcs", 4, "Maximum number of simultaneous go threads")
 	hotDataSize     = flag.Uint64("hotDataSize", 0, "Hot data size in bytes. 0 disables hot data optimization")
 	hotItemsCount   = flag.Uint64("hotItemsCount", 0, "The number of hot items. 0 disables hot items optimization")
 	listenAddr      = flag.String("listenAddr", ":11211", "TCP address the daemon will listen to")
@@ -23,6 +25,8 @@ var (
 
 func main() {
 	flag.Parse()
+
+	runtime.GOMAXPROCS(*goMaxProcs)
 
 	hotItemsCount_ := ybc.SizeT(*hotItemsCount)
 	if hotItemsCount_ == 0 {
