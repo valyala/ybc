@@ -126,6 +126,9 @@ go-memcached-debug:
 go-memcached-release:
 	$(GOCC) build -o memcached-release -a -tags release ./apps/go/memcached
 
+go-memcached-bench:
+	$(GOCC) build -o memcached-bench -a -tags release ./apps/go/memcached-bench
+
 clean:
 	rm -f ybc-32-release.o
 	rm -f ybc-64-release.o
@@ -145,3 +148,4 @@ clean:
 	rm -f tests/performance-64-debug
 	rm -f memcached-debug
 	rm -f memcached-release
+	rm -f memcached-bench
