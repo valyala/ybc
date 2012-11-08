@@ -314,14 +314,14 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
-	t := &taskGetMulti{
+	t := taskGetMulti{
 		keys:  keys,
 		items: make([]Item, 0, len(keys)),
 		taskSync: taskSync{
 			done: make(chan bool, 1),
 		},
 	}
-	if !c.do(t) {
+	if !c.do(&t) {
 		err = ErrCommunicationFailure
 		return
 	}
@@ -382,14 +382,14 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) Get(item *Item) error {
-	t := &taskGet{
+	t := taskGet{
 		item:      item,
 		itemFound: false,
 		taskSync: taskSync{
 			done: make(chan bool, 1),
 		},
 	}
-	if !c.do(t) {
+	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
 	if !t.itemFound {
@@ -467,13 +467,13 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) Set(item *Item) (err error) {
-	t := &taskSet{
+	t := taskSet{
 		item: item,
 		taskSync: taskSync{
 			done: make(chan bool, 1),
 		},
 	}
-	if !c.do(t) {
+	if !c.do(&t) {
 		err = ErrCommunicationFailure
 		return
 	}
@@ -502,8 +502,8 @@ func (t *taskSetNowait) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) SetNowait(item *Item) {
-	t := &taskSetNowait{
+	t := taskSetNowait{
 		item: item,
 	}
-	c.do(t)
+	c.do(&t)
 }
