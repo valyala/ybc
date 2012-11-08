@@ -9,7 +9,9 @@ import "C"
 
 import (
 	"errors"
+	"hash/fnv"
 	"io"
+	"math"
 	"reflect"
 	"time"
 	"unsafe"
@@ -43,12 +45,6 @@ var (
  * Public entities
  ******************************************************************************/
 
-type Config struct {
-	dg  debugGuard
-	cg  cacheGuard
-	buf []byte
-}
-
 type Cache struct {
 	dg  debugGuard
 	cg  cacheGuard
@@ -67,19 +63,6 @@ type Item struct {
 	buf        []byte
 	valueCache C.struct_ybc_value
 	offset     int
-}
-
-type ClusterConfig struct {
-	dg           debugGuard
-	buf          []byte
-	configsCache []*Config
-}
-
-type Cluster struct {
-	dg          debugGuard
-	ccg         clusterCacheGuard
-	buf         []byte
-	cachesCache map[uintptr]*Cache
 }
 
 // Cache and Cluster implement this interface
@@ -109,99 +92,71 @@ type SizeT uintptr
  * Config
  ******************************************************************************/
 
-func NewConfig(maxItemsCount, dataFileSize SizeT) *Config {
-	config := newConfig(make([]byte, configSize))
-	config.dg.Init()
-	err := errPanic
-	defer func() {
-		if err != nil {
-			config.destroy()
-		}
-	}()
-	config.SetMaxItemsCount(maxItemsCount)
-	config.SetDataFileSize(dataFileSize)
-	err = nil
-	return config
+const (
+	ConfigDisableHotItems = SizeT(math.MaxUint64)
+	ConfigDisableHotData  = SizeT(math.MaxUint64)
+	ConfigDisableSync     = time.Duration(-1)
+)
+
+// Cache configuration.
+type Config struct {
+	// The number of items the cache can store.
+	MaxItemsCount SizeT
+
+	// Cache size in bytes.
+	DataFileSize SizeT
+
+	// Path to index file. Leave empty for anonymous cache.
+	IndexFile string
+
+	// Path to data file. Leave empty for anonymous cache.
+	DataFile string
+
+	// The expected number of hot items in the cache.
+	// Set to ConfigDisableHotItems to disable hot items optimization.
+	HotItemsCount SizeT
+
+	// The expected size of hot data in bytes.
+	// Set to ConfigDisableHotData to disable hot data optimization.
+	HotDataSize SizeT
+
+	// The number of buckets in a hashtable used for tracking items affected
+	// by dogpile effect.
+	DeHashtableSize int
+
+	// Interval for data syncing to files.
+	// Set to ConfigDisableSync to disable it.
+	SyncInterval time.Duration
 }
 
-func (config *Config) Close() error {
-	config.dg.Close()
-	config.destroy()
-	return nil
+type configInternal struct {
+	buf []byte
+	ctx *C.struct_ybc_config
+	cg  cacheGuard
 }
 
-func (config *Config) SetMaxItemsCount(maxItemsCount SizeT) {
-	config.dg.CheckLive()
-	C.ybc_config_set_max_items_count(config.ctx(), C.size_t(maxItemsCount))
-}
+func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
+	c := cfg.internal()
+	defer C.ybc_config_destroy(c.ctx)
 
-func (config *Config) SetDataFileSize(dataFileSize SizeT) {
-	config.dg.CheckLive()
-	C.ybc_config_set_data_file_size(config.ctx(), C.size_t(dataFileSize))
-}
-
-func (config *Config) SetIndexFile(indexFile string) {
-	config.dg.CheckLive()
-	config.cg.SetIndexFile(indexFile)
-	cStr := C.CString(indexFile)
-	defer C.free(unsafe.Pointer(cStr))
-	C.ybc_config_set_index_file(config.ctx(), cStr)
-}
-
-func (config *Config) SetDataFile(dataFile string) {
-	config.dg.CheckLive()
-	config.cg.SetDataFile(dataFile)
-	cStr := C.CString(dataFile)
-	defer C.free(unsafe.Pointer(cStr))
-	C.ybc_config_set_data_file(config.ctx(), cStr)
-}
-
-func (config *Config) SetHotItemsCount(hotItemsCount SizeT) {
-	config.dg.CheckLive()
-	C.ybc_config_set_hot_items_count(config.ctx(), C.size_t(hotItemsCount))
-}
-
-func (config *Config) SetHotDataSize(hotDataSize SizeT) {
-	config.dg.CheckLive()
-	C.ybc_config_set_hot_data_size(config.ctx(), C.size_t(hotDataSize))
-}
-
-func (config *Config) SetDeHashtableSize(deHashtableSize int) {
-	config.dg.CheckLive()
-	checkNonNegative(deHashtableSize)
-	C.ybc_config_set_de_hashtable_size(config.ctx(), C.size_t(deHashtableSize))
-}
-
-func (config *Config) SetSyncInterval(syncInterval time.Duration) {
-	config.dg.CheckLive()
-	checkNonNegativeDuration(syncInterval)
-	C.ybc_config_set_sync_interval(config.ctx(), C.uint64_t(syncInterval/time.Millisecond))
-}
-
-func (config *Config) RemoveCache() {
-	config.dg.CheckLive()
-	C.ybc_remove(config.ctx())
-}
-
-func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
-	config.dg.CheckLive()
-	config.cg.Acquire()
+	c.cg.Acquire()
 	err = errPanic
 	defer func() {
 		if err != nil {
-			config.cg.Release()
-			cache = nil
+			c.cg.Release()
 		}
 	}()
+
 	cache = &Cache{
 		buf: make([]byte, cacheSize),
-		cg:  config.cg,
+		cg:  c.cg,
 	}
 	mForce := C.int(0)
 	if force {
 		mForce = 1
 	}
-	if C.ybc_open(cache.ctx(), config.ctx(), mForce) == 0 {
+	if C.ybc_open(cache.ctx(), c.ctx, mForce) == 0 {
+		cache = nil
 		err = ErrOpenFailed
 		return
 	}
@@ -210,12 +165,68 @@ func (config *Config) OpenCache(force bool) (cache *Cache, err error) {
 	return
 }
 
-func (config *Config) ctx() *C.struct_ybc_config {
-	return (*C.struct_ybc_config)(unsafe.Pointer(&config.buf[0]))
+func (cfg *Config) RemoveCache() {
+	c := cfg.internal()
+	defer C.ybc_config_destroy(c.ctx)
+
+	C.ybc_remove(c.ctx)
 }
 
-func (config *Config) destroy() {
-	C.ybc_config_destroy(config.ctx())
+func (cfg *Config) internal() *configInternal {
+	c := &configInternal{
+		buf: make([]byte, configSize),
+	}
+
+	ctx := (*C.struct_ybc_config)(unsafe.Pointer(&c.buf[0]))
+	C.ybc_config_init(ctx)
+
+	if cfg.MaxItemsCount != 0 {
+		C.ybc_config_set_max_items_count(ctx, C.size_t(cfg.MaxItemsCount))
+	}
+	if cfg.DataFileSize != 0 {
+		C.ybc_config_set_data_file_size(ctx, C.size_t(cfg.DataFileSize))
+	}
+	if cfg.IndexFile != "" {
+		indexFileCStr := C.CString(cfg.IndexFile)
+		defer C.free(unsafe.Pointer(indexFileCStr))
+		C.ybc_config_set_index_file(ctx, indexFileCStr)
+		c.cg.SetIndexFile(cfg.IndexFile)
+	}
+	if cfg.DataFile != "" {
+		dataFileCStr := C.CString(cfg.DataFile)
+		defer C.free(unsafe.Pointer(dataFileCStr))
+		C.ybc_config_set_data_file(ctx, dataFileCStr)
+		c.cg.SetDataFile(cfg.DataFile)
+	}
+	if cfg.HotItemsCount != 0 {
+		hotItemsCount := cfg.HotItemsCount
+		if hotItemsCount == ConfigDisableHotItems {
+			hotItemsCount = 0
+		}
+		C.ybc_config_set_hot_items_count(ctx, C.size_t(hotItemsCount))
+	}
+	if cfg.HotDataSize != 0 {
+		hotDataSize := cfg.HotDataSize
+		if hotDataSize == ConfigDisableHotData {
+			hotDataSize = 0
+		}
+		C.ybc_config_set_hot_data_size(ctx, C.size_t(hotDataSize))
+	}
+	if cfg.DeHashtableSize != 0 {
+		checkNonNegative(cfg.DeHashtableSize)
+		C.ybc_config_set_de_hashtable_size(ctx, C.size_t(cfg.DeHashtableSize))
+	}
+	if cfg.SyncInterval != 0 {
+		syncInterval := cfg.SyncInterval
+		if syncInterval == ConfigDisableSync {
+			syncInterval = 0
+		}
+		checkNonNegativeDuration(syncInterval)
+		C.ybc_config_set_sync_interval(ctx, C.uint64_t(syncInterval/time.Millisecond))
+	}
+
+	c.ctx = ctx
+	return c
 }
 
 /*******************************************************************************
@@ -524,167 +535,123 @@ func (item *Item) ctx() *C.struct_ybc_item {
  * ClusterConfig
  ******************************************************************************/
 
-func NewClusterConfig(cachesCount int, maxItemsCount, dataFileSize SizeT) *ClusterConfig {
-	config := &ClusterConfig{
-		buf: make([]byte, configSize*cachesCount),
-	}
-	configsCache := make([]*Config, cachesCount)
-	initializedCachesCount := 0
+type ClusterConfig []*Config
+
+func (cfg ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
+	cachesCount := len(cfg)
+	openedCachesCount := 0
+	caches := make([]*Cache, cachesCount)
 	defer func() {
-		if initializedCachesCount != cachesCount {
-			for initializedCachesCount > 0 {
-				initializedCachesCount--
-				configsCache[initializedCachesCount].destroy()
+		if openedCachesCount < cachesCount {
+			for i := 0; i < openedCachesCount; i++ {
+				caches[i].Close()
 			}
-		}
-	}()
-	maxItemsCount /= SizeT(cachesCount)
-	dataFileSize /= SizeT(cachesCount)
-	for initializedCachesCount < cachesCount {
-		c := newConfig(config.configBuf(initializedCachesCount))
-		c.dg.InitNoClose()
-		configsCache[initializedCachesCount] = c
-		initializedCachesCount++
-		c.SetMaxItemsCount(maxItemsCount)
-		c.SetDataFileSize(dataFileSize)
-	}
-	config.configsCache = configsCache
-	config.dg.Init()
-	return config
-}
-
-func (config *ClusterConfig) Close() error {
-	config.dg.Close()
-	for _, c := range config.configsCache {
-		c.destroy()
-	}
-	return nil
-}
-
-// DO NOT close the returned config! Its' lifetime is automatically managed
-// by the ClusterConfig object.
-func (config *ClusterConfig) Config(cacheIndex int) *Config {
-	config.dg.CheckLive()
-	return config.configsCache[cacheIndex]
-}
-
-func (config *ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
-	config.dg.CheckLive()
-	ccg := debugAcquireClusterCache(config.configsCache)
-	err = errPanic
-	defer func() {
-		if err != nil {
-			debugReleaseClusterCache(ccg)
 			cluster = nil
 		}
 	}()
-	cachesCount := len(config.configsCache)
+
+	slotsCount := SizeT(0)
+	maxSlotIndexes := make([]SizeT, cachesCount)
+	for i := 0; i < cachesCount; i++ {
+		caches[i], err = cfg[i].OpenCache(force)
+		if err != nil {
+			return
+		}
+		openedCachesCount++
+		slotsCount += cfg[i].MaxItemsCount
+		maxSlotIndexes[i] = slotsCount
+	}
+
 	cluster = &Cluster{
-		buf: make([]byte, C.ybc_cluster_get_size(C.size_t(cachesCount))),
-		ccg: ccg,
-	}
-	cluster.cachesCache = make(map[uintptr]*Cache, cachesCount)
-	mForce := C.int(0)
-	if force {
-		mForce = 1
-	}
-	if C.ybc_cluster_open(cluster.ctx(), config.ctx(), C.size_t(cachesCount), mForce) == 0 {
-		err = ErrOpenFailed
-		return
+		caches:         caches,
+		slotsCount:     slotsCount,
+		maxSlotIndexes: maxSlotIndexes,
 	}
 	cluster.dg.Init()
-	err = nil
 	return
 }
 
-func (config *ClusterConfig) ctx() *C.struct_ybc_config {
-	return (*C.struct_ybc_config)(unsafe.Pointer(&config.buf[0]))
-}
-
-func (config *ClusterConfig) configBuf(n int) []byte {
-	start_idx := n * configSize
-	return config.buf[start_idx : start_idx+configSize]
+func (cfg ClusterConfig) RemoveCluster() {
+	for _, c := range cfg {
+		c.RemoveCache()
+	}
 }
 
 /*******************************************************************************
  * Cluster
  ******************************************************************************/
 
+type Cluster struct {
+	dg             debugGuard
+	caches         []*Cache
+	slotsCount     SizeT
+	maxSlotIndexes []SizeT
+}
+
 func (cluster *Cluster) Close() error {
 	cluster.dg.Close()
-	debugReleaseClusterCache(cluster.ccg)
-	C.ybc_cluster_close(cluster.ctx())
+	cachesCount := len(cluster.caches)
+	for i := 0; i < cachesCount; i++ {
+		cluster.caches[i].Close()
+	}
 	return nil
 }
 
-// DO NOT close the returned cache! Its' lifetime is automatically managed
-// by the Cluster object.
-func (cluster *Cluster) Cache(key []byte) *Cache {
-	cluster.dg.CheckLive()
-	k := newKey(key)
-	p := unsafe.Pointer(C.ybc_cluster_get_cache(cluster.ctx(), &k))
-	cache := cluster.cachesCache[uintptr(p)]
-	if cache == nil {
-		cache = &Cache{
-			buf: newUnsafeSlice(p, cacheSize),
-		}
-		cache.dg.InitNoClose()
-		cluster.cachesCache[uintptr(p)] = cache
-	}
-	return cache
-}
-
 func (cluster *Cluster) Set(key []byte, value []byte, ttl time.Duration) error {
-	return cluster.Cache(key).Set(key, value, ttl)
+	return cluster.cache(key).Set(key, value, ttl)
 }
 
 func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
-	return cluster.Cache(key).Get(key)
+	return cluster.cache(key).Get(key)
 }
 
 func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	return cluster.Cache(key).GetDe(key, graceTtl)
+	return cluster.cache(key).GetDe(key, graceTtl)
 }
 
 func (cluster *Cluster) Remove(key []byte) {
-	cluster.Cache(key).Remove(key)
+	cluster.cache(key).Remove(key)
 }
 
 func (cluster *Cluster) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
-	return cluster.Cache(key).SetItem(key, value, ttl)
+	return cluster.cache(key).SetItem(key, value, ttl)
 }
 
 func (cluster *Cluster) GetItem(key []byte) (item *Item, err error) {
-	return cluster.Cache(key).GetItem(key)
+	return cluster.cache(key).GetItem(key)
 }
 
 func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
-	return cluster.Cache(key).GetDeItem(key, graceTtl)
+	return cluster.cache(key).GetDeItem(key, graceTtl)
 }
 
 func (cluster *Cluster) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
-	return cluster.Cache(key).NewSetTxn(key, valueSize, ttl)
+	return cluster.cache(key).NewSetTxn(key, valueSize, ttl)
 }
 
 func (cluster *Cluster) Clear() {
-	C.ybc_cluster_clear(cluster.ctx())
+	for _, cache := range cluster.caches {
+		cache.Clear()
+	}
 }
 
-func (cluster *Cluster) ctx() *C.struct_ybc_cluster {
-	return (*C.struct_ybc_cluster)(unsafe.Pointer(&cluster.buf[0]))
+func (cluster *Cluster) cache(key []byte) *Cache {
+	cluster.dg.CheckLive()
+	h := fnv.New64a()
+	h.Write(key)
+	idx := SizeT(h.Sum64()) % cluster.slotsCount
+
+	maxSlotIndexes := cluster.maxSlotIndexes
+	i := 0
+	for idx >= maxSlotIndexes[i] {
+		i++
+	}
+	return cluster.caches[i]
 }
 
 /*******************************************************************************
  * Aux functions
  ******************************************************************************/
-
-func newConfig(buf []byte) *Config {
-	config := &Config{
-		buf: buf,
-	}
-	C.ybc_config_init(config.ctx())
-	return config
-}
 
 func newKey(key []byte) C.struct_ybc_key {
 	var ptr unsafe.Pointer

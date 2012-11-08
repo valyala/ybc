@@ -16,8 +16,6 @@ type debugGuard struct{}
 
 func (dg *debugGuard) Init() {}
 
-func (db *debugGuard) InitNoClose() {}
-
 func (dg *debugGuard) CheckLive() {}
 
 func (dg *debugGuard) Close() {}
@@ -35,16 +33,6 @@ func (cg *cacheGuard) SetIndexFile(indexFile string) {}
 func (cg *cacheGuard) Acquire() {}
 
 func (cg *cacheGuard) Release() {}
-
-/*******************************************************************************
- * clusterCacheGuard
- ******************************************************************************/
-
-type clusterCacheGuard struct{}
-
-func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) { return }
-
-func debugReleaseClusterCache(ccg clusterCacheGuard) {}
 
 /*******************************************************************************
  * misc functions

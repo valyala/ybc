@@ -5,6 +5,7 @@
 package ybc
 
 import (
+	"log"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -16,22 +17,16 @@ import (
  ******************************************************************************/
 
 type debugGuard struct {
-	isLive  bool
-	noClose bool
+	isLive bool
 }
 
 func debugGuardFinalizer(dg *debugGuard) {
-	panic("Unclosed object at destruction time. Forgot calling Close() on the object?")
+	log.Fatalf("Unclosed object=%p at destruction time. Forgot calling Close() on the object?", dg)
 }
 
 func (dg *debugGuard) Init() {
 	dg.init()
 	runtime.SetFinalizer(dg, debugGuardFinalizer)
-}
-
-func (dg *debugGuard) InitNoClose() {
-	dg.init()
-	dg.noClose = true
 }
 
 func (dg *debugGuard) CheckLive() {
@@ -41,9 +36,6 @@ func (dg *debugGuard) CheckLive() {
 }
 
 func (dg *debugGuard) Close() {
-	if dg.noClose {
-		panic("The object cannot be closed!")
-	}
 	dg.CheckLive()
 	dg.isLive = false
 	runtime.SetFinalizer(dg, nil)
@@ -79,8 +71,17 @@ func (cg *cacheGuard) SetIndexFile(indexFile string) {
 }
 
 func (cg *cacheGuard) Acquire() {
+	var err error
+	defer func() {
+		if err != nil {
+			releaseFile(cg.dataFile)
+		}
+	}()
+
 	acquireFile(cg.dataFile)
+	err = errPanic
 	acquireFile(cg.indexFile)
+	err = nil
 }
 
 func (cg *cacheGuard) Release() {
@@ -98,7 +99,7 @@ func acquireFile(filename *string) {
 
 	absFilename := absFile(filename)
 	if acquiredFiles[absFilename] {
-		panic("Cannot open already opened index or data file for the cache!")
+		panic("Cannot open already opened index or data file")
 	}
 	acquiredFiles[absFilename] = true
 }
@@ -113,7 +114,7 @@ func releaseFile(filename *string) {
 
 	absFilename := absFile(filename)
 	if !acquiredFiles[absFilename] {
-		panic("Impossible happened: the given cache file is already closed!")
+		panic("Impossible happened: the given file is already closed!")
 	}
 	delete(acquiredFiles, absFilename)
 }
@@ -124,33 +125,6 @@ func absFile(filename *string) string {
 		panic(err)
 	}
 	return absFilename
-}
-
-/*******************************************************************************
- * clusterCacheGuard
- ******************************************************************************/
-
-type clusterCacheGuard []*cacheGuard
-
-func debugAcquireClusterCache(configs []*Config) (ccg clusterCacheGuard) {
-	defer func() {
-		if r := recover(); r != nil {
-			debugReleaseClusterCache(ccg)
-			panic(r)
-		}
-	}()
-
-	for _, c := range configs {
-		c.cg.Acquire()
-		ccg = append(ccg, &c.cg)
-	}
-	return
-}
-
-func debugReleaseClusterCache(ccg clusterCacheGuard) {
-	for _, cg := range ccg {
-		cg.Release()
-	}
 }
 
 /*******************************************************************************
