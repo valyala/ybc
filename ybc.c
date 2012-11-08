@@ -1886,6 +1886,8 @@ static const size_t M_CONFIG_DEFAULT_HOT_DATA_SIZE = 8 * 1024 * 1024;
 
 static const size_t M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE = 16;
 
+static const size_t M_CONFIG_MAX_DE_HASHTABLE_SIZE = 1024 * 1024;
+
 static const size_t M_CONFIG_DEFAULT_SYNC_INTERVAL = 10 * 1000;
 
 struct ybc_config
@@ -1964,6 +1966,9 @@ void ybc_config_set_de_hashtable_size(struct ybc_config *const config,
 {
   config->de_hashtable_size = ((de_hashtable_size > 0) ? de_hashtable_size :
       M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE);
+  if (config->de_hashtable_size > M_CONFIG_MAX_DE_HASHTABLE_SIZE) {
+    config->de_hashtable_size = M_CONFIG_MAX_DE_HASHTABLE_SIZE;
+  }
 }
 
 void ybc_config_set_sync_interval(struct ybc_config *const config,
