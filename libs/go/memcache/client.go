@@ -123,6 +123,8 @@ type Client struct {
 	MaxPendingRequestsCount int
 	ReadBufferSize          int
 	WriteBufferSize         int
+	OSReadBufferSize        int
+	OSWriteBufferSize       int
 	ReconnectTimeout        time.Duration
 
 	requests chan tasker
@@ -147,6 +149,12 @@ func (c *Client) init() {
 	}
 	if c.WriteBufferSize == 0 {
 		c.WriteBufferSize = defaultWriteBufferSize
+	}
+	if c.OSReadBufferSize == 0 {
+		c.OSReadBufferSize = defaultOSReadBufferSize
+	}
+	if c.OSWriteBufferSize == 0 {
+		c.OSWriteBufferSize = defaultOSWriteBufferSize
 	}
 	if c.ReconnectTimeout == time.Duration(0) {
 		c.ReconnectTimeout = defaultReconnectTimeout

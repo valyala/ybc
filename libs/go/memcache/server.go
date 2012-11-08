@@ -266,10 +266,12 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 }
 
 type Server struct {
-	Cache           ybc.Cacher
-	ListenAddr      string
-	ReadBufferSize  int
-	WriteBufferSize int
+	Cache             ybc.Cacher
+	ListenAddr        string
+	ReadBufferSize    int
+	WriteBufferSize   int
+	OSReadBufferSize  int
+	OSWriteBufferSize int
 
 	listenSocket *net.TCPListener
 	done         *sync.WaitGroup
@@ -282,6 +284,12 @@ func (s *Server) init() {
 	}
 	if s.WriteBufferSize == 0 {
 		s.WriteBufferSize = defaultWriteBufferSize
+	}
+	if s.OSReadBufferSize == 0 {
+		s.OSReadBufferSize = defaultOSReadBufferSize
+	}
+	if s.OSWriteBufferSize == 0 {
+		s.OSWriteBufferSize = defaultOSWriteBufferSize
 	}
 
 	listenAddr, err := net.ResolveTCPAddr("tcp", s.ListenAddr)
@@ -307,11 +315,11 @@ func (s *Server) run() {
 			s.err = err
 			break
 		}
-		if err = conn.SetReadBuffer(s.ReadBufferSize); err != nil {
-			log.Fatal("Cannot set TCP read buffer size to %d: [%s]", s.ReadBufferSize, err)
+		if err = conn.SetReadBuffer(s.OSReadBufferSize); err != nil {
+			log.Fatal("Cannot set TCP read buffer size to %d: [%s]", s.OSReadBufferSize, err)
 		}
-		if err = conn.SetWriteBuffer(s.WriteBufferSize); err != nil {
-			log.Fatal("Cannot set TCP write buffer size to %d: [%s]", s.WriteBufferSize, err)
+		if err = conn.SetWriteBuffer(s.OSWriteBufferSize); err != nil {
+			log.Fatal("Cannot set TCP write buffer size to %d: [%s]", s.OSWriteBufferSize, err)
 		}
 		connsDone.Add(1)
 		go handleConn(conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, connsDone)
