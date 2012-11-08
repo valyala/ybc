@@ -1,5 +1,5 @@
 CC = gcc
-GOCC = go
+GOCC = GOMAXPROCS=4 go
 
 PWD = `pwd`
 
