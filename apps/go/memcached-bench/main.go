@@ -16,6 +16,8 @@ var (
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	key                     = flag.String("key", "key", "The key to query in memcache. The memcache must miss this key")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests")
+	osReadBufferSize        = flag.Int("osReadBufferSize", 4096, "The size of read buffer in bytes in OS")
+	osWriteBufferSize       = flag.Int("osWriteBufferSize", 4096, "The size of write buffer in bytes in OS")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
 	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes")
 	workersCount            = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
@@ -44,6 +46,8 @@ func main() {
 		MaxPendingRequestsCount: *maxPendingRequestsCount,
 		ReadBufferSize:          *readBufferSize,
 		WriteBufferSize:         *writeBufferSize,
+		OSReadBufferSize:        *osReadBufferSize,
+		OSWriteBufferSize:       *osWriteBufferSize,
 	}
 	client.Start()
 	defer client.Stop()
@@ -54,6 +58,8 @@ func main() {
 	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
 	fmt.Printf("key=[%s]\n", *key)
 	fmt.Printf("maxPendingRequestsCount=[%d]\n", *maxPendingRequestsCount)
+	fmt.Printf("osReadBufferSize=[%d]\n", *osReadBufferSize)
+	fmt.Printf("osWriteBufferSize=[%d]\n", *osWriteBufferSize)
 	fmt.Printf("requestsCount=[%d]\n", *requestsCount)
 	fmt.Printf("readBufferSize=[%d]\n", *readBufferSize)
 	fmt.Printf("workersCount=[%d]\n", *workersCount)
