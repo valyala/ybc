@@ -107,14 +107,6 @@ go-tests-release:
 
 go-tests: go-tests-debug go-tests-release
 
-go-perftests-debug:
-	$(GOCC) test -a -test.bench=".*" ./libs/go/memcache
-
-go-perftests-release:
-	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
-
-go-perftests: go-perftests-debug go-perftests-release
-
 valgrind-tests: build-tests-shared-debug build-tests-shared-release
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-debug
 	valgrind $(VALGRIND_FLAGS) tests/functional-shared-release
@@ -124,6 +116,9 @@ perftests: build-perftests
 	tests/performance-64-debug
 	tests/performance-32-release
 	tests/performance-64-release
+
+go-perftests:
+	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
 
 go-memcached-debug:
 	$(GOCC) build -o memcached-debug -a ./apps/go/memcached

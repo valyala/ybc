@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -130,7 +130,7 @@ type Client struct {
 }
 
 type Item struct {
-	Key        string
+	Key        []byte
 	Value      []byte
 	Expiration int
 }
@@ -188,6 +188,26 @@ func (c *Client) Stop() {
 	c.done = nil
 }
 
+
+var doneChansPool = make(chan (chan bool), 1024)
+
+func acquireDoneChan() chan bool {
+	select {
+	case done := <-doneChansPool:
+		return done
+	default:
+		return make(chan bool, 1)
+	}
+	panic("unreachable")
+}
+
+func releaseDoneChan(done chan bool) {
+	select {
+	case doneChansPool <- done:
+	default:
+	}
+}
+
 type taskSync struct {
 	done chan bool
 }
@@ -197,17 +217,19 @@ func (t *taskSync) Done(ok bool) {
 }
 
 func (t *taskSync) Wait() bool {
-	return <-t.done
+	ok := <-t.done
+	releaseDoneChan(t.done)
+	return ok
 }
 
 type taskGetMulti struct {
-	keys  []string
-	items map[string]*Item
+	keys  [][]byte
+	items []Item
 	taskSync
 }
 
 func readValueResponse(line []byte) (key []byte, size int, ok bool) {
-	if !bytes.Equal(line[:6], []byte("VALUE ")) {
+	if !bytes.Equal(line[:6], strValue) {
 		log.Printf("Unexpected start of line: [%s]. Expected [VALUE ]", line[:6])
 		ok = false
 		return
@@ -244,21 +266,21 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	return
 }
 
-func readItem(r *bufio.Reader, keys []string, lineBuf *[]byte) (item *Item, ok bool) {
+func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte, item *Item) (ok bool, eof bool) {
 	if !readLine(r, lineBuf) {
 		ok = false
 		return
 	}
 	line := *lineBuf
-	if bytes.Equal(line, []byte("END")) {
+	if bytes.Equal(line, strEnd) {
 		ok = true
+		eof = true
 		return
 	}
 
-	var key []byte
-	var size int
-	key, size, ok = readValueResponse(line)
+	key, size, ok := readValueResponse(line)
 	if !ok {
+		ok = false
 		return
 	}
 	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+2))
@@ -267,34 +289,31 @@ func readItem(r *bufio.Reader, keys []string, lineBuf *[]byte) (item *Item, ok b
 		ok = false
 		return
 	}
-	if !bytes.HasSuffix(value, []byte("\r\n")) {
+	if !bytes.HasSuffix(value, strCrLf) {
 		log.Printf("There is no crlf found in 'get' response value for key=[%s]", item.Key)
 		ok = false
 		return
 	}
-	item = &Item{
-		Key:   string(key),
-		Value: value[:size],
-	}
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+	item.Key = keyCopy
+	item.Value = value[:size]
 	ok = true
 	return
 }
 
 func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
-	_, err := w.Write([]byte("gets "))
-	if err != nil {
+	if _, err := w.Write(strGets); err != nil {
 		log.Printf("Cannot issue 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
 	}
 	for _, key := range t.keys {
-		_, err = w.Write([]byte(key))
-		if err != nil {
+		if _, err := w.Write(key); err != nil {
 			log.Printf("Cannot send key=[%s] in 'gets' request: [%s]", key, err)
 			return false
 		}
 	}
-	_, err = w.Write([]byte("\r\n"))
-	if err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Cannot write \\r\\n in the end of 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
 	}
@@ -302,29 +321,29 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
 }
 
 func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	items := t.items
+	var item Item
 	for {
-		item, ok := readItem(r, t.keys, lineBuf)
+		ok, eof := readItem(r, t.keys, lineBuf, &item)
 		if !ok {
 			return false
 		}
-		if item == nil {
+		if eof {
 			break
 		}
-		items[item.Key] = item
+		t.items = append(t.items, item)
 	}
 	return true
 }
 
-func (c *Client) GetMulti(keys []string) (items map[string]*Item, err error) {
-	t := &taskGetMulti{
+func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
+	t := taskGetMulti{
 		keys:  keys,
-		items: make(map[string]*Item, len(keys)),
+		items: make([]Item, 0, len(keys)),
 		taskSync: taskSync{
-			done: make(chan bool, 1),
+			done: acquireDoneChan(),
 		},
 	}
-	if !c.do(t) {
+	if !c.do(&t) {
 		err = ErrCommunicationFailure
 		return
 	}
@@ -333,25 +352,22 @@ func (c *Client) GetMulti(keys []string) (items map[string]*Item, err error) {
 }
 
 type taskGet struct {
-	key  string
-	item *Item
+	item      *Item
+	itemFound bool
 	taskSync
 }
 
 func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
-	_, err := w.Write([]byte("get "))
-	if err != nil {
-		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.key, err)
+	if _, err := w.Write(strGet); err != nil {
+		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
 	}
-	_, err = w.Write([]byte(t.key))
-	if err != nil {
-		log.Printf("Cannot issue key=[%s] for 'get' request: [%s]", t.key, err)
+	if _, err := w.Write(t.item.Key); err != nil {
+		log.Printf("Cannot issue key=[%s] for 'get' request: [%s]", t.item.Key, err)
 		return false
 	}
-	_, err = w.Write([]byte("\r\n"))
-	if err != nil {
-		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.key, err)
+	if _, err := w.Write(strCrLf); err != nil {
+		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
 	}
 	return true
@@ -362,50 +378,46 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 		return false
 	}
 	line := *lineBuf
-	if bytes.Equal(line, []byte("END")) {
+	if bytes.Equal(line, strEnd) {
 		return true
 	}
 	key, size, ok := readValueResponse(line)
 	if !ok {
 		return false
 	}
-	if !bytes.Equal(key, []byte(t.key)) {
-		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.key)
+	if !bytes.Equal(key, t.item.Key) {
+		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.item.Key)
 		return false
 	}
 	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
 	if err != nil {
-		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", t.key, err)
+		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
 		return false
 	}
-	if !bytes.HasSuffix(value, []byte("\r\nEND\r\n")) {
-		log.Printf("There is no crlf found in 'get' response value for key=[%s]", t.key)
+	if !bytes.HasSuffix(value, strCrLfEndCrLf) {
+		log.Printf("There is no crlf found in 'get' response value for key=[%s]", key)
 		return false
 	}
-	t.item = &Item{
-		Key:   t.key,
-		Value: value[:size],
-	}
+	t.item.Value = value[:size]
+	t.itemFound = true
 	return true
 }
 
-func (c *Client) Get(key string) (item *Item, err error) {
-	t := &taskGet{
-		key: key,
+func (c *Client) Get(item *Item) error {
+	t := taskGet{
+		item:      item,
+		itemFound: false,
 		taskSync: taskSync{
-			done: make(chan bool, 1),
+			done: acquireDoneChan(),
 		},
 	}
-	if !c.do(t) {
-		err = ErrCommunicationFailure
-		return
+	if !c.do(&t) {
+		return ErrCommunicationFailure
 	}
-	if t.item == nil {
-		err = ErrCacheMiss
-		return
+	if !t.itemFound {
+		return ErrCacheMiss
 	}
-	item = t.item
-	return
+	return nil
 }
 
 type taskSet struct {
@@ -413,22 +425,47 @@ type taskSet struct {
 	taskSync
 }
 
-func writeSetRequest(w *bufio.Writer, item *Item, isNoreply bool) bool {
-	noreply := ""
-	if isNoreply {
-		noreply = " noreply"
-	}
-	_, err := fmt.Fprintf(w, "set %s 0 %d %d%s\r\n",
-		item.Key, item.Expiration, len(item.Value), noreply)
-	if err != nil {
-		log.Printf("Cannot issue 'set' request for key=[%s], len(value)=%d: [%s]", item.Key, len(item.Value), err)
+func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
+	if _, err := w.Write(strSet); err != nil {
+		log.Printf("Cannot issue 'set' request for key=[%s]: [%s]", item.Key, err)
 		return false
 	}
-	if _, err = w.Write(item.Value); err != nil {
+	if _, err := w.Write(item.Key); err != nil {
+		log.Printf("Cannot write key=[%s] into 'set' request: [%s]", item.Key, err)
+		return false
+	}
+	if _, err := w.Write(strZero); err != nil {
+		log.Printf("Cannot write ' 0 ' into 'set' request: [%s]", err)
+		return false
+	}
+	if _, err := w.Write([]byte(strconv.Itoa(item.Expiration))); err != nil {
+		log.Printf("Cannot write expiration into 'set' request: [%s]", err)
+		return false
+	}
+	if _, err := w.Write([]byte{' '}); err != nil {
+		log.Printf("Cannot write ' ' into 'set' request: [%s]", err)
+		return false
+	}
+	size := len(item.Value)
+	if _, err := w.Write([]byte(strconv.Itoa(size))); err != nil {
+		log.Printf("Cannot write iltem size=%d into 'set' request: [%s]", size, err)
+		return false
+	}
+	if noreply {
+		if _, err := w.Write(strWsNoreply); err != nil {
+			log.Printf("Cannot write ' noreply' into 'set' request: [%s]", err)
+			return false
+		}
+	}
+	if _, err := w.Write(strCrLf); err != nil {
+		log.Printf("Cannot write \\r\\n into 'set' request: [%s]", err)
+		return false
+	}
+	if _, err := w.Write(item.Value); err != nil {
 		log.Printf("Error when sending value in 'set' request for key=[%s]. len(value)=%d: [%s]", item.Key, len(item.Value), err)
 		return false
 	}
-	if _, err = w.Write([]byte("\r\n")); err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Error when sending crlf for 'set' request for key=[%s]: [%s]", item.Key, err)
 		return false
 	}
@@ -444,7 +481,7 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 		return false
 	}
 	line := *lineBuf
-	if !bytes.Equal(line, []byte("STORED")) {
+	if !bytes.Equal(line, strStored) {
 		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d: [%s]", t.item.Key, len(t.item.Value), line)
 		return false
 	}
@@ -452,13 +489,13 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) Set(item *Item) (err error) {
-	t := &taskSet{
+	t := taskSet{
 		item: item,
 		taskSync: taskSync{
-			done: make(chan bool, 1),
+			done: acquireDoneChan(),
 		},
 	}
-	if !c.do(t) {
+	if !c.do(&t) {
 		err = ErrCommunicationFailure
 		return
 	}
@@ -487,8 +524,8 @@ func (t *taskSetNowait) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 }
 
 func (c *Client) SetNowait(item *Item) {
-	t := &taskSetNowait{
+	t := taskSetNowait{
 		item: item,
 	}
-	c.do(t)
+	c.do(&t)
 }
