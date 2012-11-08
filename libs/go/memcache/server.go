@@ -50,29 +50,24 @@ func protocolError(w *bufio.Writer) {
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
-	_, err := w.Write(strValue)
-	if err != nil {
+	if _, err := w.Write(strValue); err != nil {
 		log.Printf("Error when writing VALUE response: [%s]", err)
 		return false
 	}
-	_, err = w.Write(key)
-	if err != nil {
+	if _, err := w.Write(key); err != nil {
 		log.Printf("Error when writing key=[%s] to 'get' response: [%s]", key, err)
 		return false
 	}
-	_, err = w.Write(strZero)
-	if err != nil {
+	if _, err := w.Write(strZero); err != nil {
 		log.Printf("Error when writing ' 0 ' to 'get' response: [%s]", err)
 		return false
 	}
 	size := item.Size()
-	_, err = w.Write([]byte(strconv.Itoa(size)))
-	if err != nil {
+	if _, err := w.Write([]byte(strconv.Itoa(size))); err != nil {
 		log.Printf("Error when writing size=[%d] to 'get' response: [%s]", size, err)
 		return false
 	}
-	_, err = w.Write(strZeroCrLf)
-	if err != nil {
+	if _, err := w.Write(strZeroCrLf); err != nil {
 		log.Printf("Error when writing 0\\r\\n to 'get' response: [%s]", err)
 		return false
 	}
@@ -85,8 +80,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 		log.Printf("Invalid length of payload=[%d]. Expected [%d]", n, size)
 		return false
 	}
-	_, err = w.Write(strCrLf)
-	if err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Error when writing \\r\\n to response: [%s]", err)
 		return false
 	}
@@ -126,8 +120,7 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 		}
 	}
 
-	_, err := c.Write(strEndCrLf)
-	if err != nil {
+	if _, err := c.Write(strEndCrLf); err != nil {
 		log.Printf("Error when writing END to response: [%s]", err)
 		return false
 	}
@@ -221,8 +214,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 		return false
 	}
 	if !noreply {
-		_, err = c.Write(strStoredCrLf)
-		if err != nil {
+		if _, err := c.Write(strStoredCrLf); err != nil {
 			log.Printf("Error when writing response: [%s]", err)
 			return false
 		}

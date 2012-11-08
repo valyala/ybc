@@ -45,13 +45,13 @@ func BenchmarkClientServer_Set(b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	item := &Item{
+	item := Item{
 		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
 
 	for i := 0; i < b.N; i++ {
-		err := c.Set(item)
+		err := c.Set(&item)
 		if err != nil {
 			b.Fatalf("Error in client.Set(): [%s]", err)
 		}
@@ -65,18 +65,16 @@ func BenchmarkClientServer_GetHit(b *testing.B) {
 	defer c.Stop()
 
 	key := []byte("key")
-	item := &Item{
+	item := Item{
 		Key:   key,
 		Value: []byte("value"),
 	}
-	err := c.Set(item)
-	if err != nil {
+	if err := c.Set(&item); err != nil {
 		b.Fatalf("Error in client.Set(): [%s]", err)
 	}
 
 	for i := 0; i < b.N; i++ {
-		_, err := c.Get(key)
-		if err != nil {
+		if err := c.Get(&item); err != nil {
 			b.Fatalf("Error in client.Get(): [%s]", err)
 		}
 	}
@@ -88,11 +86,12 @@ func BenchmarkClientServer_GetMiss(b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	key := []byte("key")
+	item := Item{
+		Key: []byte("key"),
+	}
 
 	for i := 0; i < b.N; i++ {
-		_, err := c.Get(key)
-		if err != ErrCacheMiss {
+		if err := c.Get(&item); err != ErrCacheMiss {
 			b.Fatalf("Unexpected error in client.Get(): [%s]", err)
 		}
 	}
@@ -105,12 +104,11 @@ func getMulti(batchSize int, b *testing.B) {
 	defer c.Stop()
 
 	key := []byte("key")
-	item := &Item{
+	item := Item{
 		Key:   key,
 		Value: []byte("value"),
 	}
-	err := c.Set(item)
-	if err != nil {
+	if err := c.Set(&item); err != nil {
 		b.Fatalf("Error in client.Set(): [%s]", err)
 	}
 
@@ -120,9 +118,8 @@ func getMulti(batchSize int, b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i += batchSize {
-		_, err := c.GetMulti(keys)
-		if err != nil {
-			b.Fatalf("Error in client.Get(): [%s]", err)
+		if _, err := c.GetMulti(keys); err != nil {
+			b.Fatalf("Error in client.GetMulti(): [%s]", err)
 		}
 	}
 }
@@ -161,13 +158,13 @@ func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
 	defer s.Stop()
 	defer c.Stop()
 
-	item := &Item{
+	item := Item{
 		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
 
 	for i := 0; i < b.N; i++ {
-		c.SetNowait(item)
+		c.SetNowait(&item)
 	}
 }
 
@@ -239,13 +236,12 @@ func concurrentOps(workerFunc WorkerFunc, workersCount int, b *testing.B) {
 
 func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := &Item{
+	item := Item{
 		Key:   []byte(fmt.Sprintf("key_%d", i)),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
 	for _ = range ch {
-		err := c.Set(item)
-		if err != nil {
+		if err := c.Set(&item); err != nil {
 			b.Fatalf("Error when calling channel.Set(): [%s]", err)
 		}
 	}
@@ -285,17 +281,15 @@ func BenchmarkClientServer_ConcurrentSet_64Workers(b *testing.B) {
 
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := &Item{
+	item := Item{
 		Key:   []byte(fmt.Sprintf("key_%d", i)),
 		Value: []byte(fmt.Sprintf("value_%d", i)),
 	}
-	err := c.Set(item)
-	if err != nil {
+	if err := c.Set(&item); err != nil {
 		b.Fatalf("Error when calling channel.Set(): [%s]", err)
 	}
 	for _ = range ch {
-		_, err := c.Get(item.Key)
-		if err != nil {
+		if err := c.Get(&item); err != nil {
 			b.Fatalf("Error when calling channel.Get(): [%s]", err)
 		}
 	}

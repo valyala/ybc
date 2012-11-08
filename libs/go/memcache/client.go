@@ -202,7 +202,7 @@ func (t *taskSync) Wait() bool {
 
 type taskGetMulti struct {
 	keys  [][]byte
-	items []*Item
+	items []Item
 	taskSync
 }
 
@@ -244,7 +244,7 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	return
 }
 
-func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte) (item *Item, ok bool) {
+func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte, item *Item) (ok bool, eof bool) {
 	if !readLine(r, lineBuf) {
 		ok = false
 		return
@@ -252,13 +252,13 @@ func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte) (item *Item, ok b
 	line := *lineBuf
 	if bytes.Equal(line, strEnd) {
 		ok = true
+		eof = true
 		return
 	}
 
-	var key []byte
-	var size int
-	key, size, ok = readValueResponse(line)
+	key, size, ok := readValueResponse(line)
 	if !ok {
+		ok = false
 		return
 	}
 	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+2))
@@ -274,29 +274,24 @@ func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte) (item *Item, ok b
 	}
 	keyCopy := make([]byte, len(key))
 	copy(keyCopy, key)
-	item = &Item{
-		Key:   keyCopy,
-		Value: value[:size],
-	}
+	item.Key = keyCopy
+	item.Value = value[:size]
 	ok = true
 	return
 }
 
 func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
-	_, err := w.Write(strGets)
-	if err != nil {
+	if _, err := w.Write(strGets); err != nil {
 		log.Printf("Cannot issue 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
 	}
 	for _, key := range t.keys {
-		_, err = w.Write(key)
-		if err != nil {
+		if _, err := w.Write(key); err != nil {
 			log.Printf("Cannot send key=[%s] in 'gets' request: [%s]", key, err)
 			return false
 		}
 	}
-	_, err = w.Write(strCrLf)
-	if err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Cannot write \\r\\n in the end of 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
 	}
@@ -304,12 +299,13 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
 }
 
 func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
+	var item Item
 	for {
-		item, ok := readItem(r, t.keys, lineBuf)
+		ok, eof := readItem(r, t.keys, lineBuf, &item)
 		if !ok {
 			return false
 		}
-		if item == nil {
+		if eof {
 			break
 		}
 		t.items = append(t.items, item)
@@ -317,10 +313,10 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	return true
 }
 
-func (c *Client) GetMulti(keys [][]byte) (items []*Item, err error) {
+func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 	t := &taskGetMulti{
 		keys:  keys,
-		items: make([]*Item, 0, len(keys)),
+		items: make([]Item, 0, len(keys)),
 		taskSync: taskSync{
 			done: make(chan bool, 1),
 		},
@@ -334,25 +330,22 @@ func (c *Client) GetMulti(keys [][]byte) (items []*Item, err error) {
 }
 
 type taskGet struct {
-	key  []byte
-	item *Item
+	item      *Item
+	itemFound bool
 	taskSync
 }
 
 func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
-	_, err := w.Write(strGet)
-	if err != nil {
-		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.key, err)
+	if _, err := w.Write(strGet); err != nil {
+		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
 	}
-	_, err = w.Write(t.key)
-	if err != nil {
-		log.Printf("Cannot issue key=[%s] for 'get' request: [%s]", t.key, err)
+	if _, err := w.Write(t.item.Key); err != nil {
+		log.Printf("Cannot issue key=[%s] for 'get' request: [%s]", t.item.Key, err)
 		return false
 	}
-	_, err = w.Write(strCrLf)
-	if err != nil {
-		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.key, err)
+	if _, err := w.Write(strCrLf); err != nil {
+		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
 	}
 	return true
@@ -370,43 +363,39 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
-	if !bytes.Equal(key, t.key) {
-		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.key)
+	if !bytes.Equal(key, t.item.Key) {
+		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.item.Key)
 		return false
 	}
 	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
 	if err != nil {
-		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", t.key, err)
+		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
 		return false
 	}
 	if !bytes.HasSuffix(value, strCrLfEndCrLf) {
-		log.Printf("There is no crlf found in 'get' response value for key=[%s]", t.key)
+		log.Printf("There is no crlf found in 'get' response value for key=[%s]", key)
 		return false
 	}
-	t.item = &Item{
-		Key:   t.key,
-		Value: value[:size],
-	}
+	t.item.Value = value[:size]
+	t.itemFound = true
 	return true
 }
 
-func (c *Client) Get(key []byte) (item *Item, err error) {
+func (c *Client) Get(item *Item) error {
 	t := &taskGet{
-		key: key,
+		item:      item,
+		itemFound: false,
 		taskSync: taskSync{
 			done: make(chan bool, 1),
 		},
 	}
 	if !c.do(t) {
-		err = ErrCommunicationFailure
-		return
+		return ErrCommunicationFailure
 	}
-	if t.item == nil {
-		err = ErrCacheMiss
-		return
+	if !t.itemFound {
+		return ErrCacheMiss
 	}
-	item = t.item
-	return
+	return nil
 }
 
 type taskSet struct {
@@ -415,54 +404,46 @@ type taskSet struct {
 }
 
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
-	_, err := w.Write(strSet)
-	if err != nil {
+	if _, err := w.Write(strSet); err != nil {
 		log.Printf("Cannot issue 'set' request for key=[%s]: [%s]", item.Key, err)
 		return false
 	}
-	_, err = w.Write(item.Key)
-	if err != nil {
+	if _, err := w.Write(item.Key); err != nil {
 		log.Printf("Cannot write key=[%s] into 'set' request: [%s]", item.Key, err)
 		return false
 	}
-	_, err = w.Write(strZero)
-	if err != nil {
+	if _, err := w.Write(strZero); err != nil {
 		log.Printf("Cannot write ' 0 ' into 'set' request: [%s]", err)
 		return false
 	}
-	_, err = w.Write([]byte(strconv.Itoa(item.Expiration)))
-	if err != nil {
+	if _, err := w.Write([]byte(strconv.Itoa(item.Expiration))); err != nil {
 		log.Printf("Cannot write expiration into 'set' request: [%s]", err)
 		return false
 	}
-	_, err = w.Write([]byte{' '})
-	if err != nil {
+	if _, err := w.Write([]byte{' '}); err != nil {
 		log.Printf("Cannot write ' ' into 'set' request: [%s]", err)
 		return false
 	}
 	size := len(item.Value)
-	_, err = w.Write([]byte(strconv.Itoa(size)))
-	if err != nil {
+	if _, err := w.Write([]byte(strconv.Itoa(size))); err != nil {
 		log.Printf("Cannot write iltem size=%d into 'set' request: [%s]", size, err)
 		return false
 	}
 	if noreply {
-		_, err = w.Write(strWsNoreply)
-		if err != nil {
+		if _, err := w.Write(strWsNoreply); err != nil {
 			log.Printf("Cannot write ' noreply' into 'set' request: [%s]", err)
 			return false
 		}
 	}
-	_, err = w.Write(strCrLf)
-	if err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Cannot write \\r\\n into 'set' request: [%s]", err)
 		return false
 	}
-	if _, err = w.Write(item.Value); err != nil {
+	if _, err := w.Write(item.Value); err != nil {
 		log.Printf("Error when sending value in 'set' request for key=[%s]. len(value)=%d: [%s]", item.Key, len(item.Value), err)
 		return false
 	}
-	if _, err = w.Write(strCrLf); err != nil {
+	if _, err := w.Write(strCrLf); err != nil {
 		log.Printf("Error when sending crlf for 'set' request for key=[%s]: [%s]", item.Key, err)
 		return false
 	}
