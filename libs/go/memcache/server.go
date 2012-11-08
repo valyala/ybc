@@ -50,7 +50,7 @@ func protocolError(w *bufio.Writer) {
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
-	_, err := w.Write([]byte("VALUE "))
+	_, err := w.Write(strValue)
 	if err != nil {
 		log.Printf("Error when writing VALUE response: [%s]", err)
 		return false
@@ -60,7 +60,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 		log.Printf("Error when writing key=[%s] to 'get' response: [%s]", key, err)
 		return false
 	}
-	_, err = w.Write([]byte(" 0 "))
+	_, err = w.Write(strZero)
 	if err != nil {
 		log.Printf("Error when writing ' 0 ' to 'get' response: [%s]", err)
 		return false
@@ -71,7 +71,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 		log.Printf("Error when writing size=[%d] to 'get' response: [%s]", size, err)
 		return false
 	}
-	_, err = w.Write([]byte(" 0\r\n"))
+	_, err = w.Write(strZeroCrLf)
 	if err != nil {
 		log.Printf("Error when writing 0\\r\\n to 'get' response: [%s]", err)
 		return false
@@ -85,7 +85,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 		log.Printf("Invalid length of payload=[%d]. Expected [%d]", n, size)
 		return false
 	}
-	_, err = w.Write([]byte("\r\n"))
+	_, err = w.Write(strCrLf)
 	if err != nil {
 		log.Printf("Error when writing \\r\\n to response: [%s]", err)
 		return false
@@ -126,7 +126,7 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 		}
 	}
 
-	_, err := c.Write([]byte("END\r\n"))
+	_, err := c.Write(strEndCrLf)
 	if err != nil {
 		log.Printf("Error when writing END to response: [%s]", err)
 		return false
@@ -192,7 +192,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 	}
 	noreply := false
 	if cmd.noreply != nil {
-		if !bytes.Equal(cmd.noreply, []byte("noreply")) {
+		if !bytes.Equal(cmd.noreply, strNoreply) {
 			clientError(c.Writer, "unrecognized noreply")
 			return false
 		}
@@ -221,7 +221,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 		return false
 	}
 	if !noreply {
-		_, err = c.Write([]byte("STORED\r\n"))
+		_, err = c.Write(strStoredCrLf)
 		if err != nil {
 			log.Printf("Error when writing response: [%s]", err)
 			return false
@@ -239,13 +239,13 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, lineBuf *[]byte, cmd 
 	if len(line) == 0 {
 		return false
 	}
-	if bytes.HasPrefix(line, []byte("get ")) {
+	if bytes.HasPrefix(line, strGet) {
 		return processGetCmd(c, cache, line[4:])
 	}
-	if bytes.HasPrefix(line, []byte("gets ")) {
+	if bytes.HasPrefix(line, strGets) {
 		return processGetCmd(c, cache, line[5:])
 	}
-	if bytes.HasPrefix(line, []byte("set ")) {
+	if bytes.HasPrefix(line, strSet) {
 		return processSetCmd(c, cache, line[4:], cmd)
 	}
 	log.Printf("Unrecognized command=[%s]", line)
