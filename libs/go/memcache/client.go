@@ -188,6 +188,26 @@ func (c *Client) Stop() {
 	c.done = nil
 }
 
+
+var doneChansPool = make(chan (chan bool), 1024)
+
+func acquireDoneChan() chan bool {
+	select {
+	case done := <-doneChansPool:
+		return done
+	default:
+		return make(chan bool, 1)
+	}
+	panic("unreachable")
+}
+
+func releaseDoneChan(done chan bool) {
+	select {
+	case doneChansPool <- done:
+	default:
+	}
+}
+
 type taskSync struct {
 	done chan bool
 }
@@ -197,7 +217,10 @@ func (t *taskSync) Done(ok bool) {
 }
 
 func (t *taskSync) Wait() bool {
-	return <-t.done
+	t.done = acquireDoneChan()
+	ok := <-t.done
+	releaseDoneChan(t.done)
+	return ok
 }
 
 type taskGetMulti struct {
@@ -317,9 +340,6 @@ func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 	t := taskGetMulti{
 		keys:  keys,
 		items: make([]Item, 0, len(keys)),
-		taskSync: taskSync{
-			done: make(chan bool, 1),
-		},
 	}
 	if !c.do(&t) {
 		err = ErrCommunicationFailure
@@ -385,9 +405,6 @@ func (c *Client) Get(item *Item) error {
 	t := taskGet{
 		item:      item,
 		itemFound: false,
-		taskSync: taskSync{
-			done: make(chan bool, 1),
-		},
 	}
 	if !c.do(&t) {
 		return ErrCommunicationFailure
@@ -469,9 +486,6 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 func (c *Client) Set(item *Item) (err error) {
 	t := taskSet{
 		item: item,
-		taskSync: taskSync{
-			done: make(chan bool, 1),
-		},
 	}
 	if !c.do(&t) {
 		err = ErrCommunicationFailure
