@@ -3,11 +3,12 @@ package memcache
 import (
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
+	"math/rand"
 	"sync"
 	"testing"
 )
 
-func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
+func newBenchClientServerCache_Ext(buffersSize, osBuffersSize, maxPendingRequestsCount int, b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
 	config := ybc.Config{
 		MaxItemsCount: 1000 * 1000,
 		DataFileSize:  10 * 1000 * 1000,
@@ -19,10 +20,12 @@ func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *
 	}
 
 	s = &Server{
-		Cache:           cache,
-		ListenAddr:      testAddr,
-		ReadBufferSize:  buffersSize,
-		WriteBufferSize: buffersSize,
+		Cache:             cache,
+		ListenAddr:        testAddr,
+		ReadBufferSize:    buffersSize,
+		WriteBufferSize:   buffersSize,
+		OSReadBufferSize:  osBuffersSize,
+		OSWriteBufferSize: osBuffersSize,
 	}
 	s.Start()
 
@@ -30,6 +33,8 @@ func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *
 		ConnectAddr:             testAddr,
 		ReadBufferSize:          buffersSize,
 		WriteBufferSize:         buffersSize,
+		OSReadBufferSize:        osBuffersSize,
+		OSWriteBufferSize:       osBuffersSize,
 		MaxPendingRequestsCount: maxPendingRequestsCount,
 	}
 	c.Start()
@@ -38,7 +43,7 @@ func newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount int, b *
 }
 
 func newBenchClientServerCache(b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
-	return newBenchClientServerCache_Ext(0, 0, b)
+	return newBenchClientServerCache_Ext(0, 0, 0, b)
 }
 
 func BenchmarkClientServer_Set(b *testing.B) {
@@ -154,8 +159,8 @@ func BenchmarkClientServer_GetMulti_64Items(b *testing.B) {
 	getMulti(64, b)
 }
 
-func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
-	c, s, cache := newBenchClientServerCache_Ext(buffersSize, maxPendingRequestsCount, b)
+func setNowait(buffersSize, osBuffersSize, maxPendingRequestsCount int, b *testing.B) {
+	c, s, cache := newBenchClientServerCache_Ext(buffersSize, osBuffersSize, maxPendingRequestsCount, b)
 	defer cache.Close()
 	defer s.Stop()
 	defer c.Stop()
@@ -171,51 +176,75 @@ func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
 }
 
 func BenchmarkClientServer_SetNowait_4KBuffers(b *testing.B) {
-	setNowait(4*1024, 0, b)
+	setNowait(4*1024, 0, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_8KBuffers(b *testing.B) {
-	setNowait(8*1024, 0, b)
+	setNowait(8*1024, 0, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_16KBuffers(b *testing.B) {
-	setNowait(16*1024, 0, b)
+	setNowait(16*1024, 0, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_32KBuffers(b *testing.B) {
-	setNowait(32*1024, 0, b)
+	setNowait(32*1024, 0, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_64KBuffers(b *testing.B) {
-	setNowait(64*1024, 0, b)
+	setNowait(64*1024, 0, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_128KBuffers(b *testing.B) {
-	setNowait(128*1024, 0, b)
+	setNowait(128*1024, 0, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_8KOSBuffers(b *testing.B) {
+	setNowait(0, 8*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_16KOSBuffers(b *testing.B) {
+	setNowait(0, 16*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_32KOSBuffers(b *testing.B) {
+	setNowait(0, 32*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_64KOSBuffers(b *testing.B) {
+	setNowait(0, 64*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_128KOSBuffers(b *testing.B) {
+	setNowait(0, 128*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_256KOSBuffers(b *testing.B) {
+	setNowait(0, 256*1024, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_32PendingRequests(b *testing.B) {
-	setNowait(0, 32, b)
+	setNowait(0, 0, 32, b)
 }
 
 func BenchmarkClientServer_SetNowait_64PendingRequests(b *testing.B) {
-	setNowait(0, 64, b)
+	setNowait(0, 0, 64, b)
 }
 
 func BenchmarkClientServer_SetNowait_128PendingRequests(b *testing.B) {
-	setNowait(0, 128, b)
+	setNowait(0, 0, 128, b)
 }
 
 func BenchmarkClientServer_SetNowait_256PendingRequests(b *testing.B) {
-	setNowait(0, 256, b)
+	setNowait(0, 0, 256, b)
 }
 
 func BenchmarkClientServer_SetNowait_512PendingRequests(b *testing.B) {
-	setNowait(0, 512, b)
+	setNowait(0, 0, 512, b)
 }
 
 func BenchmarkClientServer_SetNowait_1KPendingRequests(b *testing.B) {
-	setNowait(0, 1024, b)
+	setNowait(0, 0, 1024, b)
 }
 
 type WorkerFunc func(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
@@ -285,6 +314,10 @@ func BenchmarkClientServer_ConcurrentSet_64Workers(b *testing.B) {
 	concurrentSet(64, b)
 }
 
+func BenchmarkClientServer_ConcurrentSet_128Workers(b *testing.B) {
+	concurrentSet(128, b)
+}
+
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := Item{
@@ -331,6 +364,10 @@ func BenchmarkClientServer_ConcurrentGet_32Workers(b *testing.B) {
 
 func BenchmarkClientServer_ConcurrentGet_64Workers(b *testing.B) {
 	concurrentGet(64, b)
+}
+
+func BenchmarkClientServer_ConcurrentGet_128Workers(b *testing.B) {
+	concurrentGet(128, b)
 }
 
 func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
@@ -382,3 +419,74 @@ func BenchmarkClientServer_ConcurrentGetDe_64Workers(b *testing.B) {
 	concurrentGetDe(64, b)
 }
 
+func BenchmarkClientServer_ConcurrentGetDe_128Workers(b *testing.B) {
+	concurrentGetDe(128, b)
+}
+
+var keyChars = []byte("0123456789qwertyuiopasdfghjklzxcvbnm")
+
+func randFill(b []byte) {
+	for i := 0; i < len(b); i++ {
+		b[i] = keyChars[rand.Int()%len(keyChars)]
+	}
+}
+
+func getSetWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+	defer wg.Done()
+	item := Item{
+		Key:   make([]byte, 16),
+		Value: make([]byte, 16),
+	}
+	randFill(item.Value)
+
+	for _ = range ch {
+		randFill(item.Key)
+		if (rand.Int() & 0x1) == 0 {
+			// get operation
+			if err := c.Get(&item); err == ErrCommunicationFailure {
+				b.Fatalf("Error when calling Client.Get(): [%s]", err)
+			}
+		} else {
+			// set operation
+			if err := c.Set(&item); err == ErrCommunicationFailure {
+				b.Fatalf("Error when calling Client.Set(): [%s]", err)
+			}
+		}
+	}
+}
+
+func concurrentGetSet(workersCount int, b *testing.B) {
+	concurrentOps(getSetWorker, workersCount, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_1Workers(b *testing.B) {
+	concurrentGetSet(1, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_2Workers(b *testing.B) {
+	concurrentGetSet(2, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_4Workers(b *testing.B) {
+	concurrentGetSet(4, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_8Workers(b *testing.B) {
+	concurrentGetSet(8, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_16Workers(b *testing.B) {
+	concurrentGetSet(16, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_32Workers(b *testing.B) {
+	concurrentGetSet(32, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_64Workers(b *testing.B) {
+	concurrentGetSet(64, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetSet_128Workers(b *testing.B) {
+	concurrentGetSet(128, b)
+}

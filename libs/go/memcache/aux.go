@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	defaultReadBufferSize    = 4096
-	defaultWriteBufferSize   = 4096
+	defaultReadBufferSize  = 4096
+	defaultWriteBufferSize = 4096
 
 	// see /proc/sys/net/core/rmem_default
-	defaultOSReadBufferSize  = 224 * 1024
+	defaultOSReadBufferSize = 224 * 1024
 
 	// see /proc/sys/net/core/wmem_default
 	defaultOSWriteBufferSize = 224 * 1024
