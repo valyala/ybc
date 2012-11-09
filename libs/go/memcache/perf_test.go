@@ -328,3 +328,53 @@ func BenchmarkClientServer_ConcurrentGet_32Workers(b *testing.B) {
 func BenchmarkClientServer_ConcurrentGet_64Workers(b *testing.B) {
 	concurrentGet(64, b)
 }
+
+func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+	defer wg.Done()
+	item := Item{
+		Key:   []byte(fmt.Sprintf("key_%d", i)),
+		Value: []byte(fmt.Sprintf("value_%d", i)),
+	}
+	if err := c.Set(&item); err != nil {
+		b.Fatalf("Error when calling channel.Set(): [%s]", err)
+	}
+	grace := 100
+	for _ = range ch {
+		if err := c.GetDe(&item, grace); err != nil {
+			b.Fatalf("Error when calling channel.Get(): [%s]", err)
+		}
+	}
+}
+
+func concurrentGetDe(workersCount int, b *testing.B) {
+	concurrentOps(getDeWorker, workersCount, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_1Workers(b *testing.B) {
+	concurrentGetDe(1, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_2Workers(b *testing.B) {
+	concurrentGetDe(2, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_4Workers(b *testing.B) {
+	concurrentGetDe(4, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_8Workers(b *testing.B) {
+	concurrentGetDe(8, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_16Workers(b *testing.B) {
+	concurrentGetDe(16, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_32Workers(b *testing.B) {
+	concurrentGetDe(32, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDe_64Workers(b *testing.B) {
+	concurrentGetDe(64, b)
+}
+

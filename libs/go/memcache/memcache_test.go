@@ -130,6 +130,25 @@ func TestClient_GetSet(t *testing.T) {
 	}
 }
 
+func TestClient_GetDe(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	item := Item{
+		Key: []byte("key"),
+	}
+	grace := 100
+	for i := 0; i < 3; i++ {
+		if err := c.GetDe(&item, grace); err != ErrCacheMiss {
+			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d): [%s]", item.Key, grace, err)
+		}
+	}
+}
+
 func lookupItem(items []Item, key []byte) *Item {
 	for i := 0; i < len(items); i++ {
 		if bytes.Equal(items[i].Key, key) {

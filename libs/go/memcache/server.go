@@ -135,7 +135,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 		log.Printf("grace=[%d] cannot be negative or zero", graceInt)
 		return false
 	}
-	grace := time.Second * time.Duration(graceInt)
+	grace := time.Millisecond * time.Duration(graceInt)
 
 	item, err := cache.GetDeAsyncItem(key, grace)
 	if err != nil {

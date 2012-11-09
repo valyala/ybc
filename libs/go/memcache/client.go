@@ -502,6 +502,7 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	return true
 }
 
+// grace period in milliseconds
 func (c *Client) GetDe(item *Item, grace int) error {
 	for {
 		t := taskGetDe{
