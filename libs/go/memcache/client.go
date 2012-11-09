@@ -113,10 +113,10 @@ func handleAddr(c *Client) bool {
 	defer conn.Close()
 
 	if err = conn.SetReadBuffer(c.OSReadBufferSize); err != nil {
-		log.Fatal("Cannot set TCP read buffer size to %d: [%s]", c.OSReadBufferSize, err)
+		log.Fatalf("Cannot set TCP read buffer size to %d: [%s]", c.OSReadBufferSize, err)
 	}
 	if err = conn.SetWriteBuffer(c.OSWriteBufferSize); err != nil {
-		log.Fatal("Cannot set TCP write buffer size to %d: [%s]", c.OSWriteBufferSize, err)
+		log.Fatalf("Cannot set TCP write buffer size to %d: [%s]", c.OSWriteBufferSize, err)
 	}
 
 	r := bufio.NewReaderSize(conn, c.ReadBufferSize)
@@ -280,6 +280,10 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	if !ok {
 		return
 	}
+	if n == len(line) {
+		return
+	}
+
 	casidUnused, n := nextToken(line, n, "casid")
 	if casidUnused == nil {
 		ok = false
