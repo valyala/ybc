@@ -3,7 +3,6 @@ package memcache
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"net"
@@ -11,13 +10,6 @@ import (
 	"sync"
 	"time"
 )
-
-func readCrLf(r *bufio.Reader) bool {
-	if !readByte(r, '\r') {
-		return false
-	}
-	return readByte(r, '\n')
-}
 
 func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 	t, err := strconv.Atoi(string(s))
@@ -35,18 +27,6 @@ func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 	}
 	ok = true
 	return
-}
-
-func clientError(w *bufio.Writer, s string) {
-	fmt.Fprintf(w, "CLIENT_ERROR %s\r\n", s)
-}
-
-func serverError(w *bufio.Writer, s string) {
-	fmt.Fprintf(w, "SERVER_ERROR %s\r\n", s)
-}
-
-func protocolError(w *bufio.Writer) {
-	w.WriteString("ERROR\r\n")
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
@@ -100,6 +80,14 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte) bool
 	return writeGetResponse(w, key, item)
 }
 
+func writeEndCrLf(w *bufio.Writer) bool {
+	if _, err := w.Write(strEndCrLf); err != nil {
+		log.Printf("Error when writing \\r\\n: [%s]", err)
+		return false
+	}
+	return true
+}
+
 func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 	last := -1
 	lineSize := len(line)
@@ -120,11 +108,56 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 		}
 	}
 
-	if _, err := c.Write(strEndCrLf); err != nil {
-		log.Printf("Error when writing END to response: [%s]", err)
+	return writeEndCrLf(c.Writer)
+}
+
+func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
+	n := -1
+
+	key, n := nextToken(line, n, "key")
+	if key == nil {
 		return false
 	}
-	return true
+	graceStr, n := nextToken(line, n, "grace")
+	if graceStr == nil {
+		return false
+	}
+	if n != len(line) {
+		return false
+	}
+
+	graceInt, err := strconv.Atoi(string(graceStr))
+	if err != nil {
+		log.Printf("Cannot parse grace=[%s] in 'getde' query for key=[%s]", graceStr, key)
+		return false
+	}
+	if graceInt <= 0 {
+		log.Printf("grace=[%d] cannot be negative or zero", graceInt)
+		return false
+	}
+	grace := time.Second * time.Duration(graceInt)
+
+	item, err := cache.GetDeAsyncItem(key, grace)
+	if err != nil {
+		if err == ybc.ErrWouldBlock {
+			if _, err = c.Write(strWouldBlockCrLf); err != nil {
+				log.Printf("Cannot write 'WOULDBLOCK' to 'getde' response: [%s]", err)
+				return false
+			}
+			return true
+		}
+		if err == ybc.ErrNotFound {
+			return writeEndCrLf(c.Writer)
+		}
+		log.Fatalf("Unexpected error returned by cache.GetDeAsyncItem(): [%s]", err)
+	}
+	defer item.Close()
+
+	if !writeGetResponse(c.Writer, key, item) {
+		return false
+	}
+
+	return writeEndCrLf(c.Writer)
 }
 
 type setCmd struct {
@@ -168,25 +201,21 @@ func parseSetCmd(line []byte, cmd *setCmd) bool {
 func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setCmd) bool {
 	cmd.noreply = nil
 	if !parseSetCmd(line, cmd) {
-		clientError(c.Writer, "unrecognized 'set' command")
 		return false
 	}
 
 	key := cmd.key
 	exptime, ok := parseExptime(cmd.exptime)
 	if !ok {
-		clientError(c.Writer, "invalid exptime")
 		return false
 	}
 	size, ok := parseSize(cmd.size)
 	if !ok {
-		clientError(c.Writer, "invalid size")
 		return false
 	}
 	noreply := false
 	if cmd.noreply != nil {
 		if !bytes.Equal(cmd.noreply, strNoreply) {
-			clientError(c.Writer, "unrecognized noreply")
 			return false
 		}
 		noreply = true
@@ -194,23 +223,19 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 	txn, err := cache.NewSetTxn(key, size, exptime)
 	if err != nil {
 		log.Printf("Cannot start 'set' transaction for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
-		serverError(c.Writer, "cannot start 'set' transaction")
 		return false
 	}
 	defer txn.Commit()
 	n, err := txn.ReadFrom(c.Reader)
 	if err != nil {
 		log.Printf("Error when reading payload for key=[%s], size=[%d]: [%s]", key, size, err)
-		clientError(c.Writer, "cannot read payload")
 		return false
 	}
 	if n != int64(size) {
 		log.Printf("Unexpected payload size=[%d]. Expected [%d]", n, size)
-		clientError(c.Writer, "unexpected payload size")
 		return false
 	}
-	if !readCrLf(c.Reader) {
-		clientError(c.Writer, "cannot read crlf after payload")
+	if !matchBytes(c.Reader, strCrLf) {
 		return false
 	}
 	if !noreply {
@@ -224,7 +249,6 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 
 func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, lineBuf *[]byte, cmd *setCmd) bool {
 	if !readLine(c.Reader, lineBuf) {
-		protocolError(c.Writer)
 		return false
 	}
 	line := *lineBuf
@@ -232,16 +256,18 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, lineBuf *[]byte, cmd 
 		return false
 	}
 	if bytes.HasPrefix(line, strGet) {
-		return processGetCmd(c, cache, line[4:])
+		return processGetCmd(c, cache, line[len(strGet):])
 	}
 	if bytes.HasPrefix(line, strGets) {
-		return processGetCmd(c, cache, line[5:])
+		return processGetCmd(c, cache, line[len(strGets):])
+	}
+	if bytes.HasPrefix(line, strGetDe) {
+		return processGetDeCmd(c, cache, line[len(strGetDe):])
 	}
 	if bytes.HasPrefix(line, strSet) {
-		return processSetCmd(c, cache, line[4:], cmd)
+		return processSetCmd(c, cache, line[len(strSet):], cmd)
 	}
 	log.Printf("Unrecognized command=[%s]", line)
-	protocolError(c.Writer)
 	return false
 }
 

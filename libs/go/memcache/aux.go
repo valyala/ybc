@@ -16,31 +16,43 @@ const (
 )
 
 var (
-	strCrLf        = []byte("\r\n")
-	strCrLfEndCrLf = []byte("\r\nEND\r\n")
-	strEnd         = []byte("END")
-	strEndCrLf     = []byte("END\r\n")
-	strGet         = []byte("get ")
-	strGets        = []byte("gets ")
-	strNoreply     = []byte("noreply")
-	strSet         = []byte("set ")
-	strStored      = []byte("STORED")
-	strStoredCrLf  = []byte("STORED\r\n")
-	strValue       = []byte("VALUE ")
-	strWsNoreply   = []byte(" noreply")
-	strZero        = []byte(" 0 ")
-	strZeroCrLf    = []byte(" 0\r\n")
+	strCrLf           = []byte("\r\n")
+	strEnd            = []byte("END")
+	strEndCrLf        = []byte("END\r\n")
+	strGet            = []byte("get ")
+	strGetDe          = []byte("getde ")
+	strGets           = []byte("gets ")
+	strNoreply        = []byte("noreply")
+	strSet            = []byte("set ")
+	strStored         = []byte("STORED")
+	strStoredCrLf     = []byte("STORED\r\n")
+	strValue          = []byte("VALUE ")
+	strWouldBlock     = []byte("WOULDBLOCK")
+	strWouldBlockCrLf = []byte("WOULDBLOCK\r\n")
+	strWs             = []byte(" ")
+	strWsNoreply      = []byte(" noreply")
+	strZero           = []byte(" 0 ")
+	strZeroCrLf       = []byte(" 0\r\n")
 )
 
-func readByte(r *bufio.Reader, ch byte) bool {
+func matchByte(r *bufio.Reader, ch byte) bool {
 	c, err := r.ReadByte()
 	if err != nil {
-		log.Printf("Unexpected error when reading [%d]: [%s]", ch, err)
+		log.Printf("Unexpected error when reading [%d]: [%s]", int(ch), err)
 		return false
 	}
 	if c != ch {
-		log.Printf("Unexpected byte read=[%d]. Expected [%d]", c, ch)
+		log.Printf("Unexpected byte read=[%d]. Expected [%d]", int(c), int(ch))
 		return false
+	}
+	return true
+}
+
+func matchBytes(r *bufio.Reader, s []byte) bool {
+	for _, c := range s {
+		if !matchByte(r, c) {
+			return false
+		}
 	}
 	return true
 }

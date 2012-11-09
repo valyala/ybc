@@ -70,17 +70,28 @@ func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, don
 	}
 }
 
-func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan tasker) {
-	c, err := net.Dial("tcp", addr)
+func handleAddr(addr string, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan tasker) bool {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
-		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", addr, err)
+		log.Printf("Cannot resolve tcp address=[%s]: [%s]", addr, err)
+		return false
+	}
+	c, err := net.DialTCP("tcp", nil, tcpAddr)
+	if err != nil {
+		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", tcpAddr, err)
 		for t := range requests {
 			t.Done(false)
 		}
-		time.Sleep(reconnectTimeout)
-		return
+		return false
 	}
 	defer c.Close()
+
+	if err = c.SetReadBuffer(osReadBufferSize); err != nil {
+		log.Fatal("Cannot set TCP read buffer size to %d: [%s]", osReadBufferSize, err)
+	}
+	if err = c.SetWriteBuffer(osWriteBufferSize); err != nil {
+		log.Fatal("Cannot set TCP write buffer size to %d: [%s]", osWriteBufferSize, err)
+	}
 
 	r := bufio.NewReaderSize(c, readBufferSize)
 	w := bufio.NewWriterSize(c, writeBufferSize)
@@ -91,12 +102,18 @@ func handleAddr(addr string, readBufferSize, writeBufferSize, maxPendingResponse
 	sendRecvDone.Add(2)
 	go requestsSender(w, requests, responses, c, sendRecvDone)
 	go responsesReceiver(r, responses, c, sendRecvDone)
+
+	return true
 }
 
-func addrHandler(addr string, readBufferSize, writeBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan tasker, done *sync.WaitGroup) {
+func addrHandler(addr string, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize,
+	maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan tasker, done *sync.WaitGroup) {
 	defer done.Done()
 	for {
-		handleAddr(addr, readBufferSize, writeBufferSize, maxPendingResponsesCount, reconnectTimeout, requests)
+		if !handleAddr(addr, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize, maxPendingResponsesCount, reconnectTimeout, requests) {
+			time.Sleep(reconnectTimeout)
+		}
+
 		// Check whether the requests channel is drained and closed.
 		select {
 		case t, ok := <-requests:
@@ -172,7 +189,8 @@ func (c *Client) run() {
 	defer connsDone.Wait()
 	for i := 0; i < c.ConnectionsCount; i++ {
 		connsDone.Add(1)
-		go addrHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connsDone)
+		go addrHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.OSReadBufferSize, c.OSWriteBufferSize,
+			c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connsDone)
 	}
 }
 
@@ -273,9 +291,26 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	return
 }
 
-func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte, item *Item) (ok bool, eof bool) {
-	if !readLine(r, lineBuf) {
+func readKeyValue(r *bufio.Reader, line []byte) (key []byte, value []byte, ok bool) {
+	var size int
+	key, size, ok = readValueResponse(line)
+	if !ok {
+		return
+	}
+
+	var err error
+	value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)))
+	if err != nil {
+		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
 		ok = false
+		return
+	}
+	ok = matchBytes(r, strCrLf)
+	return
+}
+
+func readItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+	if ok = readLine(r, lineBuf); !ok {
 		return
 	}
 	line := *lineBuf
@@ -284,28 +319,21 @@ func readItem(r *bufio.Reader, keys [][]byte, lineBuf *[]byte, item *Item) (ok b
 		eof = true
 		return
 	}
+	if bytes.Equal(line, strWouldBlock) {
+		ok = true
+		eof = true
+		wouldBlock = true
+		return
+	}
 
-	key, size, ok := readValueResponse(line)
+	var key, value []byte
+	key, value, ok = readKeyValue(r, line)
 	if !ok {
-		ok = false
 		return
 	}
-	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+2))
-	if err != nil {
-		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
-		ok = false
-		return
-	}
-	if !bytes.HasSuffix(value, strCrLf) {
-		log.Printf("There is no crlf found in 'get' response value for key=[%s]", item.Key)
-		ok = false
-		return
-	}
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
-	item.Key = keyCopy
-	item.Value = value[:size]
-	ok = true
+
+	item.Key = key
+	item.Value = value
 	return
 }
 
@@ -330,13 +358,17 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
 func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
 	var item Item
 	for {
-		ok, eof := readItem(r, t.keys, lineBuf, &item)
+		ok, eof, _ := readItem(r, lineBuf, &item)
 		if !ok {
 			return false
 		}
 		if eof {
 			break
 		}
+
+		keyCopy := make([]byte, len(item.Key))
+		copy(keyCopy, item.Key)
+		item.Key = keyCopy
 		t.items = append(t.items, item)
 	}
 	return true
@@ -380,33 +412,31 @@ func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
 	return true
 }
 
+func readSingleItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+	keyOriginal := item.Key
+	ok, eof, wouldBlock = readItem(r, lineBuf, item)
+	if !ok || eof || wouldBlock {
+		return
+	}
+	if ok = matchBytes(r, strEndCrLf); !ok {
+		return
+	}
+	if ok = bytes.Equal(keyOriginal, item.Key); !ok {
+		log.Printf("Key mismatch! Expected [%s], but server returned [%s]", keyOriginal, item.Key)
+		return
+	}
+	item.Key = keyOriginal
+	return
+}
+
 func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	if !readLine(r, lineBuf) {
-		return false
-	}
-	line := *lineBuf
-	if bytes.Equal(line, strEnd) {
-		return true
-	}
-	key, size, ok := readValueResponse(line)
+	ok, eof, _ := readSingleItem(r, lineBuf, t.item)
 	if !ok {
 		return false
 	}
-	if !bytes.Equal(key, t.item.Key) {
-		log.Printf("Unexpected key=[%s] obtained from response. Expected [%s]", key, t.item.Key)
-		return false
+	if !eof {
+		t.itemFound = true
 	}
-	value, err := ioutil.ReadAll(io.LimitReader(r, int64(size)+7))
-	if err != nil {
-		log.Printf("Error when reading VALUE from 'get' response for key=[%s]: [%s]", key, err)
-		return false
-	}
-	if !bytes.HasSuffix(value, strCrLfEndCrLf) {
-		log.Printf("There is no crlf found in 'get' response value for key=[%s]", key)
-		return false
-	}
-	t.item.Value = value[:size]
-	t.itemFound = true
 	return true
 }
 
@@ -425,6 +455,79 @@ func (c *Client) Get(item *Item) error {
 		return ErrCacheMiss
 	}
 	return nil
+}
+
+type taskGetDe struct {
+	item       *Item
+	grace      int
+	itemFound  bool
+	wouldBlock bool
+	taskSync
+}
+
+func (t *taskGetDe) WriteRequest(w *bufio.Writer) bool {
+	if _, err := w.Write(strGetDe); err != nil {
+		log.Printf("Cannot issue 'getde' request for key=[%s]: [%s]", t.item.Key, err)
+		return false
+	}
+	if _, err := w.Write(t.item.Key); err != nil {
+		log.Printf("Cannot issue key=[%s] for 'getde' request: [%s]", t.item.Key, err)
+		return false
+	}
+	if _, err := w.Write(strWs); err != nil {
+		log.Printf("Cannot write whitespace in 'getde' request: [%s]", err)
+		return false
+	}
+	if _, err := w.Write([]byte(strconv.Itoa(t.grace))); err != nil {
+		log.Printf("Cannot write grace=[%d] to 'getde' request: [%s]", t.grace, err)
+		return false
+	}
+	if _, err := w.Write(strCrLf); err != nil {
+		log.Printf("Cannot issue \\r\\n in 'get' request for key=[%s]: [%s]", t.item.Key, err)
+		return false
+	}
+	return true
+}
+
+func (t *taskGetDe) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
+	ok, eof, wouldBlock := readSingleItem(r, lineBuf, t.item)
+	if !ok {
+		return false
+	}
+	if wouldBlock {
+		t.wouldBlock = true
+		return true
+	}
+	if !eof {
+		t.itemFound = true
+	}
+	return true
+}
+
+func (c *Client) GetDe(item *Item, grace int) error {
+	for {
+		t := taskGetDe{
+			item:       item,
+			grace:      grace,
+			itemFound:  false,
+			wouldBlock: false,
+			taskSync: taskSync{
+				done: acquireDoneChan(),
+			},
+		}
+		if !c.do(&t) {
+			return ErrCommunicationFailure
+		}
+		if t.wouldBlock {
+			time.Sleep(time.Millisecond * time.Duration(100))
+			continue
+		}
+		if !t.itemFound {
+			return ErrCacheMiss
+		}
+		return nil
+	}
+	panic("unreachable")
 }
 
 type taskSet struct {
@@ -449,7 +552,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
 		log.Printf("Cannot write expiration into 'set' request: [%s]", err)
 		return false
 	}
-	if _, err := w.Write([]byte{' '}); err != nil {
+	if _, err := w.Write(strWs); err != nil {
 		log.Printf("Cannot write ' ' into 'set' request: [%s]", err)
 		return false
 	}
