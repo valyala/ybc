@@ -266,12 +266,14 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 }
 
 type Server struct {
-	Cache           ybc.Cacher
-	ListenAddr      string
-	ReadBufferSize  int
-	WriteBufferSize int
+	Cache             ybc.Cacher
+	ListenAddr        string
+	ReadBufferSize    int
+	WriteBufferSize   int
+	OSReadBufferSize  int
+	OSWriteBufferSize int
 
-	listenSocket net.Listener
+	listenSocket *net.TCPListener
 	done         *sync.WaitGroup
 	err          error
 }
@@ -283,11 +285,20 @@ func (s *Server) init() {
 	if s.WriteBufferSize == 0 {
 		s.WriteBufferSize = defaultWriteBufferSize
 	}
+	if s.OSReadBufferSize == 0 {
+		s.OSReadBufferSize = defaultOSReadBufferSize
+	}
+	if s.OSWriteBufferSize == 0 {
+		s.OSWriteBufferSize = defaultOSWriteBufferSize
+	}
 
-	var err error
-	s.listenSocket, err = net.Listen("tcp", s.ListenAddr)
+	listenAddr, err := net.ResolveTCPAddr("tcp", s.ListenAddr)
 	if err != nil {
-		log.Fatal("Cannot listen for ListenAddr=[%s]: [%s]", s.ListenAddr, err)
+		log.Fatal("Cannot resolve listenAddr=[%s]: [%s]", s.ListenAddr, err)
+	}
+	s.listenSocket, err = net.ListenTCP("tcp", listenAddr)
+	if err != nil {
+		log.Fatal("Cannot listen for ListenAddr=[%s]: [%s]", listenAddr, err)
 	}
 	s.done = &sync.WaitGroup{}
 	s.done.Add(1)
@@ -299,10 +310,16 @@ func (s *Server) run() {
 	connsDone := &sync.WaitGroup{}
 	defer connsDone.Wait()
 	for {
-		conn, err := s.listenSocket.Accept()
+		conn, err := s.listenSocket.AcceptTCP()
 		if err != nil {
 			s.err = err
 			break
+		}
+		if err = conn.SetReadBuffer(s.OSReadBufferSize); err != nil {
+			log.Fatal("Cannot set TCP read buffer size to %d: [%s]", s.OSReadBufferSize, err)
+		}
+		if err = conn.SetWriteBuffer(s.OSWriteBufferSize); err != nil {
+			log.Fatal("Cannot set TCP write buffer size to %d: [%s]", s.OSWriteBufferSize, err)
 		}
 		connsDone.Add(1)
 		go handleConn(conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, connsDone)

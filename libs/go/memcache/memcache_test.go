@@ -13,8 +13,10 @@ const (
 )
 
 func newCache(t *testing.T) *ybc.Cache {
-	config := ybc.NewConfig(1000*1000, 10*1000*1000)
-	defer config.Close()
+	config := ybc.Config{
+		MaxItemsCount: 1000 * 1000,
+		DataFileSize:  10 * 1000 * 1000,
+	}
 
 	cache, err := config.OpenCache(true)
 	if err != nil {

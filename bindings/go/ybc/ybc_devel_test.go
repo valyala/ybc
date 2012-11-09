@@ -13,28 +13,9 @@ import (
  * Config
  ******************************************************************************/
 
-func TestConfig_DoubleClose(t *testing.T) {
-	config := newTestConfig()
-	config.Close()
-	expectPanic(t, func() { config.Close() })
-}
-
-func TestConfig_SameDataIndexFiles(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	config.SetDataFile("foobar")
-	config.SetIndexFile("foobar")
-
-	expectPanic(t, func() { config.OpenCache(true) })
-}
-
 func TestConfig_DoubleDataFileOpen(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	config.SetDataFile("foobar.data")
-
+	config := newConfig()
+	config.DataFile = "foobar.data.double_open"
 	cache, err := config.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
@@ -46,11 +27,8 @@ func TestConfig_DoubleDataFileOpen(t *testing.T) {
 }
 
 func TestConfig_DoubleIndexFileOpen(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	config.SetIndexFile("foobar.index")
-
+	config := newConfig()
+	config.IndexFile = "foobar.index.double_open"
 	cache, err := config.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
@@ -62,12 +40,9 @@ func TestConfig_DoubleIndexFileOpen(t *testing.T) {
 }
 
 func TestConfig_DoubleOpen(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	config.SetDataFile("foobar.data")
-	config.SetIndexFile("foobar.index")
-
+	config := newConfig()
+	config.DataFile = "foobar.data.double_open2"
+	config.IndexFile = "foobar.index.double_open2"
 	cache, err := config.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
@@ -79,12 +54,9 @@ func TestConfig_DoubleOpen(t *testing.T) {
 }
 
 func TestConfig_DoubleOpenViaDistinctConfigs(t *testing.T) {
-	config1 := newTestConfig()
-	defer config1.Close()
-
-	config1.SetDataFile("foobar.data")
-	config1.SetIndexFile("foobar.index")
-
+	config1 := newConfig()
+	config1.DataFile = "foobar.data.double_open3"
+	config1.IndexFile = "foobar.index.double_open3"
 	cache, err := config1.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
@@ -92,11 +64,9 @@ func TestConfig_DoubleOpenViaDistinctConfigs(t *testing.T) {
 	defer config1.RemoveCache()
 	defer cache.Close()
 
-	config2 := newTestConfig()
-	defer config2.Close()
-
-	config2.SetDataFile("foobar.data")
-	config2.SetIndexFile("foobar.index")
+	config2 := newConfig()
+	config2.DataFile = config1.DataFile
+	config2.IndexFile = config1.IndexFile
 	expectPanic(t, func() { config2.OpenCache(true) })
 }
 
@@ -216,28 +186,13 @@ func TestItem_DoubleClose(t *testing.T) {
  * ClusterConfig
  ******************************************************************************/
 
-func TestClusterConfig_DoubleClose(t *testing.T) {
-	config := newClusterConfig(10)
-	config.Close()
-	expectPanic(t, func() { config.Close() })
-}
-
-func TestClusterConfig_ConfigClose(t *testing.T) {
-	config := newClusterConfig(3)
-	defer config.Close()
-
-	c := config.Config(0)
-	expectPanic(t, func() { c.Close() })
-}
-
 func TestClusterConfig_SameDataIndexFiles(t *testing.T) {
 	config := newClusterConfig(3)
-	defer config.Close()
 
 	for i := 0; i < 3; i++ {
-		c := config.Config(i)
-		c.SetDataFile(fmt.Sprintf("foobar.%d", i))
-		c.SetIndexFile(fmt.Sprintf("foobar.%d", i))
+		c := config[i]
+		c.DataFile = fmt.Sprintf("foobar.same_data_index.%d", i)
+		c.IndexFile = fmt.Sprintf("foobar.same_data_index.%d", i)
 	}
 
 	expectPanic(t, func() { config.OpenCluster(true) })
@@ -245,30 +200,25 @@ func TestClusterConfig_SameDataIndexFiles(t *testing.T) {
 
 func TestClusterConfig_DuplicateFiles(t *testing.T) {
 	config := newClusterConfig(3)
-	defer config.Close()
 
 	for i := 0; i < 3; i++ {
-		c := config.Config(i)
-		c.SetDataFile("foobar.data")
-		c.SetIndexFile("foobar.index")
+		c := config[i]
+		c.DataFile = "foobar.data.duplicate_files"
+		c.IndexFile = "foobar.index.duplicate_files"
 	}
+	defer config[0].RemoveCache()
 
 	expectPanic(t, func() { config.OpenCluster(true) })
 }
 
 func TestClusterConfig_DoubleOpen(t *testing.T) {
 	config := newClusterConfig(3)
-	defer config.Close()
-	defer func() {
-		for i := 0; i < 3; i++ {
-			config.Config(i).RemoveCache()
-		}
-	}()
+	defer config.RemoveCluster()
 
 	for i := 0; i < 3; i++ {
-		c := config.Config(i)
-		c.SetDataFile(fmt.Sprintf("foobar.data.%d", i))
-		c.SetIndexFile(fmt.Sprintf("foobar.index.%d", i))
+		c := config[i]
+		c.DataFile = fmt.Sprintf("foobar.data.cluster_double_open.%d", i)
+		c.IndexFile = fmt.Sprintf("foobar.index.cluster_double_open.%d", i)
 	}
 
 	cluster, err := config.OpenCluster(true)
@@ -286,26 +236,10 @@ func TestClusterConfig_DoubleOpen(t *testing.T) {
 
 func TestCluster_DoubleClose(t *testing.T) {
 	config := newClusterConfig(2)
-	defer config.Close()
-
 	cluster, err := config.OpenCluster(true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cluster.Close()
 	expectPanic(t, func() { cluster.Close() })
-}
-
-func TestCluster_CacheClose(t *testing.T) {
-	config := newClusterConfig(2)
-	defer config.Close()
-
-	cluster, err := config.OpenCluster(true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cluster.Close()
-
-	cache := cluster.Cache([]byte("test"))
-	expectPanic(t, func() { cache.Close() })
 }

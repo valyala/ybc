@@ -23,155 +23,82 @@ func expectPanic(t *testing.T, f func()) {
  * Config
  ******************************************************************************/
 
-func newTestConfig() *Config {
-	return NewConfig(1000, 1000*1000)
+func expectOpenCacheSuccess(config *Config, force bool, t *testing.T) {
+	cache, err := config.OpenCache(force)
+	if err != nil {
+		t.Fatalf("cannot open cache: [%s]", err)
+	}
+	cache.Close()
 }
 
-func TestNewConfig(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-}
-
-func TestConfig_SetMaxItemsCount(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := SizeT(1); i < 1000*1000; i *= 100 {
-		config.SetMaxItemsCount(i)
+func expectOpenCacheFail(config *Config, force bool, t *testing.T) {
+	_, err := config.OpenCache(force)
+	if err != ErrOpenFailed {
+		t.Fatal("Unexpected error: [%s]", err)
 	}
 }
 
-func TestConfig_SetDataFileSize(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := SizeT(1); i < 1000*1000; i *= 100 {
-		config.SetDataFileSize(i)
-	}
-}
-
-func TestConfig_SetIndexFile(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
-		config.SetIndexFile(fmt.Sprintf("foobar_%d.index", i))
-	}
-}
-
-func TestConfig_SetDataFile(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
-		config.SetDataFile(fmt.Sprintf("foobar_%d.data", i))
-	}
-}
-
-func TestConfig_SetHotItemsCount(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := SizeT(1); i < 1000*1000; i *= 100 {
-		config.SetHotItemsCount(i)
-	}
-}
-
-func TestConfig_SetHotDataSize(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := SizeT(1); i < 1000*1000; i *= 100 {
-		config.SetHotDataSize(i)
-	}
-}
-
-func TestConfig_SetDeHashtableSize(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
-		config.SetDeHashtableSize(i)
-	}
-}
-
-func TestConfig_SetSyncInterval(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-	for i := 1; i < 1000*1000; i *= 100 {
-		config.SetSyncInterval(time.Second * time.Duration(i))
+func newConfig() *Config {
+	return &Config{
+		MaxItemsCount: 1000 * 10,
+		DataFileSize:  1000 * 1000,
 	}
 }
 
 func TestConfig_RemoveCache_Anonymous(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
+	config := &Config{}
 	config.RemoveCache()
 }
 
 func TestConfig_RemoveCache_Existing(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
+	config := newConfig()
+	config.DataFile = "foobar.data.remove_existing"
+	config.IndexFile = "foobar.index.remove_existing"
+	expectOpenCacheSuccess(config, true, t)
+	expectOpenCacheSuccess(config, false, t)
 
-	config.SetDataFile("foobar.data")
-	config.SetIndexFile("foobar.index")
-
-	cache, err := config.OpenCache(true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cache.Close()
-
-	cache, err = config.OpenCache(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cache.Close()
 	config.RemoveCache()
 
-	cache, err = config.OpenCache(false)
-	if err != ErrOpenFailed {
-		t.Fatal(err)
-	}
+	expectOpenCacheFail(config, false, t)
 }
 
 func TestConfig_OpenCache_Anonymous(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	cache, err := config.OpenCache(false)
-	if err != ErrOpenFailed {
-		t.Fatal(err)
-	}
-
+	config := newConfig()
+	expectOpenCacheFail(config, false, t)
 	for i := 1; i < 10; i++ {
-		cache, err = config.OpenCache(true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cache.Close()
+		expectOpenCacheSuccess(config, true, t)
 	}
-
-	cache, err = config.OpenCache(false)
-	if err != ErrOpenFailed {
-		t.Fatal(err)
-	}
+	expectOpenCacheFail(config, false, t)
 }
 
 func TestConfig_OpenCache_Existing(t *testing.T) {
-	config := newTestConfig()
-	defer config.Close()
-
-	config.SetDataFile("foobar.data")
-	config.SetIndexFile("foobar.index")
-
-	cache, err := config.OpenCache(true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := newConfig()
+	config.DataFile = "foobar.data.open_existing"
+	config.IndexFile = "foobar.index.open_existing"
+	expectOpenCacheSuccess(config, true, t)
 	defer config.RemoveCache()
-	cache.Close()
 
 	for i := 1; i < 10; i++ {
-		cache, err := config.OpenCache(false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cache.Close()
+		expectOpenCacheSuccess(config, false, t)
 	}
+}
+
+func TestConfig_OpenCache_DisabledHotItems(t *testing.T) {
+	config := newConfig()
+	config.HotItemsCount = ConfigDisableHotItems
+	expectOpenCacheSuccess(config, true, t)
+}
+
+func TestConfig_OpenCache_DisabledHotData(t *testing.T) {
+	config := newConfig()
+	config.HotDataSize = ConfigDisableHotData
+	expectOpenCacheSuccess(config, true, t)
+}
+
+func TestConfig_OpenCache_DisabledSync(t *testing.T) {
+	config := newConfig()
+	config.SyncInterval = ConfigDisableSync
+	expectOpenCacheSuccess(config, true, t)
 }
 
 /*******************************************************************************
@@ -179,9 +106,7 @@ func TestConfig_OpenCache_Existing(t *testing.T) {
  ******************************************************************************/
 
 func newCache(t *testing.T) *Cache {
-	config := NewConfig(1000*1000, 10*1000*1000)
-	defer config.Close()
-
+	config := newConfig()
 	cache, err := config.OpenCache(true)
 	if err != nil {
 		t.Fatal(err)
@@ -755,41 +680,59 @@ func TestItem_WriteTo(t *testing.T) {
  * ClusterConfig
  ******************************************************************************/
 
-func newClusterConfig(cachesCount int) *ClusterConfig {
-	return NewClusterConfig(cachesCount, 1000, 1000*1000)
-}
-
-func Test_NewClusterConfig(t *testing.T) {
-	config := NewClusterConfig(10, 1000, 1000*1000)
-	defer config.Close()
-}
-
-func TestClusterConfig_Config(t *testing.T) {
-	config := NewClusterConfig(10, 1000, 1000*1000)
-	defer config.Close()
-
-	for i := 0; i < 10; i++ {
-		c := config.Config(i)
-		c.SetMaxItemsCount(1000)
-		c.SetDataFileSize(1000 * 1000)
+func newClusterConfig(cachesCount int) ClusterConfig {
+	cfg := make([]*Config, cachesCount)
+	for i := 0; i < cachesCount; i++ {
+		cfg[i] = &Config{
+			MaxItemsCount: 1000,
+			DataFileSize:  1000 * 1000,
+		}
 	}
+	return cfg
 }
 
 func TestClusterConfig_OpenCluster(t *testing.T) {
 	config := newClusterConfig(3)
-	defer config.Close()
-
 	_, err := config.OpenCluster(false)
 	if err != ErrOpenFailed {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 2; i++ {
 		cluster, err := config.OpenCluster(true)
 		if err != nil {
 			t.Fatal(err)
 		}
 		cluster.Close()
+	}
+}
+
+func TestClusterConfig_RemoveCluster(t *testing.T) {
+	config := ClusterConfig{
+		&Config{
+			DataFileSize:  1000 * 1000,
+			MaxItemsCount: 1000,
+			IndexFile:     "cache.index.0",
+			DataFile:      "cache.data.0",
+		},
+		&Config{
+			DataFileSize:  1000 * 1000,
+			MaxItemsCount: 1000,
+			IndexFile:     "cache.index.1",
+			DataFile:      "cache.data.1",
+		},
+	}
+	cluster, err := config.OpenCluster(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster.Close()
+
+	config.RemoveCluster()
+
+	_, err = config.OpenCluster(false)
+	if err != ErrOpenFailed {
+		t.Fatal(err)
 	}
 }
 
@@ -799,8 +742,6 @@ func TestClusterConfig_OpenCluster(t *testing.T) {
 
 func newCluster(t *testing.T) *Cluster {
 	config := newClusterConfig(3)
-	defer config.Close()
-
 	cluster, err := config.OpenCluster(true)
 	if err != nil {
 		t.Fatal(err)
@@ -808,36 +749,43 @@ func newCluster(t *testing.T) *Cluster {
 	return cluster
 }
 
-func TestCluster_Cache(t *testing.T) {
-	config := newClusterConfig(2)
-	defer config.Close()
-	defer func() {
-		for i := 0; i < 2; i++ {
-			config.Config(i).RemoveCache()
-		}
-	}()
-
-	for i := 0; i < 2; i++ {
-		c := config.Config(i)
-		c.SetDataFile(fmt.Sprintf("cache_%d.data", i))
-		c.SetIndexFile(fmt.Sprintf("cache_%d.index", i))
+func TestCluster_Ops(t *testing.T) {
+	config := ClusterConfig{
+		&Config{
+			DataFileSize:  1000 * 1000,
+			MaxItemsCount: 1000,
+			IndexFile:     "cache.index.0",
+			DataFile:      "cache.data.0",
+		},
+		&Config{
+			DataFileSize:  1000 * 1000,
+			MaxItemsCount: 1000,
+			IndexFile:     "cache.index.1",
+			DataFile:      "cache.data.1",
+		},
+		&Config{
+			DataFileSize:  1000 * 1000,
+			MaxItemsCount: 1000,
+			IndexFile:     "cache.index.2",
+			DataFile:      "cache.data.2",
+		},
 	}
-
 	cluster, err := config.OpenCluster(true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer config.RemoveCluster()
 	defer cluster.Close()
 
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cluster.Cache(key).Set(key, value, MaxTtl)
+		err := cluster.Set(key, value, MaxTtl)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		actualValue, err := cluster.Cache(key).Get(key)
+		actualValue, err := cluster.Get(key)
 		if err != nil {
 			t.Fatal(err)
 		}
