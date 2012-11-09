@@ -1146,14 +1146,16 @@ static void m_map_set(const struct m_map *const map,
   map->payloads[slot_index] = *payload;
 }
 
-static void m_map_remove(const struct m_map *const map,
+static int m_map_remove(const struct m_map *const map,
     const struct m_key_digest *const key_digest)
 {
   size_t start_index, slot_index;
 
   if (m_map_lookup_slot_index(map, key_digest, &start_index, &slot_index)) {
     m_key_digest_clear(&map->key_digests[slot_index]);
+    return 1;
   }
+  return 0;
 }
 
 /*
@@ -1325,19 +1327,19 @@ static void m_map_cache_set(const struct m_map *const map,
     const struct m_storage_payload *const payload)
 {
   if (map_cache->slots_count != 0) {
-    m_map_remove(map_cache, key_digest);
+    (void)m_map_remove(map_cache, key_digest);
   }
   m_map_set(map, storage, next_cursor, key_digest, payload);
 }
 
-static void m_map_cache_remove(const struct m_map *const map,
+static int m_map_cache_remove(const struct m_map *const map,
     const struct m_map *const map_cache,
     const struct m_key_digest *const key_digest)
 {
   if (map_cache->slots_count != 0) {
-    m_map_remove(map_cache, key_digest);
+    (void)m_map_remove(map_cache, key_digest);
   }
-  m_map_remove(map, key_digest);
+  return m_map_remove(map, key_digest);
 }
 
 
@@ -2332,7 +2334,7 @@ int ybc_item_set_item(struct ybc *const cache, struct ybc_item *const item,
   return 1;
 }
 
-void ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
+int ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
 {
   /*
    * Item with different key may be removed if it has the same key digest.
@@ -2342,7 +2344,8 @@ void ybc_item_remove(struct ybc *const cache, const struct ybc_key *const key)
   struct m_key_digest key_digest;
 
   m_key_digest_get(&key_digest, cache->storage.hash_seed, key);
-  m_map_cache_remove(&cache->index.map, &cache->index.map_cache, &key_digest);
+  return m_map_cache_remove(&cache->index.map, &cache->index.map_cache,
+      &key_digest);
 }
 
 int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,

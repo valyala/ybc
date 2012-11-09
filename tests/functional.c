@@ -142,8 +142,13 @@ static void expect_item_set_no_acquire(struct ybc *const cache,
 static void expect_item_remove(struct ybc *const cache,
     struct ybc_key *const key)
 {
-  ybc_item_remove(cache, key);
+  if (!ybc_item_remove(cache, key)) {
+    M_ERROR("error when deleting item from the cache");
+  }
   expect_item_miss(cache, key);
+  if (ybc_item_remove(cache, key)) {
+    M_ERROR("unexpected item found in the cache");
+  }
 }
 
 static void expect_item_miss_de(struct ybc *const cache,
@@ -308,12 +313,6 @@ static void test_item_ops(struct ybc *const cache,
 
     expect_item_set_no_acquire(cache, &key, &value);
     expect_item_set(cache, &key, &value);
-  }
-
-  for (size_t i = 0; i < iterations_count; ++i) {
-    key.ptr = &i;
-    key.size = sizeof(i);
-
     expect_item_remove(cache, &key);
   }
 
@@ -1192,7 +1191,7 @@ static void thread_func(void *const ctx)
       ybc_item_release(item);
       break;
     case 2:
-      ybc_item_remove(task->cache, &key);
+      (void)ybc_item_remove(task->cache, &key);
       break;
     default:
       if (ybc_item_get(task->cache, item, &key)) {

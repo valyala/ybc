@@ -627,9 +627,9 @@ YBC_API int ybc_item_set_item(struct ybc *cache, struct ybc_item *item,
 /*
  * Removes an item with the given key from the cache.
  *
- * Does nothing if the item wasn't in the cache.
+ * Returns zero if the item wasn't in the cache, otherwise returns non-zero.
  */
-YBC_API void ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
+YBC_API int ybc_item_remove(struct ybc *cache, const struct ybc_key *key);
 
 /*
  * Acquires an item with the given key.
