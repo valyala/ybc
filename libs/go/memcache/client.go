@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -45,8 +44,8 @@ type Item struct {
 }
 
 type tasker interface {
-	WriteRequest(w *bufio.Writer) bool
-	ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool
+	WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool
+	ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool
 	Done(ok bool)
 	Wait() bool
 }
@@ -55,6 +54,7 @@ func requestsSender(w *bufio.Writer, requests <-chan tasker, responses chan<- ta
 	defer done.Done()
 	defer w.Flush()
 	defer close(responses)
+	scratchBuf := make([]byte, 0, 1024)
 	for {
 		var t tasker
 		var ok bool
@@ -69,7 +69,7 @@ func requestsSender(w *bufio.Writer, requests <-chan tasker, responses chan<- ta
 		if !ok {
 			break
 		}
-		if !t.WriteRequest(w) {
+		if !t.WriteRequest(w, &scratchBuf) {
 			t.Done(false)
 			break
 		}
@@ -276,7 +276,7 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 		ok = false
 		return
 	}
-	size, ok = parseSize(sizeStr)
+	size, ok = parseInt(sizeStr)
 	if !ok {
 		return
 	}
@@ -307,11 +307,11 @@ func readKeyValue(r *bufio.Reader, line []byte) (key []byte, value []byte, ok bo
 	return
 }
 
-func readItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
-	if ok = readLine(r, lineBuf); !ok {
+func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+	if ok = readLine(r, scratchBuf); !ok {
 		return
 	}
-	line := *lineBuf
+	line := *scratchBuf
 	if bytes.Equal(line, strEnd) {
 		ok = true
 		eof = true
@@ -335,7 +335,7 @@ func readItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof bool, 
 	return
 }
 
-func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
+func (t *taskGetMulti) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	if _, err := w.Write(strGets); err != nil {
 		log.Printf("Cannot issue 'gets' request for keys=[%s]: [%s]", t.keys, err)
 		return false
@@ -353,10 +353,10 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer) bool {
 	return true
 }
 
-func (t *taskGetMulti) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
+func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	var item Item
 	for {
-		ok, eof, _ := readItem(r, lineBuf, &item)
+		ok, eof, _ := readItem(r, scratchBuf, &item)
 		if !ok {
 			return false
 		}
@@ -394,7 +394,7 @@ type taskGet struct {
 	taskSync
 }
 
-func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
+func (t *taskGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	if _, err := w.Write(strGet); err != nil {
 		log.Printf("Cannot issue 'get' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
@@ -410,9 +410,9 @@ func (t *taskGet) WriteRequest(w *bufio.Writer) bool {
 	return true
 }
 
-func readSingleItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
 	keyOriginal := item.Key
-	ok, eof, wouldBlock = readItem(r, lineBuf, item)
+	ok, eof, wouldBlock = readItem(r, scratchBuf, item)
 	if !ok || eof || wouldBlock {
 		return
 	}
@@ -427,8 +427,8 @@ func readSingleItem(r *bufio.Reader, lineBuf *[]byte, item *Item) (ok bool, eof 
 	return
 }
 
-func (t *taskGet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	ok, eof, _ := readSingleItem(r, lineBuf, t.item)
+func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	ok, eof, _ := readSingleItem(r, scratchBuf, t.item)
 	if !ok {
 		return false
 	}
@@ -463,7 +463,7 @@ type taskGetDe struct {
 	taskSync
 }
 
-func (t *taskGetDe) WriteRequest(w *bufio.Writer) bool {
+func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	if _, err := w.Write(strGetDe); err != nil {
 		log.Printf("Cannot issue 'getde' request for key=[%s]: [%s]", t.item.Key, err)
 		return false
@@ -476,8 +476,7 @@ func (t *taskGetDe) WriteRequest(w *bufio.Writer) bool {
 		log.Printf("Cannot write whitespace in 'getde' request: [%s]", err)
 		return false
 	}
-	if _, err := w.Write([]byte(strconv.Itoa(t.grace))); err != nil {
-		log.Printf("Cannot write grace=[%d] to 'getde' request: [%s]", t.grace, err)
+	if !writeInt(w, t.grace, scratchBuf) {
 		return false
 	}
 	if _, err := w.Write(strCrLf); err != nil {
@@ -487,8 +486,8 @@ func (t *taskGetDe) WriteRequest(w *bufio.Writer) bool {
 	return true
 }
 
-func (t *taskGetDe) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	ok, eof, wouldBlock := readSingleItem(r, lineBuf, t.item)
+func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	ok, eof, wouldBlock := readSingleItem(r, scratchBuf, t.item)
 	if !ok {
 		return false
 	}
@@ -534,7 +533,7 @@ type taskSet struct {
 	taskSync
 }
 
-func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
+func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	if _, err := w.Write(strSet); err != nil {
 		log.Printf("Cannot issue 'set' request for key=[%s]: [%s]", item.Key, err)
 		return false
@@ -547,8 +546,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
 		log.Printf("Cannot write ' 0 ' into 'set' request: [%s]", err)
 		return false
 	}
-	if _, err := w.Write([]byte(strconv.Itoa(item.Expiration))); err != nil {
-		log.Printf("Cannot write expiration into 'set' request: [%s]", err)
+	if !writeInt(w, item.Expiration, scratchBuf) {
 		return false
 	}
 	if _, err := w.Write(strWs); err != nil {
@@ -556,8 +554,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
 		return false
 	}
 	size := len(item.Value)
-	if _, err := w.Write([]byte(strconv.Itoa(size))); err != nil {
-		log.Printf("Cannot write iltem size=%d into 'set' request: [%s]", size, err)
+	if !writeInt(w, size, scratchBuf) {
 		return false
 	}
 	if noreply {
@@ -581,15 +578,15 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool) bool {
 	return true
 }
 
-func (t *taskSet) WriteRequest(w *bufio.Writer) bool {
-	return writeSetRequest(w, t.item, false)
+func (t *taskSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeSetRequest(w, t.item, false, scratchBuf)
 }
 
-func (t *taskSet) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
-	if !readLine(r, lineBuf) {
+func (t *taskSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
 		return false
 	}
-	line := *lineBuf
+	line := *scratchBuf
 	if !bytes.Equal(line, strStored) {
 		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d: [%s]", t.item.Key, len(t.item.Value), line)
 		return false
@@ -624,11 +621,11 @@ type taskSetNowait struct {
 	taskAsync
 }
 
-func (t *taskSetNowait) WriteRequest(w *bufio.Writer) bool {
-	return writeSetRequest(w, t.item, true)
+func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeSetRequest(w, t.item, true, scratchBuf)
 }
 
-func (t *taskSetNowait) ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool {
+func (t *taskSetNowait) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 

@@ -29,7 +29,7 @@ func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 	return
 }
 
-func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
+func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, scratchBuf *[]byte) bool {
 	if _, err := w.Write(strValue); err != nil {
 		log.Printf("Error when writing VALUE response: [%s]", err)
 		return false
@@ -43,8 +43,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 		return false
 	}
 	size := item.Size()
-	if _, err := w.Write([]byte(strconv.Itoa(size))); err != nil {
-		log.Printf("Error when writing size=[%d] to 'get' response: [%s]", size, err)
+	if !writeInt(w, size, scratchBuf) {
 		return false
 	}
 	if _, err := w.Write(strZeroCrLf); err != nil {
@@ -67,7 +66,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item) bool {
 	return true
 }
 
-func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte) bool {
+func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, scratchBuf *[]byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		if err == ybc.ErrNotFound {
@@ -77,7 +76,7 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte) bool
 	}
 	defer item.Close()
 
-	return writeGetResponse(w, key, item)
+	return writeGetResponse(w, key, item, scratchBuf)
 }
 
 func writeEndCrLf(w *bufio.Writer) bool {
@@ -88,7 +87,7 @@ func writeEndCrLf(w *bufio.Writer) bool {
 	return true
 }
 
-func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
+func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	last := -1
 	lineSize := len(line)
 	for last < lineSize {
@@ -103,7 +102,7 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 			continue
 		}
 		key := line[first:last]
-		if !getItemAndWriteResponse(c.Writer, cache, key) {
+		if !getItemAndWriteResponse(c.Writer, cache, key, scratchBuf) {
 			return false
 		}
 	}
@@ -111,7 +110,7 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 	return writeEndCrLf(c.Writer)
 }
 
-func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
+func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	n := -1
 
 	key, n := nextToken(line, n, "key")
@@ -153,7 +152,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte) bool {
 	}
 	defer item.Close()
 
-	if !writeGetResponse(c.Writer, key, item) {
+	if !writeGetResponse(c.Writer, key, item, scratchBuf) {
 		return false
 	}
 
@@ -209,7 +208,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 	if !ok {
 		return false
 	}
-	size, ok := parseSize(cmd.size)
+	size, ok := parseInt(cmd.size)
 	if !ok {
 		return false
 	}
@@ -247,22 +246,22 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 	return true
 }
 
-func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, lineBuf *[]byte, cmd *setCmd) bool {
-	if !readLine(c.Reader, lineBuf) {
+func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, cmd *setCmd) bool {
+	if !readLine(c.Reader, scratchBuf) {
 		return false
 	}
-	line := *lineBuf
+	line := *scratchBuf
 	if len(line) == 0 {
 		return false
 	}
 	if bytes.HasPrefix(line, strGet) {
-		return processGetCmd(c, cache, line[len(strGet):])
+		return processGetCmd(c, cache, line[len(strGet):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strGets) {
-		return processGetCmd(c, cache, line[len(strGets):])
+		return processGetCmd(c, cache, line[len(strGets):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strGetDe) {
-		return processGetDeCmd(c, cache, line[len(strGetDe):])
+		return processGetDeCmd(c, cache, line[len(strGetDe):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strSet) {
 		return processSetCmd(c, cache, line[len(strSet):], cmd)
@@ -279,10 +278,10 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	c := bufio.NewReadWriter(r, w)
 	defer w.Flush()
 
-	lineBuf := make([]byte, 0, 1024)
+	scratchBuf := make([]byte, 0, 1024)
 	cmd := setCmd{}
 	for {
-		if !processRequest(c, cache, &lineBuf, &cmd) {
+		if !processRequest(c, cache, &scratchBuf, &cmd) {
 			break
 		}
 		if r.Buffered() == 0 {

@@ -120,7 +120,7 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	return
 }
 
-func parseSize(s []byte) (size int, ok bool) {
+func parseInt(s []byte) (size int, ok bool) {
 	var err error
 	size, err = strconv.Atoi(string(s))
 	if err != nil {
@@ -130,4 +130,16 @@ func parseSize(s []byte) (size int, ok bool) {
 	}
 	ok = true
 	return
+}
+
+func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
+	buf := *scratchBuf
+	buf = buf[0:0]
+	buf = strconv.AppendInt(buf, int64(n), 10)
+	*scratchBuf = buf
+	if _, err := w.Write(buf); err != nil {
+		log.Printf("Cannot write integer=[%s] to output stream: [%s]", n, err)
+		return false
+	}
+	return true
 }
