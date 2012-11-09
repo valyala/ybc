@@ -2,6 +2,7 @@ package main
 
 import (
 	"../../../libs/go/memcache"
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -41,15 +42,20 @@ func workerGetMiss(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	item := memcache.Item{
-		Key: []byte(*key),
+		Key:   []byte(*key),
 		Value: []byte(*value),
 	}
 	if err := client.Set(&item); err != nil {
 		log.Fatal("Error in Client.Set(): [%s]", err)
 	}
+	valueOrig := item.Value
+	item.Value = nil
 	for _ = range ch {
 		if err := client.Get(&item); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
+		}
+		if !bytes.Equal(valueOrig, item.Value) {
+			log.Fatal("Unexpected value read=[%s]. Expected=[%s]", item.Value, valueOrig)
 		}
 	}
 }
