@@ -170,24 +170,28 @@ func setNowait(buffersSize, maxPendingRequestsCount int, b *testing.B) {
 	}
 }
 
-func BenchmarkClientServer_SetNowait_256Buffers(b *testing.B) {
-	setNowait(256, 0, b)
-}
-
-func BenchmarkClientServer_SetNowait_512Buffers(b *testing.B) {
-	setNowait(512, 0, b)
-}
-
-func BenchmarkClientServer_SetNowait_1KBuffers(b *testing.B) {
-	setNowait(1*1024, 0, b)
-}
-
-func BenchmarkClientServer_SetNowait_2KBuffers(b *testing.B) {
-	setNowait(2*1024, 0, b)
-}
-
 func BenchmarkClientServer_SetNowait_4KBuffers(b *testing.B) {
 	setNowait(4*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_8KBuffers(b *testing.B) {
+	setNowait(8*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_16KBuffers(b *testing.B) {
+	setNowait(16*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_32KBuffers(b *testing.B) {
+	setNowait(32*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_64KBuffers(b *testing.B) {
+	setNowait(64*1024, 0, b)
+}
+
+func BenchmarkClientServer_SetNowait_128KBuffers(b *testing.B) {
+	setNowait(128*1024, 0, b)
 }
 
 func BenchmarkClientServer_SetNowait_32PendingRequests(b *testing.B) {
