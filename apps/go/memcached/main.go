@@ -1,9 +1,9 @@
 package main
 
 import (
+	"../../../bindings/go/ybc"
+	"../../../libs/go/memcache"
 	"flag"
-	"github.com/valyala/ybc/bindings/go/ybc"
-	"github.com/valyala/ybc/libs/go/memcache"
 	"log"
 	"runtime"
 	"time"
@@ -19,8 +19,8 @@ var (
 	listenAddr        = flag.String("listenAddr", ":11211", "TCP address the daemon will listen to")
 	maxItemsCount     = flag.Uint64("maxItemsCount", 1000*1000, "Maximum number of items to store in the cache")
 	syncInterval      = flag.Int("syncInterval", 0, "Sync interval in milliseconds. 0 disables data syncing")
-	osReadBufferSize  = flag.Int("osReadBufferSize", 224 * 1024, "Buffer size in bytes for incoming requests in OS")
-	osWriteBufferSize = flag.Int("osWriteBufferSize", 224 * 1024, "Buffer size in bytes for outgoing responses in OS")
+	osReadBufferSize  = flag.Int("osReadBufferSize", 224*1024, "Buffer size in bytes for incoming requests in OS")
+	osWriteBufferSize = flag.Int("osWriteBufferSize", 224*1024, "Buffer size in bytes for outgoing responses in OS")
 	readBufferSize    = flag.Int("readBufferSize", 4096, "Buffer size in bytes for incoming requests")
 	writeBufferSize   = flag.Int("writeBufferSize", 4096, "Buffer size in bytes for outgoing responses")
 )

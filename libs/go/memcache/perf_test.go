@@ -1,8 +1,8 @@
 package memcache
 
 import (
+	"../../../bindings/go/ybc"
 	"fmt"
-	"github.com/valyala/ybc/bindings/go/ybc"
 	"math/rand"
 	"sync"
 	"testing"

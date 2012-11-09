@@ -1,9 +1,9 @@
 package main
 
 import (
+	"../../../libs/go/memcache"
 	"flag"
 	"fmt"
-	"github.com/valyala/ybc/libs/go/memcache"
 	"log"
 	"runtime"
 	"sync"
@@ -16,8 +16,8 @@ var (
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	key                     = flag.String("key", "key", "The key to query in memcache. The memcache must miss this key")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests")
-	osReadBufferSize        = flag.Int("osReadBufferSize", 224 * 1024, "The size of read buffer in bytes in OS")
-	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224 * 1024, "The size of write buffer in bytes in OS")
+	osReadBufferSize        = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS")
+	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
 	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes")
 	workersCount            = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")

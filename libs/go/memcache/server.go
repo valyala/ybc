@@ -1,9 +1,9 @@
 package memcache
 
 import (
+	"../../../bindings/go/ybc"
 	"bufio"
 	"bytes"
-	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"net"
 	"strconv"
