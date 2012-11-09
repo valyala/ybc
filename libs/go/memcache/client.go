@@ -18,6 +18,32 @@ var (
 	ErrCommunicationFailure = errors.New("communication failure")
 )
 
+const (
+	defaultConnectionsCount        = 1
+	defaultMaxPendingRequestsCount = 1024
+	defaultReconnectTimeout        = time.Second
+)
+
+type Client struct {
+	ConnectAddr             string
+	ConnectionsCount        int
+	MaxPendingRequestsCount int
+	ReadBufferSize          int
+	WriteBufferSize         int
+	OSReadBufferSize        int
+	OSWriteBufferSize       int
+	ReconnectTimeout        time.Duration
+
+	requests chan tasker
+	done     *sync.WaitGroup
+}
+
+type Item struct {
+	Key        []byte
+	Value      []byte
+	Expiration int
+}
+
 type tasker interface {
 	WriteRequest(w *bufio.Writer) bool
 	ReadResponse(r *bufio.Reader, lineBuf *[]byte) bool
@@ -70,88 +96,61 @@ func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, don
 	}
 }
 
-func handleAddr(addr string, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize, maxPendingResponsesCount int, reconnectTimeout time.Duration, requests <-chan tasker) bool {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
+func handleAddr(c *Client) bool {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", c.ConnectAddr)
 	if err != nil {
-		log.Printf("Cannot resolve tcp address=[%s]: [%s]", addr, err)
+		log.Printf("Cannot resolve tcp address=[%s]: [%s]", c.ConnectAddr, err)
 		return false
 	}
-	c, err := net.DialTCP("tcp", nil, tcpAddr)
+	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
 		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", tcpAddr, err)
-		for t := range requests {
+		for t := range c.requests {
 			t.Done(false)
 		}
 		return false
 	}
-	defer c.Close()
+	defer conn.Close()
 
-	if err = c.SetReadBuffer(osReadBufferSize); err != nil {
-		log.Fatal("Cannot set TCP read buffer size to %d: [%s]", osReadBufferSize, err)
+	if err = conn.SetReadBuffer(c.OSReadBufferSize); err != nil {
+		log.Fatal("Cannot set TCP read buffer size to %d: [%s]", c.OSReadBufferSize, err)
 	}
-	if err = c.SetWriteBuffer(osWriteBufferSize); err != nil {
-		log.Fatal("Cannot set TCP write buffer size to %d: [%s]", osWriteBufferSize, err)
+	if err = conn.SetWriteBuffer(c.OSWriteBufferSize); err != nil {
+		log.Fatal("Cannot set TCP write buffer size to %d: [%s]", c.OSWriteBufferSize, err)
 	}
 
-	r := bufio.NewReaderSize(c, readBufferSize)
-	w := bufio.NewWriterSize(c, writeBufferSize)
+	r := bufio.NewReaderSize(conn, c.ReadBufferSize)
+	w := bufio.NewWriterSize(conn, c.WriteBufferSize)
 
-	responses := make(chan tasker, maxPendingResponsesCount)
+	responses := make(chan tasker, c.MaxPendingRequestsCount)
 	sendRecvDone := &sync.WaitGroup{}
 	defer sendRecvDone.Wait()
 	sendRecvDone.Add(2)
-	go requestsSender(w, requests, responses, c, sendRecvDone)
-	go responsesReceiver(r, responses, c, sendRecvDone)
+	go requestsSender(w, c.requests, responses, conn, sendRecvDone)
+	go responsesReceiver(r, responses, conn, sendRecvDone)
 
 	return true
 }
 
-func addrHandler(addr string, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize,
-	maxPendingResponsesCount int, reconnectTimeout time.Duration, requests chan tasker, done *sync.WaitGroup) {
+func addrHandler(c *Client, done *sync.WaitGroup) {
 	defer done.Done()
 	for {
-		if !handleAddr(addr, readBufferSize, writeBufferSize, osReadBufferSize, osWriteBufferSize, maxPendingResponsesCount, reconnectTimeout, requests) {
-			time.Sleep(reconnectTimeout)
+		if !handleAddr(c) {
+			time.Sleep(c.ReconnectTimeout)
 		}
 
 		// Check whether the requests channel is drained and closed.
 		select {
-		case t, ok := <-requests:
+		case t, ok := <-c.requests:
 			if !ok {
 				// The requests channel is drained and closed.
 				return
 			}
-			requests <- t
+			c.requests <- t
 		default:
 			// The requests channel is drained, but not closed.
 		}
 	}
-}
-
-const (
-	defaultConnectionsCount        = 1
-	defaultMaxPendingRequestsCount = 1024
-	defaultReconnectTimeout        = time.Second
-)
-
-type Client struct {
-	ConnectAddr             string
-	ConnectionsCount        int
-	MaxPendingRequestsCount int
-	ReadBufferSize          int
-	WriteBufferSize         int
-	OSReadBufferSize        int
-	OSWriteBufferSize       int
-	ReconnectTimeout        time.Duration
-
-	requests chan tasker
-	done     *sync.WaitGroup
-}
-
-type Item struct {
-	Key        []byte
-	Value      []byte
-	Expiration int
 }
 
 func (c *Client) init() {
@@ -189,8 +188,7 @@ func (c *Client) run() {
 	defer connsDone.Wait()
 	for i := 0; i < c.ConnectionsCount; i++ {
 		connsDone.Add(1)
-		go addrHandler(c.ConnectAddr, c.ReadBufferSize, c.WriteBufferSize, c.OSReadBufferSize, c.OSWriteBufferSize,
-			c.MaxPendingRequestsCount, c.ReconnectTimeout, c.requests, connsDone)
+		go addrHandler(c, connsDone)
 	}
 }
 
