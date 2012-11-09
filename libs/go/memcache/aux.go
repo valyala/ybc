@@ -42,11 +42,11 @@ var (
 func matchByte(r *bufio.Reader, ch byte) bool {
 	c, err := r.ReadByte()
 	if err != nil {
-		log.Printf("Unexpected error when reading [%d]: [%s]", int(ch), err)
+		log.Printf("Unexpected error when reading [%d]: [%s]", ch, err)
 		return false
 	}
 	if c != ch {
-		log.Printf("Unexpected byte read=[%d]. Expected [%d]", int(c), int(ch))
+		log.Printf("Unexpected byte read=[%d]. Expected [%d]", c, ch)
 		return false
 	}
 	return true
@@ -70,7 +70,7 @@ func readBytesUntil(r *bufio.Reader, endCh byte, lineBuf *[]byte) bool {
 			if err == io.EOF && len(line) == 0 {
 				break
 			}
-			log.Printf("Error when reading bytes until endCh=[%s]: [%s]", endCh, err)
+			log.Printf("Error when reading bytes until endCh=[%d]: [%s]", endCh, err)
 			return false
 		}
 		if c == endCh {
