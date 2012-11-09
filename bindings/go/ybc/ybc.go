@@ -635,7 +635,7 @@ func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte,
 }
 
 func (cluster *Cluster) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	return cluster.Cache(key).GetDeAsync(key, graceTtl)
+	return cluster.cache(key).GetDeAsync(key, graceTtl)
 }
 
 func (cluster *Cluster) Remove(key []byte) {
@@ -655,7 +655,7 @@ func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Ite
 }
 
 func (cluster *Cluster) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
-	return cluster.Cache(key).GetDeAsyncItem(key, graceTtl)
+	return cluster.cache(key).GetDeAsyncItem(key, graceTtl)
 }
 
 func (cluster *Cluster) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
