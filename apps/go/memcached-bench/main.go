@@ -48,7 +48,7 @@ func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 		log.Fatal("Error in Client.Set(): [%s]", err)
 	}
 	for _ = range ch {
-		if err := client.Get(&item); err != memcache.ErrCacheMiss {
+		if err := client.Get(&item); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
 	}
@@ -105,7 +105,7 @@ func main() {
 
 	worker := workerGetMiss
 	if *workerMode == "GetHit" {
-		worker := workerGetHit
+		worker = workerGetHit
 	}
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)

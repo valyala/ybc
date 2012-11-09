@@ -103,7 +103,7 @@ func readLine(r *bufio.Reader, lineBuf *[]byte) bool {
 func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	first += 1
 	if first >= len(line) {
-		log.Printf("No enough space for [%s] in 'set' command=[%s]", entity, line)
+		log.Printf("No enough space for [%s] in command=[%s]", entity, line)
 		return
 	}
 	last = bytes.IndexByte(line[first:], ' ')
@@ -113,7 +113,7 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 		last += first
 	}
 	if first == last {
-		log.Printf("Cannot find [%s] in 'set' command=[%s]", entity, line)
+		log.Printf("Cannot find [%s] in command=[%s]", entity, line)
 		return
 	}
 	s = line[first:last]
