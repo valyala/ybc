@@ -457,6 +457,7 @@ func (c *Client) Get(item *Item) error {
 type taskCGet struct {
 	item            *Item
 	etag            *int64
+	validateTtl     *int
 	itemFound       bool
 	itemNotModified bool
 	taskSync
@@ -497,11 +498,11 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
-	expirationStr, n := nextToken(line, n, "ttl")
-	if expirationStr == nil {
+	exptimeStr, n := nextToken(line, n, "exptime")
+	if exptimeStr == nil {
 		return false
 	}
-	t.item.Expiration, ok = parseInt(expirationStr)
+	t.item.Expiration, ok = parseInt(exptimeStr)
 	if !ok {
 		return false
 	}
@@ -512,6 +513,13 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if *t.etag, ok = parseInt64(etagStr); !ok {
 		return false
 	}
+	validateTtlStr, n := nextToken(line, n, "validateTtl")
+	if validateTtlStr == nil {
+		return false
+	}
+	if *t.validateTtl, ok = parseInt(validateTtlStr); !ok {
+		return false
+	}
 	if !expectEof(line, n) {
 		return false
 	}
@@ -519,10 +527,11 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return ok
 }
 
-func (c *Client) CGet(item *Item, etag *int64) error {
+func (c *Client) CGet(item *Item, etag *int64, validateTtl *int) error {
 	t := taskCGet{
 		item:            item,
 		etag:            etag,
+		validateTtl:     validateTtl,
 		itemFound:       false,
 		itemNotModified: false,
 	}
@@ -644,6 +653,7 @@ type taskCSet struct {
 func writeCSetRequest(w *bufio.Writer, item *Item, etag int64, validateTtl int, noreply bool, scratchBuf *[]byte) bool {
 	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, len(item.Value), scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt64(w, etag, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, validateTtl, scratchBuf) {
 		return false
