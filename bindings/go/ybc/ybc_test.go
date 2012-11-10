@@ -142,11 +142,12 @@ func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 			t.Fatal(err)
 		}
 		checkValue(t, value, actualValue)
-	}
-
-	for i := 1; i < 1000; i++ {
-		key := []byte(fmt.Sprintf("key_%d", i))
-		cache.Remove(key)
+		if !cache.Delete(key) {
+			t.Fatalf("Cannot remove item with key=[%s]", key)
+		}
+		if cache.Delete(key) {
+			t.Fatalf("Unexpected result returned from cache.Delete() for key=[%s]", key)
+		}
 	}
 
 	for i := 1; i < 1000; i++ {

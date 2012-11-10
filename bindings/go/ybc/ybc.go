@@ -72,7 +72,7 @@ type Cacher interface {
 	Get(key []byte) (value []byte, err error)
 	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
 	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
-	Remove(key []byte)
+	Delete(key []byte) bool
 	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
 	GetItem(key []byte) (item *Item, err error)
 	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
@@ -281,10 +281,10 @@ func (cache *Cache) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte
 	return
 }
 
-func (cache *Cache) Remove(key []byte) {
+func (cache *Cache) Delete(key []byte) bool {
 	cache.dg.CheckLive()
 	k := newKey(key)
-	C.ybc_item_remove(cache.ctx(), &k)
+	return C.ybc_item_remove(cache.ctx(), &k) != C.int(0)
 }
 
 func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
@@ -638,8 +638,8 @@ func (cluster *Cluster) GetDeAsync(key []byte, graceTtl time.Duration) (value []
 	return cluster.cache(key).GetDeAsync(key, graceTtl)
 }
 
-func (cluster *Cluster) Remove(key []byte) {
-	cluster.cache(key).Remove(key)
+func (cluster *Cluster) Delete(key []byte) bool {
+	return cluster.cache(key).Delete(key)
 }
 
 func (cluster *Cluster) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
