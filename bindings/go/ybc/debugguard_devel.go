@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 )
 
 /*******************************************************************************
@@ -134,11 +133,5 @@ func absFile(filename *string) string {
 func checkNonNegative(n int) {
 	if n < 0 {
 		panic("The number cannot be negative")
-	}
-}
-
-func checkNonNegativeDuration(t time.Duration) {
-	if t < 0 {
-		panic("The duration cannot be negative")
 	}
 }

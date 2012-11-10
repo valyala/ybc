@@ -22,7 +22,7 @@ var (
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
 	ErrNotFound          = errors.New("the item is not found in the cache")
 	ErrOpenFailed        = errors.New("cannot open the cache")
-	ErrOutOfRange        = errors.New("out of range")
+	ErrOutOfRange        = errors.New("out of range offset")
 	ErrPartialCommit     = errors.New("partial commit")
 	ErrUnsupportedWhence = errors.New("unsupported whence")
 	ErrWouldBlock        = errors.New("the operation would block")
@@ -64,21 +64,6 @@ type Item struct {
 	buf        []byte
 	valueCache C.struct_ybc_value
 	offset     int
-}
-
-// Cache and Cluster implement this interface
-type Cacher interface {
-	Set(key []byte, value []byte, ttl time.Duration) error
-	Get(key []byte) (value []byte, err error)
-	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
-	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
-	Delete(key []byte) bool
-	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
-	GetItem(key []byte) (item *Item, err error)
-	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
-	GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error)
-	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
-	Clear()
 }
 
 // TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
@@ -328,7 +313,9 @@ func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, e
 
 func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
-	checkNonNegativeDuration(graceTtl)
+	if graceTtl < 0 {
+		graceTtl = 0
+	}
 	item = acquireItem()
 	k := newKey(key)
 	mGraceTtl := C.uint64_t(graceTtl / time.Millisecond)
@@ -351,7 +338,9 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *It
 func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
 	cache.dg.CheckLive()
 	checkNonNegative(valueSize)
-	checkNonNegativeDuration(ttl)
+	if ttl < 0 {
+		ttl = 0
+	}
 	txn = acquireSetTxn()
 	k := newKey(key)
 	if C.ybc_set_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
@@ -698,7 +687,9 @@ func newKey(key []byte) C.struct_ybc_key {
 }
 
 func newValue(value []byte, ttl time.Duration) C.struct_ybc_value {
-	checkNonNegativeDuration(ttl)
+	if ttl < 0 {
+		ttl = 0
+	}
 	var ptr unsafe.Pointer
 	if len(value) > 0 {
 		ptr = unsafe.Pointer(&value[0])
