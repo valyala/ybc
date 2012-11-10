@@ -520,25 +520,64 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]by
 	return writeCrLf(w) && writeStr(w, item.Value) && writeCrLf(w)
 }
 
+func readSetResponse(r *bufio.Reader) bool {
+	return matchBytes(r, strStored) && matchBytes(r, strCrLf)
+}
+
 func (t *taskSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return writeSetRequest(w, t.item, false, scratchBuf)
 }
 
 func (t *taskSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	if !readLine(r, scratchBuf) {
-		return false
-	}
-	line := *scratchBuf
-	if !bytes.Equal(line, strStored) {
-		log.Printf("Unexpected response obtained for 'set' request for key=[%s], len(value)=%d: [%s]", t.item.Key, len(t.item.Value), line)
-		return false
-	}
-	return true
+	return readSetResponse(r)
 }
 
 func (c *Client) Set(item *Item) error {
 	t := taskSet{
 		item: item,
+	}
+	t.Init()
+	if !c.do(&t) {
+		return ErrCommunicationFailure
+	}
+	return nil
+}
+
+type taskCSet struct {
+	item        *Item
+	etag        int64
+	validateTtl int
+	taskSync
+}
+
+func writeCSetRequest(w *bufio.Writer, item *Item, etag int64, validateTtl int, noreply bool, scratchBuf *[]byte) bool {
+	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
+		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt64(w, etag, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, validateTtl, scratchBuf) {
+		return false
+	}
+	if noreply {
+		if !writeNoreply(w) {
+			return false
+		}
+	}
+	return writeCrLf(w) && writeStr(w, item.Value) && writeCrLf(w)
+}
+
+func (t *taskCSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCSetRequest(w, t.item, t.etag, t.validateTtl, false, scratchBuf)
+}
+
+func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	return readSetResponse(r)
+}
+
+func (c *Client) CSet(item *Item, etag int64, validateTtl int) error {
+	t := taskCSet{
+		item:        item,
+		etag:        etag,
+		validateTtl: validateTtl,
 	}
 	t.Init()
 	if !c.do(&t) {
@@ -571,6 +610,26 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 func (c *Client) SetNowait(item *Item) {
 	t := taskSetNowait{
 		item: item,
+	}
+	c.do(&t)
+}
+
+type taskCSetNowait struct {
+	item        *Item
+	etag        int64
+	validateTtl int
+	taskNowait
+}
+
+func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCSetRequest(w, t.item, t.etag, t.validateTtl, true, scratchBuf)
+}
+
+func (c *Client) CSetNowait(item *Item, etag int64, validateTtl int) {
+	t := taskCSetNowait{
+		item:        item,
+		etag:        etag,
+		validateTtl: validateTtl,
 	}
 	c.do(&t)
 }

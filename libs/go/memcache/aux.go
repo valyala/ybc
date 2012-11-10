@@ -21,6 +21,7 @@ const (
 
 var (
 	strCrLf       = []byte("\r\n")
+	strCSet       = []byte("cset ")
 	strDelete     = []byte("delete ")
 	strDeleted    = []byte("DELETED")
 	strEnd        = []byte("END")
@@ -147,12 +148,16 @@ func writeStr(w *bufio.Writer, s []byte) bool {
 	return true
 }
 
-func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
+func writeInt64(w *bufio.Writer, n int64, scratchBuf *[]byte) bool {
 	buf := *scratchBuf
 	buf = buf[0:0]
-	buf = strconv.AppendInt(buf, int64(n), 10)
+	buf = strconv.AppendInt(buf, n, 10)
 	*scratchBuf = buf
 	return writeStr(w, buf)
+}
+
+func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
+	return writeInt64(w, int64(n), scratchBuf)
 }
 
 func writeCrLf(w *bufio.Writer) bool {
