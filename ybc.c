@@ -1,4 +1,5 @@
 #include "platform.h"  /* Platform-specific functions' implementation. */
+#include "config.h"    /* Static configuration macros and constants. */
 #include "ybc.h"
 
 #include <assert.h>  /* assert */
@@ -17,6 +18,8 @@
  * - private functions and structures must start with m_
  * - private macros and constants must start with M_
  * - platform-specific functions and structures must start with p_.
+ * - static configuration macros and constants defined in config.h
+ *   must start with C_.
  * Such functions and structures must be defined in platform/<platform_name>.c
  * files.
  *
@@ -154,11 +157,6 @@ static int m_file_open_or_create(struct p_file *const file,
  ******************************************************************************/
 
 /*
- * Minimum size of a storage in bytes.
- */
-static const size_t M_STORAGE_MIN_SIZE = 4096;
-
-/*
  * Cursor points to the position in the storage.
  */
 struct m_storage_cursor
@@ -233,19 +231,6 @@ struct m_storage
 };
 
 /*
- * The height of a skiplist embedded into ybc_item.
- *
- * Optimal skiplist height can be calculated as log2(N), where N is the expected
- * maximum number of simultaneously acquired items in your application.
- *
- * Too low height may result in performance degradation when adding items
- * to the cache with high number of simultaneously acquired items.
- *
- * Too high height may waste memory via useless increase of ybc_item size.
- */
-#define M_ITEM_SKIPLIST_HEIGHT 5
-
-/*
  * An item acquired from the cache.
  *
  * Items returned from the cache are wrapped into ybc_item.
@@ -278,8 +263,8 @@ struct ybc_item
    * Pointers to previous items are used for speeding up acquired items'
    * release.
    */
-  struct ybc_item *next[M_ITEM_SKIPLIST_HEIGHT];
-  struct ybc_item *prev[M_ITEM_SKIPLIST_HEIGHT];
+  struct ybc_item *next[C_ITEM_SKIPLIST_HEIGHT];
+  struct ybc_item *prev[C_ITEM_SKIPLIST_HEIGHT];
 
   /*
    * Item's value location.
@@ -310,7 +295,7 @@ static void m_item_skiplist_init(struct ybc_item *const acquired_items_head,
   acquired_items_tail->payload.cursor.offset = storage_size;
   acquired_items_tail->payload.size = 0;
 
-  for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
+  for (size_t i = 0; i < C_ITEM_SKIPLIST_HEIGHT; ++i) {
     acquired_items_head->next[i] = acquired_items_tail;
     acquired_items_head->prev[i] = NULL;
     acquired_items_tail->next[i] = NULL;
@@ -330,7 +315,7 @@ static void m_item_skiplist_destroy(struct ybc_item *const acquired_items_head,
   assert(acquired_items_tail->payload.cursor.offset == storage_size);
   assert(acquired_items_tail->payload.size == 0);
 
-  for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
+  for (size_t i = 0; i < C_ITEM_SKIPLIST_HEIGHT; ++i) {
     assert(acquired_items_head->next[i] == acquired_items_tail);
     assert(acquired_items_head->prev[i] == NULL);
     assert(acquired_items_tail->next[i] == NULL);
@@ -357,7 +342,7 @@ static void m_item_skiplist_get_prevs(
 {
   struct ybc_item *prev = acquired_items_head;
 
-  for (size_t i = 0; i < M_ITEM_SKIPLIST_HEIGHT; ++i) {
+  for (size_t i = 0; i < C_ITEM_SKIPLIST_HEIGHT; ++i) {
     assert(prev->payload.cursor.offset <= offset);
     struct ybc_item *next = prev->next[i];
     while (offset > next->payload.cursor.offset) {
@@ -374,7 +359,7 @@ static void m_item_skiplist_add(struct ybc_item *const item) {
   const size_t offset = item->payload.cursor.offset;
   uint64_t h = m_hash_get(0, &offset, sizeof(offset));
 
-  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
+  for (size_t i = C_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
     struct ybc_item *const prev = item->next[i];
     m_item_assert_less_equal(prev, item);
@@ -398,7 +383,7 @@ static void m_item_skiplist_add(struct ybc_item *const item) {
 
 static void m_item_skiplist_del(struct ybc_item *const item)
 {
-  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
+  for (size_t i = C_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
     if (item->next[i] == NULL) {
       break;
@@ -414,7 +399,7 @@ static void m_item_skiplist_relocate(struct ybc_item *const dst,
 {
   *dst = *src;
 
-  for (size_t i = M_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
+  for (size_t i = C_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
     if (src->next[i] == NULL) {
       break;
@@ -427,8 +412,8 @@ static void m_item_skiplist_relocate(struct ybc_item *const dst,
 
 static void m_storage_fix_size(size_t *const size)
 {
-  if (*size < M_STORAGE_MIN_SIZE) {
-    *size = M_STORAGE_MIN_SIZE;
+  if (*size < C_STORAGE_MIN_SIZE) {
+    *size = C_STORAGE_MIN_SIZE;
   }
 }
 
@@ -535,7 +520,7 @@ static int m_storage_allocate(struct m_storage *const storage,
 
     m_item_skiplist_get_prevs(acquired_items_head, item->next,
         next_cursor.offset);
-    const size_t N = M_ITEM_SKIPLIST_HEIGHT - 1;
+    const size_t N = C_ITEM_SKIPLIST_HEIGHT - 1;
     const struct ybc_item *tmp = item->next[N];
     /*
      * It is expected that item's properties are already verified
@@ -759,24 +744,6 @@ static int m_storage_metadata_check(const struct m_storage *const storage,
  * it can be set only at cache opening.
  ******************************************************************************/
 
-/*
- * Items with sizes larger than the given value aren't defragmented.
- *
- * There is no reason in moving large items, which span across many VM pages.
- */
-static const size_t M_WS_MAX_MOVABLE_ITEM_SIZE = 64 * 1024;
-
-/*
- * The probability of item defragmentation if it lays outside of hot data space.
- *
- * The probability must be in the range [0..99].
- * 0 disables the defragmentation, while 99 leads to aggressive defragmentation.
- *
- * Lower probability results in smaller number of m_ws_defragment() calls
- * at the cost of probably higher hot data fragmentation.
- */
-static const int M_WS_DEFRAGMENT_PROBABILITY = 10;
-
 static void m_ws_fix_hot_data_size(size_t *const hot_data_size,
     const size_t storage_size)
 {
@@ -843,7 +810,7 @@ static int m_ws_should_defragment(const struct m_storage *const storage,
     return 0;
   }
 
-  if (payload->size > M_WS_MAX_MOVABLE_ITEM_SIZE) {
+  if (payload->size > C_WS_MAX_MOVABLE_ITEM_SIZE) {
     /* Do not defragment large items. */
     return 0;
   }
@@ -852,7 +819,7 @@ static int m_ws_should_defragment(const struct m_storage *const storage,
    * It is OK using non-thread-safe and non-reentrant rand() here,
    * since we do not need reproducible sequence of random values.
    */
-  if ((rand() % 100) >= M_WS_DEFRAGMENT_PROBABILITY) {
+  if ((rand() % 100) >= C_WS_DEFRAGMENT_PROBABILITY) {
     /*
      * Probabalistically skip items to be defragmented.
      * This way one-off items (i.e. items requested only once) are likely
@@ -922,31 +889,9 @@ static size_t m_key_digest_mod(const struct m_key_digest *const key_digest,
  ******************************************************************************/
 
 /*
- * The map is split into buckets each with size M_MAP_BUCKET_SIZE.
- * The size of bucket containing key digests is:
- *   (M_MAP_BUCKET_SIZE * sizeof(struct m_key_digest))
- * It must be aligned (and probably fit) to CPU cache line for high performance,
- * because all keys in a bucket may be accessed during each lookup operation.
- *
- * Cache's eviction rate depends on the number of slots per bucket.
- * For instance, 8 slots per bucket result in ~5% eviction rate for half-full
- * cache - quite cool number ;).
- * See tests/eviction_rate_estimator.py for details.
+ * It is expected that C_MAP_BUCKET_SIZE is a power of 2.
  */
-#define M_MAP_BUCKET_MASK ((((size_t)1) << 3) - 1)
-static const size_t M_MAP_BUCKET_SIZE = M_MAP_BUCKET_MASK + 1;
-
-/*
- * Optimal fill ratio for map slots.
- *
- * This number must be in the range (0.0 .. 1.0].
- * 1.0 means the map performs best when all slots are full.
- * 0.1 means the map performs best when only 10% of slots are full.
- *
- * 50% fill ratio results in 5% eviction rate for 8 slots per bucket.
- * See tests/eviction_rate_estimator.py for details.
- */
-static const double M_MAP_OPTIMAL_FILL_RATIO = 0.5;
+static const size_t M_MAP_BUCKET_MASK = C_MAP_BUCKET_SIZE - 1;
 
 /*
  * The size of a compound map item, which consists of key digest
@@ -1004,8 +949,8 @@ static void m_map_fix_slots_count(size_t *const slots_count,
   /*
    * Preserve the order of conditions below!
    * This guarantees that the resulting slots_count will be between
-   * M_MAP_BUCKET_SIZE and M_MAP_SLOTS_COUNT_LIMIT and
-   * is divided by M_MAP_BUCKET_SIZE.
+   * C_MAP_BUCKET_SIZE and M_MAP_SLOTS_COUNT_LIMIT and
+   * is divided by C_MAP_BUCKET_SIZE.
    */
 
   if (*slots_count > data_file_size) {
@@ -1016,16 +961,16 @@ static void m_map_fix_slots_count(size_t *const slots_count,
     *slots_count = data_file_size;
   }
 
-  if (*slots_count < M_MAP_BUCKET_SIZE) {
-    *slots_count = M_MAP_BUCKET_SIZE;
+  if (*slots_count < C_MAP_BUCKET_SIZE) {
+    *slots_count = C_MAP_BUCKET_SIZE;
   }
 
   if (*slots_count > M_MAP_SLOTS_COUNT_LIMIT) {
     *slots_count = M_MAP_SLOTS_COUNT_LIMIT;
   }
 
-  if (*slots_count % M_MAP_BUCKET_SIZE) {
-    *slots_count += M_MAP_BUCKET_SIZE - (*slots_count % M_MAP_BUCKET_SIZE);
+  if (*slots_count % C_MAP_BUCKET_SIZE) {
+    *slots_count += C_MAP_BUCKET_SIZE - (*slots_count % C_MAP_BUCKET_SIZE);
   }
 }
 
@@ -1033,6 +978,9 @@ static void m_map_init(struct m_map *const map, const size_t slots_count,
     struct m_key_digest *const key_digests,
     struct m_storage_payload *const payloads)
 {
+  assert(C_MAP_BUCKET_SIZE == M_MAP_BUCKET_MASK + 1);
+  assert((C_MAP_BUCKET_SIZE & M_MAP_BUCKET_MASK) == 0);
+
   map->slots_count = slots_count;
   map->key_digests = key_digests;
   map->payloads = payloads;
@@ -1060,12 +1008,12 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
     const struct m_key_digest *const key_digest, size_t *const start_index,
     size_t *const slot_index)
 {
-  assert(map->slots_count % M_MAP_BUCKET_SIZE == 0);
-  assert(map->slots_count >= M_MAP_BUCKET_SIZE);
+  assert(map->slots_count % C_MAP_BUCKET_SIZE == 0);
+  assert(map->slots_count >= C_MAP_BUCKET_SIZE);
 
   *start_index = m_key_digest_mod(key_digest, map->slots_count) & ~M_MAP_BUCKET_MASK;
 
-  for (size_t i = 0; i < M_MAP_BUCKET_SIZE; ++i) {
+  for (size_t i = 0; i < C_MAP_BUCKET_SIZE; ++i) {
     const size_t current_index = *start_index + i;
     assert(current_index < map->slots_count);
 
@@ -1106,7 +1054,7 @@ static void m_map_set(const struct m_map *const map,
     size_t victim_index = start_index;
     uint64_t min_expiration_time = UINT64_MAX;
 
-    for (i = 0; i < M_MAP_BUCKET_SIZE; ++i) {
+    for (i = 0; i < C_MAP_BUCKET_SIZE; ++i) {
       slot_index = start_index + i;
       assert(slot_index < map->slots_count);
 
@@ -1133,7 +1081,7 @@ static void m_map_set(const struct m_map *const map,
       }
     }
 
-    if (i == M_MAP_BUCKET_SIZE) {
+    if (i == C_MAP_BUCKET_SIZE) {
       /*
        * Couldn't find empty slot.
        * Overwrite slot, which will expire sooner than other slots.
@@ -1444,7 +1392,7 @@ static int m_index_open(struct m_index *const index,
    * Assume the ptr is VM page-aligned, so there are high chances it is aligned
    * to CPU cache line size. So, index file must start with key digests.
    *
-   * See M_MAP_BUCKET_SIZE description for more details.
+   * See C_MAP_BUCKET_SIZE description for more details.
    */
   struct m_key_digest *const key_digests = ptr;
   struct m_storage_payload *const payloads = (struct m_storage_payload *)
@@ -1536,10 +1484,10 @@ static void m_sync_adjust_next_cursor(
     const struct m_storage_cursor *const sync_cursor,
     struct m_storage_cursor *const next_cursor)
 {
-  struct ybc_item *prevs[M_ITEM_SKIPLIST_HEIGHT];
+  struct ybc_item *prevs[C_ITEM_SKIPLIST_HEIGHT];
   m_item_skiplist_get_prevs(acquired_items_head, prevs, sync_cursor->offset);
 
-  const size_t N = M_ITEM_SKIPLIST_HEIGHT - 1;
+  const size_t N = C_ITEM_SKIPLIST_HEIGHT - 1;
   const struct ybc_item *item = prevs[N]->next[N];
   m_item_skiplist_assert_valid(item, N);
   while (item->payload.cursor.offset < next_cursor->offset) {
@@ -1682,42 +1630,6 @@ static void m_sync_destroy(struct m_sync *const sc)
  ******************************************************************************/
 
 /*
- * Minimum grace ttl, which can be passed to ybc_item_get_de().
- *
- * There is no sense in grace ttl, which is smaller than 1 millisecond.
- */
-static const uint64_t M_DE_ITEM_MIN_GRACE_TTL = 1;
-
-/*
- * Maximum grace ttl, which can be passed to ybc_item_get_de().
- *
- * Too low maximum grace ttl won't prevent from dogpile effect, when multiple
- * threads are busy with creation of the same item.
- *
- * Too high maximum grace ttl may result in too large m_de->pending_items
- * hashtable if many distinct items are requested via ybc_item_get_de()
- * with high grace ttls. So the maximum grace ttl effectively limits the size
- * of m_de->pending_items hashtable.
- *
- * 10 minutes should be enough for any practical purposes ;)
- */
-static const uint64_t M_DE_ITEM_MAX_GRACE_TTL = 10 * 60 * 1000;
-
-/*
- * Time to sleep in milliseconds before the next try on obtaining
- * not-yet-existing item.
- *
- * The amount of sleep time should be enough for creating an average item,
- * which is subject to dogpile effect.
- *
- * Too low sleep time may result in many unsuccessful tries on obtaining
- * not-yet-existing item, i.e. CPU time waste.
- *
- * Too high sleep time may result in high ybc_item_get_de() latencies.
- */
-static const uint64_t M_DE_ITEM_SLEEP_TIME = 100;
-
-/*
  * Dogpile effect item, which is pending to be added or updated in the cache.
  */
 struct m_de_item
@@ -1848,8 +1760,8 @@ static void m_de_item_set(struct m_de_item **const pending_items_ptr,
 static int m_de_item_register(struct m_de *const de,
     const struct m_key_digest *const key_digest, const uint64_t grace_ttl)
 {
-  assert(grace_ttl >= M_DE_ITEM_MIN_GRACE_TTL);
-  assert(grace_ttl <= M_DE_ITEM_MAX_GRACE_TTL);
+  assert(grace_ttl >= C_DE_ITEM_MIN_GRACE_TTL);
+  assert(grace_ttl <= C_DE_ITEM_MAX_GRACE_TTL);
 
   const uint64_t current_time = p_get_current_time();
 
@@ -1878,20 +1790,6 @@ static int m_de_item_register(struct m_de *const de,
  * Config API.
  ******************************************************************************/
 
-static const size_t M_CONFIG_DEFAULT_MAP_SLOTS_COUNT = 100 * 1000;
-
-static const size_t M_CONFIG_DEFAULT_DATA_SIZE = 64 * 1024 * 1024;
-
-static const size_t M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT = 10 * 1000;
-
-static const size_t M_CONFIG_DEFAULT_HOT_DATA_SIZE = 8 * 1024 * 1024;
-
-static const size_t M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE = 16;
-
-static const size_t M_CONFIG_MAX_DE_HASHTABLE_SIZE = 1024 * 1024;
-
-static const size_t M_CONFIG_DEFAULT_SYNC_INTERVAL = 10 * 1000;
-
 struct ybc_config
 {
   char *index_file;
@@ -1913,12 +1811,12 @@ void ybc_config_init(struct ybc_config *const config)
 {
   config->index_file = NULL;
   config->data_file = NULL;
-  config->map_slots_count = M_CONFIG_DEFAULT_MAP_SLOTS_COUNT;
-  config->data_file_size = M_CONFIG_DEFAULT_DATA_SIZE;
-  config->map_cache_slots_count = M_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT;
-  config->hot_data_size = M_CONFIG_DEFAULT_HOT_DATA_SIZE;
-  config->de_hashtable_size = M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE;
-  config->sync_interval = M_CONFIG_DEFAULT_SYNC_INTERVAL;
+  config->map_slots_count = C_CONFIG_DEFAULT_MAP_SLOTS_COUNT;
+  config->data_file_size = C_CONFIG_DEFAULT_DATA_SIZE;
+  config->map_cache_slots_count = C_CONFIG_DEFAULT_MAP_CACHE_SLOTS_COUNT;
+  config->hot_data_size = C_CONFIG_DEFAULT_HOT_DATA_SIZE;
+  config->de_hashtable_size = C_CONFIG_DEFAULT_DE_HASHTABLE_SIZE;
+  config->sync_interval = C_CONFIG_DEFAULT_SYNC_INTERVAL;
 }
 
 void ybc_config_destroy(struct ybc_config *const config)
@@ -1930,7 +1828,7 @@ void ybc_config_destroy(struct ybc_config *const config)
 void ybc_config_set_max_items_count(struct ybc_config *const config,
     const size_t max_items_count)
 {
-  config->map_slots_count = max_items_count / M_MAP_OPTIMAL_FILL_RATIO;
+  config->map_slots_count = max_items_count / C_MAP_OPTIMAL_FILL_RATIO;
 }
 
 void ybc_config_set_data_file_size(struct ybc_config *const config,
@@ -1954,7 +1852,7 @@ void ybc_config_set_data_file(struct ybc_config *const config,
 void ybc_config_set_hot_items_count(struct ybc_config *const config,
     const size_t hot_items_count)
 {
-  config->map_cache_slots_count = hot_items_count / M_MAP_OPTIMAL_FILL_RATIO;
+  config->map_cache_slots_count = hot_items_count / C_MAP_OPTIMAL_FILL_RATIO;
 }
 
 void ybc_config_set_hot_data_size(struct ybc_config *const config,
@@ -1967,9 +1865,9 @@ void ybc_config_set_de_hashtable_size(struct ybc_config *const config,
     const size_t de_hashtable_size)
 {
   config->de_hashtable_size = ((de_hashtable_size > 0) ? de_hashtable_size :
-      M_CONFIG_DEFAULT_DE_HASHTABLE_SIZE);
-  if (config->de_hashtable_size > M_CONFIG_MAX_DE_HASHTABLE_SIZE) {
-    config->de_hashtable_size = M_CONFIG_MAX_DE_HASHTABLE_SIZE;
+      C_CONFIG_DEFAULT_DE_HASHTABLE_SIZE);
+  if (config->de_hashtable_size > C_CONFIG_MAX_DE_HASHTABLE_SIZE) {
+    config->de_hashtable_size = C_CONFIG_MAX_DE_HASHTABLE_SIZE;
   }
 }
 
@@ -2360,11 +2258,11 @@ int ybc_item_get(struct ybc *const cache, struct ybc_item *const item,
 static uint64_t m_item_adjust_grace_ttl(const uint64_t grace_ttl)
 {
   uint64_t adjusted_grace_ttl = grace_ttl;
-  if (adjusted_grace_ttl < M_DE_ITEM_MIN_GRACE_TTL) {
-    adjusted_grace_ttl = M_DE_ITEM_MIN_GRACE_TTL;
+  if (adjusted_grace_ttl < C_DE_ITEM_MIN_GRACE_TTL) {
+    adjusted_grace_ttl = C_DE_ITEM_MIN_GRACE_TTL;
   }
-  else if (adjusted_grace_ttl > M_DE_ITEM_MAX_GRACE_TTL) {
-    adjusted_grace_ttl = M_DE_ITEM_MAX_GRACE_TTL;
+  else if (adjusted_grace_ttl > C_DE_ITEM_MAX_GRACE_TTL) {
+    adjusted_grace_ttl = C_DE_ITEM_MAX_GRACE_TTL;
   }
   return adjusted_grace_ttl;
 }
@@ -2442,7 +2340,7 @@ enum ybc_de_status ybc_item_get_de(struct ybc *const cache,
      * was uglier, more intrusive, slower and less robust than the code based
      * on periodic sleepinig :)
      */
-    p_sleep(M_DE_ITEM_SLEEP_TIME);
+    p_sleep(C_DE_ITEM_SLEEP_TIME);
   }
 }
 
@@ -2463,8 +2361,6 @@ void ybc_item_get_value(const struct ybc_item *const item,
 /*******************************************************************************
  * Cache cluster API.
  ******************************************************************************/
-
-static const uint64_t M_CLUSTER_INITIAL_HASH_SEED = 0xDEADBEEFDEADBEEF;
 
 struct ybc_cluster
 {
@@ -2551,7 +2447,7 @@ int ybc_cluster_open(struct ybc_cluster *const cluster,
       caches_count);
   size_t total_slots_count = 0;
 
-  cluster->hash_seed = M_CLUSTER_INITIAL_HASH_SEED;
+  cluster->hash_seed = C_CLUSTER_INITIAL_HASH_SEED;
 
   for (size_t i = 0; i < caches_count; ++i) {
     const struct ybc_config *const config = &configs[i];

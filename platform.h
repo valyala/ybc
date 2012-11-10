@@ -1,3 +1,6 @@
+#ifndef YBC_PLATFORM_H_INCLUDED
+#define YBC_PLATFORM_H_INCLUDED
+
 /*******************************************************************************
  * Platform-specific functions for ybc.c.
  *
@@ -231,3 +234,5 @@ static void p_memory_sync(void *ptr, size_t size);
 #else
   #error "unsupported platform"
 #endif
+
+#endif  /* YBC_PLATFORM_H_INCLUDED */
