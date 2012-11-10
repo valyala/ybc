@@ -235,6 +235,10 @@ type taskSync struct {
 	done chan bool
 }
 
+func (t *taskSync) Init() {
+	t.done = acquireDoneChan()
+}
+
 func (t *taskSync) Done(ok bool) {
 	t.done <- ok
 }
@@ -378,10 +382,8 @@ func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 	t := taskGetMulti{
 		keys:  keys,
 		items: make([]Item, 0, len(keys)),
-		taskSync: taskSync{
-			done: acquireDoneChan(),
-		},
 	}
+	t.Init()
 	if !c.do(&t) {
 		err = ErrCommunicationFailure
 		return
@@ -435,10 +437,8 @@ func (c *Client) Get(item *Item) error {
 	t := taskGet{
 		item:      item,
 		itemFound: false,
-		taskSync: taskSync{
-			done: acquireDoneChan(),
-		},
 	}
+	t.Init()
 	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
@@ -484,10 +484,8 @@ func (c *Client) GetDe(item *Item, grace int) error {
 			grace:      grace,
 			itemFound:  false,
 			wouldBlock: false,
-			taskSync: taskSync{
-				done: acquireDoneChan(),
-			},
 		}
+		t.Init()
 		if !c.do(&t) {
 			return ErrCommunicationFailure
 		}
@@ -541,10 +539,8 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 func (c *Client) Set(item *Item) error {
 	t := taskSet{
 		item: item,
-		taskSync: taskSync{
-			done: acquireDoneChan(),
-		},
 	}
+	t.Init()
 	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
@@ -621,10 +617,8 @@ func (t *taskDelete) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 func (c *Client) Delete(key []byte) error {
 	t := taskDelete{
 		key: key,
-		taskSync: taskSync{
-			done: acquireDoneChan(),
-		},
 	}
+	t.Init()
 	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
