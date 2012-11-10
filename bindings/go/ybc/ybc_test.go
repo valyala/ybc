@@ -627,6 +627,26 @@ func TestItem_Seek_Read(t *testing.T) {
 	checkValue(t, value[2:], buf[:nn])
 }
 
+func TestItem_ReadByte(t *testing.T) {
+	cache, item := newCacheItem(t)
+	defer cache.Close()
+	defer item.Close()
+
+	value := item.Value()
+	for _, c := range value {
+		cc, err := item.ReadByte()
+		if err != nil {
+			t.Fatalf("unexpected error in Item.ReadByte(): [%s]", err)
+		}
+		if cc != c {
+			t.Fatalf("unexpected byte returned from Item.ReadByte(): %d. Expected %d", cc, c)
+		}
+	}
+	if _, err := item.ReadByte(); err != io.EOF {
+		t.Fatalf("Unexpected error returned from Item.ReadByte(): [%s]. Expected EOF", err)
+	}
+}
+
 func TestItem_Seek_OutOfRange(t *testing.T) {
 	cache, item := newCacheItem(t)
 	defer cache.Close()

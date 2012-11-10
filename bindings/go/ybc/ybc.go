@@ -493,11 +493,9 @@ func (item *Item) Ttl() time.Duration {
 
 // io.Seeker interface implementation
 func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
-	item.dg.CheckLive()
 	if whence != 0 {
 		panic(ErrUnsupportedWhence)
 	}
-
 	buf := item.unsafeBuf()
 	if offset > int64(len(buf)) {
 		err = ErrOutOfRange
@@ -508,9 +506,20 @@ func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
 	return
 }
 
+// io.ByteReader interface implementation
+func (item *Item) ReadByte() (c byte, err error) {
+	buf := item.unsafeBuf()
+	if item.offset == len(buf) {
+		err = io.EOF
+		return
+	}
+	c = buf[item.offset]
+	item.offset++
+	return
+}
+
 // io.Reader interface implementation
 func (item *Item) Read(p []byte) (n int, err error) {
-	item.dg.CheckLive()
 	buf := item.unsafeBuf()
 	n = copy(p, buf[item.offset:])
 	item.offset += n
@@ -523,7 +532,6 @@ func (item *Item) Read(p []byte) (n int, err error) {
 
 // io.ReaderAt interface implementation
 func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
-	item.dg.CheckLive()
 	buf := item.unsafeBuf()
 	if offset > int64(len(buf)) {
 		err = ErrOutOfRange
@@ -539,7 +547,6 @@ func (item *Item) ReadAt(p []byte, offset int64) (n int, err error) {
 
 // io.WriterTo interface implementation
 func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
-	item.dg.CheckLive()
 	var nn int
 	buf := item.unsafeBuf()
 	nn, err = w.Write(buf[item.offset:])
@@ -549,6 +556,7 @@ func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
 }
 
 func (item *Item) unsafeBuf() []byte {
+	item.dg.CheckLive()
 	mValue := item.value()
 	return newUnsafeSlice(mValue.ptr, int(mValue.size))
 }
