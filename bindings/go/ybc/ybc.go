@@ -482,6 +482,10 @@ func (item *Item) Size() int {
 	return int(mValue.size)
 }
 
+func (item *Item) Available() int {
+	return item.Size() - item.offset
+}
+
 func (item *Item) Ttl() time.Duration {
 	item.dg.CheckLive()
 	return time.Duration(item.value().ttl) * time.Millisecond

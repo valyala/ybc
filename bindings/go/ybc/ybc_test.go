@@ -561,6 +561,28 @@ func TestItem_Size(t *testing.T) {
 	}
 }
 
+func TestItem_Available(t *testing.T) {
+	cache := newCache(t)
+	defer cache.Close()
+
+	key := []byte("key12345")
+	value := []byte("value")
+
+	item, err := cache.SetItem(key, value, MaxTtl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer item.Close()
+
+	buf := make([]byte, 3)
+	if _, err = item.Read(buf); err != nil {
+		t.Fatalf("Cannot read %d bytes from item: [%s]", len(buf), err)
+	}
+	if item.Available() != (len(value) - len(buf)) {
+		t.Fatalf("Unexpected size=%d. Expected=%d", item.Size(), len(value))
+	}
+}
+
 func TestItem_Ttl(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
