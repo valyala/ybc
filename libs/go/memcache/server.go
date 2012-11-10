@@ -30,40 +30,21 @@ func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, scratchBuf *[]byte) bool {
-	if _, err := w.Write(strValue); err != nil {
-		log.Printf("Error when writing VALUE response: [%s]", err)
-		return false
-	}
-	if _, err := w.Write(key); err != nil {
-		log.Printf("Error when writing key=[%s] to 'get' response: [%s]", key, err)
-		return false
-	}
-	if _, err := w.Write(strZero); err != nil {
-		log.Printf("Error when writing ' 0 ' to 'get' response: [%s]", err)
-		return false
-	}
 	size := item.Size()
-	if !writeInt(w, size, scratchBuf) {
-		return false
-	}
-	if _, err := w.Write(strZeroCrLf); err != nil {
-		log.Printf("Error when writing 0\\r\\n to 'get' response: [%s]", err)
+	if !writeStr(w, strValue) || !writeStr(w, key) || !writeStr(w, strZero) ||
+		!writeInt(w, size, scratchBuf) || !writeStr(w, strZeroCrLf) {
 		return false
 	}
 	n, err := item.WriteTo(w)
 	if err != nil {
-		log.Printf("Error when writing payload: [%s]", err)
+		log.Printf("Error when writing payload with size=[%d] to output stream: [%s]", size, err)
 		return false
 	}
 	if n != int64(size) {
-		log.Printf("Invalid length of payload=[%d]. Expected [%d]", n, size)
+		log.Printf("Invalid length of payload=[%d] written to output stream. Expected [%d]", n, size)
 		return false
 	}
-	if _, err := w.Write(strCrLf); err != nil {
-		log.Printf("Error when writing \\r\\n to response: [%s]", err)
-		return false
-	}
-	return true
+	return writeCrLf(w)
 }
 
 func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, scratchBuf *[]byte) bool {
@@ -72,7 +53,7 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, scra
 		if err == ybc.ErrNotFound {
 			return true
 		}
-		log.Fatalf("Unexpected error returned by cache.GetItem(): [%s]", err)
+		log.Fatalf("Unexpected error returned by cache.GetItem(key=[%s]): [%s]", key, err)
 	}
 	defer item.Close()
 
@@ -80,11 +61,7 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, scra
 }
 
 func writeEndCrLf(w *bufio.Writer) bool {
-	if _, err := w.Write(strEndCrLf); err != nil {
-		log.Printf("Error when writing \\r\\n: [%s]", err)
-		return false
-	}
-	return true
+	return writeStr(w, strEnd) && writeCrLf(w)
 }
 
 func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
@@ -121,13 +98,9 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	if graceStr == nil {
 		return false
 	}
-	if n != len(line) {
-		return false
-	}
-
 	graceInt, err := strconv.Atoi(string(graceStr))
 	if err != nil {
-		log.Printf("Cannot parse grace=[%s] in 'getde' query for key=[%s]", graceStr, key)
+		log.Printf("Cannot parse grace=[%s] in 'getde' request for the key=[%s]: [%s]", graceStr, key, err)
 		return false
 	}
 	if graceInt <= 0 {
@@ -136,92 +109,96 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	}
 	grace := time.Millisecond * time.Duration(graceInt)
 
+	if !expectEof(line, n) {
+		return false
+	}
+
 	item, err := cache.GetDeAsyncItem(key, grace)
 	if err != nil {
 		if err == ybc.ErrWouldBlock {
-			if _, err = c.Write(strWouldBlockCrLf); err != nil {
-				log.Printf("Cannot write 'WOULDBLOCK' to 'getde' response: [%s]", err)
-				return false
-			}
-			return true
+			return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
 		}
 		if err == ybc.ErrNotFound {
 			return writeEndCrLf(c.Writer)
 		}
-		log.Fatalf("Unexpected error returned by cache.GetDeAsyncItem(): [%s]", err)
+		log.Fatalf("Unexpected error returned by Cache.GetDeAsyncItem(): [%s]", err)
 	}
 	defer item.Close()
 
-	if !writeGetResponse(c.Writer, key, item, scratchBuf) {
-		return false
+	return writeGetResponse(c.Writer, key, item, scratchBuf) && writeEndCrLf(c.Writer)
+}
+
+func expectNoreply(line []byte, n int) (nn int, ok bool) {
+	var noreplyStr []byte
+	ok = false
+
+	noreplyStr, n = nextToken(line, n, "noreply")
+	if noreplyStr == nil {
+		return
 	}
-
-	return writeEndCrLf(c.Writer)
+	if !bytes.Equal(noreplyStr, strNoreply) {
+		log.Printf("Unexpected noreply in line=[%s]: [%s]. Expected [%s]", line, noreplyStr, strNoreply)
+		return
+	}
+	nn = n
+	ok = true
+	return
 }
 
-type setCmd struct {
-	key     []byte
-	exptime []byte
-	size    []byte
-	noreply []byte
-}
-
-func parseSetCmd(line []byte, cmd *setCmd) bool {
+func parseSetCmd(line []byte) (key []byte, exptime time.Duration, size int, noreply bool, ok bool) {
 	n := -1
 
-	cmd.key, n = nextToken(line, n, "key")
-	if cmd.key == nil {
-		return false
+	ok = false
+	key, n = nextToken(line, n, "key")
+	if key == nil {
+		return
 	}
 	flagsUnused, n := nextToken(line, n, "flags")
 	if flagsUnused == nil {
-		return false
+		return
 	}
-	cmd.exptime, n = nextToken(line, n, "exptime")
-	if cmd.exptime == nil {
-		return false
+	exptimeStr, n := nextToken(line, n, "exptime")
+	if exptimeStr == nil {
+		return
 	}
-	cmd.size, n = nextToken(line, n, "size")
-	if cmd.size == nil {
-		return false
+	if exptime, ok = parseExptime(exptimeStr); !ok {
+		return
+	}
+	sizeStr, n := nextToken(line, n, "size")
+	if sizeStr == nil {
+		return
+	}
+	if size, ok = parseInt(sizeStr); !ok {
+		return
 	}
 
+	noreply = false
 	if n == len(line) {
-		return true
+		ok = true
+		return
 	}
 
-	cmd.noreply, n = nextToken(line, n, "noreply")
-	if cmd.noreply == nil {
-		return false
+	if n, ok = expectNoreply(line, n); !ok {
+		return
 	}
-	return n == len(line)
+	if !expectEof(line, n) {
+		ok = false
+		return
+	}
+	noreply = true
+	ok = true
+	return
 }
 
-func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setCmd) bool {
-	cmd.noreply = nil
-	if !parseSetCmd(line, cmd) {
+func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	key, exptime, size, noreply, ok := parseSetCmd(line)
+	if !ok {
 		return false
 	}
 
-	key := cmd.key
-	exptime, ok := parseExptime(cmd.exptime)
-	if !ok {
-		return false
-	}
-	size, ok := parseInt(cmd.size)
-	if !ok {
-		return false
-	}
-	noreply := false
-	if cmd.noreply != nil {
-		if !bytes.Equal(cmd.noreply, strNoreply) {
-			return false
-		}
-		noreply = true
-	}
 	txn, err := cache.NewSetTxn(key, size, exptime)
 	if err != nil {
-		log.Printf("Cannot start 'set' transaction for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
+		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
 		return false
 	}
 	defer txn.Commit()
@@ -237,16 +214,45 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, cmd *setC
 	if !matchBytes(c.Reader, strCrLf) {
 		return false
 	}
-	if !noreply {
-		if _, err := c.Write(strStoredCrLf); err != nil {
-			log.Printf("Error when writing response: [%s]", err)
-			return false
-		}
+	if noreply {
+		return true
 	}
-	return true
+	return writeStr(c.Writer, strStored) && writeCrLf(c.Writer)
 }
 
-func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, cmd *setCmd) bool {
+func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	n := -1
+
+	key, n := nextToken(line, n, "key")
+	if key == nil {
+		return false
+	}
+
+	noreply := false
+	if n < len(line) {
+		var ok bool
+		if n, ok = expectNoreply(line, n); !ok {
+			return false
+		}
+		noreply = true
+	}
+	if !expectEof(line, n) {
+		return false
+	}
+
+	ok := cache.Delete(key)
+	if noreply {
+		return true
+	}
+
+	response := strDeleted
+	if !ok {
+		response = strNotFound
+	}
+	return writeStr(c.Writer, response) && writeCrLf(c.Writer)
+}
+
+func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte) bool {
 	if !readLine(c.Reader, scratchBuf) {
 		return false
 	}
@@ -264,7 +270,10 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, c
 		return processGetDeCmd(c, cache, line[len(strGetDe):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strSet) {
-		return processSetCmd(c, cache, line[len(strSet):], cmd)
+		return processSetCmd(c, cache, line[len(strSet):], scratchBuf)
+	}
+	if bytes.HasPrefix(line, strDelete) {
+		return processDeleteCmd(c, cache, line[len(strDelete):], scratchBuf)
 	}
 	log.Printf("Unrecognized command=[%s]", line)
 	return false
@@ -279,9 +288,8 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	defer w.Flush()
 
 	scratchBuf := make([]byte, 0, 1024)
-	cmd := setCmd{}
 	for {
-		if !processRequest(c, cache, &scratchBuf, &cmd) {
+		if !processRequest(c, cache, &scratchBuf) {
 			break
 		}
 		if r.Buffered() == 0 {

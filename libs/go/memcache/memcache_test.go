@@ -222,3 +222,60 @@ func TestClient_SetNowait(t *testing.T) {
 
 	checkItems(c, items, t)
 }
+
+func TestClient_Delete(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	itemsCount := 100
+	var item Item
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		item.Value = []byte(fmt.Sprintf("value_%d", i))
+		if err := c.Delete(item.Key); err != ErrCacheMiss {
+			t.Fatalf("error when deleting non-existing item: [%s]", err)
+		}
+		if err := c.Set(&item); err != nil {
+			t.Fatalf("error in client.Set(): [%s]", err)
+		}
+		if err := c.Delete(item.Key); err != nil {
+			t.Fatalf("error when deleting existing item: [%s]", err)
+		}
+		if err := c.Delete(item.Key); err != ErrCacheMiss {
+			t.Fatalf("error when deleting non-existing item: [%s]", err)
+		}
+	}
+}
+
+func TestClient_DeleteNowait(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	itemsCount := 100
+	var item Item
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		item.Value = []byte(fmt.Sprintf("value_%d", i))
+		if err := c.Set(&item); err != nil {
+			t.Fatalf("error in client.Set(): [%s]", err)
+		}
+	}
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		c.DeleteNowait(item.Key)
+	}
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		if err := c.Get(&item); err != ErrCacheMiss {
+			t.Fatalf("error when obtaining deleted item: [%s]", err)
+		}
+	}
+}

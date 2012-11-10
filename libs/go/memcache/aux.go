@@ -20,24 +20,31 @@ const (
 )
 
 var (
-	strCrLf           = []byte("\r\n")
-	strEnd            = []byte("END")
-	strEndCrLf        = []byte("END\r\n")
-	strGet            = []byte("get ")
-	strGetDe          = []byte("getde ")
-	strGets           = []byte("gets ")
-	strNoreply        = []byte("noreply")
-	strSet            = []byte("set ")
-	strStored         = []byte("STORED")
-	strStoredCrLf     = []byte("STORED\r\n")
-	strValue          = []byte("VALUE ")
-	strWouldBlock     = []byte("WB")
-	strWouldBlockCrLf = []byte("WB\r\n")
-	strWs             = []byte(" ")
-	strWsNoreply      = []byte(" noreply")
-	strZero           = []byte(" 0 ")
-	strZeroCrLf       = []byte(" 0\r\n")
+	strCrLf       = []byte("\r\n")
+	strDelete     = []byte("delete ")
+	strDeleted    = []byte("DELETED")
+	strEnd        = []byte("END")
+	strGet        = []byte("get ")
+	strGetDe      = []byte("getde ")
+	strGets       = []byte("gets ")
+	strNoreply    = []byte("noreply")
+	strNotFound   = []byte("NOT_FOUND")
+	strSet        = []byte("set ")
+	strStored     = []byte("STORED")
+	strValue      = []byte("VALUE ")
+	strWouldBlock = []byte("WB")
+	strWs         = []byte(" ")
+	strZero       = []byte(" 0 ")
+	strZeroCrLf   = []byte(" 0\r\n")
 )
+
+func expectEof(line []byte, n int) bool {
+	if len(line) != n {
+		log.Printf("Unexpected length of line=[%s]: %d. Expected %d", line, len(line), n)
+		return false
+	}
+	return true
+}
 
 func matchByte(r *bufio.Reader, ch byte) bool {
 	c, err := r.ReadByte()
@@ -103,7 +110,7 @@ func readLine(r *bufio.Reader, lineBuf *[]byte) bool {
 func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	first += 1
 	if first >= len(line) {
-		log.Printf("No enough space for [%s] in command=[%s]", entity, line)
+		log.Printf("Cannot find entity=[%s] in line=[%s]: end of line", entity, line)
 		return
 	}
 	last = bytes.IndexByte(line[first:], ' ')
@@ -113,18 +120,18 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 		last += first
 	}
 	if first == last {
-		log.Printf("Cannot find [%s] in command=[%s]", entity, line)
+		log.Printf("Cannot find entity=[%s] in line=[%s]: unexpected whitespace", entity, line)
 		return
 	}
 	s = line[first:last]
 	return
 }
 
-func parseInt(s []byte) (size int, ok bool) {
+func parseInt(s []byte) (n int, ok bool) {
 	var err error
-	size, err = strconv.Atoi(string(s))
+	n, err = strconv.Atoi(string(s))
 	if err != nil {
-		log.Printf("Cannot convert size=[%s] to integer: [%s]", s, err)
+		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
 		ok = false
 		return
 	}
@@ -132,14 +139,26 @@ func parseInt(s []byte) (size int, ok bool) {
 	return
 }
 
+func writeStr(w *bufio.Writer, s []byte) bool {
+	if _, err := w.Write(s); err != nil {
+		log.Printf("Cannot write [%s] to output stream: [%s]", s, err)
+		return false
+	}
+	return true
+}
+
 func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
 	buf := *scratchBuf
 	buf = buf[0:0]
 	buf = strconv.AppendInt(buf, int64(n), 10)
 	*scratchBuf = buf
-	if _, err := w.Write(buf); err != nil {
-		log.Printf("Cannot write integer=[%s] to output stream: [%s]", n, err)
-		return false
-	}
-	return true
+	return writeStr(w, buf)
+}
+
+func writeCrLf(w *bufio.Writer) bool {
+	return writeStr(w, strCrLf)
+}
+
+func writeNoreply(w *bufio.Writer) bool {
+	return writeStr(w, strWs) && writeStr(w, strNoreply)
 }
