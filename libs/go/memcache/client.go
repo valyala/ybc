@@ -15,6 +15,7 @@ import (
 var (
 	ErrCacheMiss            = errors.New("cache miss")
 	ErrCommunicationFailure = errors.New("communication failure")
+	ErrNotModified          = errors.New("not modified")
 )
 
 const (
@@ -295,6 +296,18 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	return
 }
 
+func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
+	var err error
+	value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)))
+	if err != nil {
+		log.Printf("Error when reading value with size=%d: [%s]", size, err)
+		ok = false
+		return
+	}
+	ok = matchBytes(r, strCrLf)
+	return
+}
+
 func readKeyValue(r *bufio.Reader, line []byte) (key []byte, value []byte, ok bool) {
 	var size int
 	key, size, ok = readValueResponse(line)
@@ -302,14 +315,7 @@ func readKeyValue(r *bufio.Reader, line []byte) (key []byte, value []byte, ok bo
 		return
 	}
 
-	var err error
-	value, err = ioutil.ReadAll(io.LimitReader(r, int64(size)))
-	if err != nil {
-		log.Printf("Error when reading value from 'get' response for key=[%s]: [%s]", key, err)
-		ok = false
-		return
-	}
-	ok = matchBytes(r, strCrLf)
+	value, ok = readValue(r, size)
 	return
 }
 
@@ -441,6 +447,91 @@ func (c *Client) Get(item *Item) error {
 	t.Init()
 	if !c.do(&t) {
 		return ErrCommunicationFailure
+	}
+	if !t.itemFound {
+		return ErrCacheMiss
+	}
+	return nil
+}
+
+type taskCGet struct {
+	item            *Item
+	etag            *int64
+	itemFound       bool
+	itemNotModified bool
+	taskSync
+}
+
+func (t *taskCGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return (writeStr(w, strCGet) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
+		writeInt64(w, *t.etag, scratchBuf) && writeCrLf(w))
+}
+
+func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
+		return false
+	}
+	line := *scratchBuf
+	if bytes.Equal(line, strNotFound) {
+		t.itemFound = false
+		t.itemNotModified = false
+		return true
+	}
+	if bytes.Equal(line, strNotModified) {
+		t.itemFound = true
+		t.itemNotModified = true
+		return true
+	}
+	if !bytes.HasPrefix(line, strValue) {
+		log.Printf("Unexpected line read=[%s]. It should start with [%s]", line, strValue)
+		return false
+	}
+
+	n := -1
+
+	sizeStr, n := nextToken(line, n, "size")
+	if sizeStr == nil {
+		return false
+	}
+	size, ok := parseInt(sizeStr)
+	if !ok {
+		return false
+	}
+	expirationStr, n := nextToken(line, n, "ttl")
+	if expirationStr == nil {
+		return false
+	}
+	t.item.Expiration, ok = parseInt(expirationStr)
+	if !ok {
+		return false
+	}
+	etagStr, n := nextToken(line, n, "etag")
+	if etagStr == nil {
+		return false
+	}
+	if *t.etag, ok = parseInt64(etagStr); !ok {
+		return false
+	}
+	if !expectEof(line, n) {
+		return false
+	}
+	t.item.Value, ok = readValue(r, size)
+	return ok
+}
+
+func (c *Client) CGet(item *Item, etag *int64) error {
+	t := taskCGet{
+		item:            item,
+		etag:            etag,
+		itemFound:       false,
+		itemNotModified: false,
+	}
+	t.Init()
+	if !c.do(&t) {
+		return ErrCommunicationFailure
+	}
+	if t.itemNotModified {
+		return ErrNotModified
 	}
 	if !t.itemFound {
 		return ErrCacheMiss

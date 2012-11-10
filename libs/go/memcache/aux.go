@@ -20,23 +20,25 @@ const (
 )
 
 var (
-	strCrLf       = []byte("\r\n")
-	strCSet       = []byte("cset ")
-	strDelete     = []byte("delete ")
-	strDeleted    = []byte("DELETED")
-	strEnd        = []byte("END")
-	strGet        = []byte("get ")
-	strGetDe      = []byte("getde ")
-	strGets       = []byte("gets ")
-	strNoreply    = []byte("noreply")
-	strNotFound   = []byte("NOT_FOUND")
-	strSet        = []byte("set ")
-	strStored     = []byte("STORED")
-	strValue      = []byte("VALUE ")
-	strWouldBlock = []byte("WB")
-	strWs         = []byte(" ")
-	strZero       = []byte(" 0 ")
-	strZeroCrLf   = []byte(" 0\r\n")
+	strCrLf        = []byte("\r\n")
+	strCGet        = []byte("cget ")
+	strCSet        = []byte("cset ")
+	strDelete      = []byte("delete ")
+	strDeleted     = []byte("DELETED")
+	strEnd         = []byte("END")
+	strGet         = []byte("get ")
+	strGetDe       = []byte("getde ")
+	strGets        = []byte("gets ")
+	strNoreply     = []byte("noreply")
+	strNotFound    = []byte("NOT_FOUND")
+	strNotModified = []byte("NM")
+	strSet         = []byte("set ")
+	strStored      = []byte("STORED")
+	strValue       = []byte("VALUE ")
+	strWouldBlock  = []byte("WB")
+	strWs          = []byte(" ")
+	strZero        = []byte(" 0 ")
+	strZeroCrLf    = []byte(" 0\r\n")
 )
 
 func expectEof(line []byte, n int) bool {
@@ -128,15 +130,20 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	return
 }
 
-func parseInt(s []byte) (n int, ok bool) {
-	var err error
-	n, err = strconv.Atoi(string(s))
+func parseInt64(s []byte) (n int64, ok bool) {
+	n, err := strconv.ParseInt(string(s), 10, 64)
 	if err != nil {
 		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
 		ok = false
 		return
 	}
 	ok = true
+	return
+}
+
+func parseInt(s []byte) (n int, ok bool) {
+	nn, ok := parseInt64(s)
+	n = int(nn)
 	return
 }
 
