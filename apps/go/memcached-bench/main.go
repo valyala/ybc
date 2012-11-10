@@ -45,9 +45,6 @@ func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 		Key:   []byte(*key),
 		Value: []byte(*value),
 	}
-	if err := client.Set(&item); err != nil {
-		log.Fatal("Error in Client.Set(): [%s]", err)
-	}
 	valueOrig := item.Value
 	item.Value = nil
 	for _ = range ch {
@@ -55,7 +52,7 @@ func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
 		if !bytes.Equal(valueOrig, item.Value) {
-			log.Fatal("Unexpected value read=[%s]. Expected=[%s]", item.Value, valueOrig)
+			log.Fatalf("Unexpected value read=[%s]. Expected=[%s]", item.Value, valueOrig)
 		}
 	}
 }
@@ -109,10 +106,25 @@ func main() {
 		fmt.Printf("done! %.3f seconds, %.0f qps\n", duration, float64(*requestsCount)/duration)
 	}()
 
+	item := memcache.Item{
+		Key:   []byte(*key),
+		Value: []byte(*value),
+	}
+
 	worker := workerGetMiss
 	if *workerMode == "GetHit" {
+		if err := client.Set(&item); err != nil {
+			log.Fatalf("Error in Client.Set(): [%s]", err)
+		}
 		worker = workerGetHit
+	} else if *workerMode == "GetMiss" {
+		if err := client.Delete(item.Key); err != nil && err != memcache.ErrCacheMiss {
+			log.Fatalf("Cannot delete item with key=[%s]: [%s]", item.Key, err)
+		}
+	} else {
+		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
 	}
+
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
 		go worker(&client, &wg, ch)
