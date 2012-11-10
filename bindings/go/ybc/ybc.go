@@ -20,7 +20,7 @@ import (
 var (
 	// Public errors
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
-	ErrNotFound          = errors.New("the item is not found in the cache")
+	ErrCacheMiss         = errors.New("the item is not found in the cache")
 	ErrOpenFailed        = errors.New("cannot open the cache")
 	ErrOutOfRange        = errors.New("out of range offset")
 	ErrPartialCommit     = errors.New("partial commit")
@@ -307,7 +307,7 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	k := newKey(key)
 	if C.ybc_item_get(cache.ctx(), item.ctx(), &k) == 0 {
 		releaseItem(item)
-		err = ErrNotFound
+		err = ErrCacheMiss
 		return
 	}
 	item.dg.Init()
@@ -341,7 +341,7 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *It
 		return
 	case C.YBC_DE_NOTFOUND:
 		releaseItem(item)
-		err = ErrNotFound
+		err = ErrCacheMiss
 		return
 	case C.YBC_DE_SUCCESS:
 		item.dg.Init()

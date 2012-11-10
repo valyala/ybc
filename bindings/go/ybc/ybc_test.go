@@ -124,7 +124,7 @@ func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
-		if err != ErrNotFound {
+		if err != ErrCacheMiss {
 			t.Fatal(err)
 		}
 	}
@@ -153,7 +153,7 @@ func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
-		if err != ErrNotFound {
+		if err != ErrCacheMiss {
 			t.Fatal(err)
 		}
 	}
@@ -169,7 +169,7 @@ func TestCache_Set_Get_Remove(t *testing.T) {
 func cacher_GetDe(cache Cacher, t *testing.T) {
 	key := []byte("test")
 	_, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
-	if err != ErrNotFound {
+	if err != ErrCacheMiss {
 		t.Fatal(err)
 	}
 	_, err = cache.GetDeAsync(key, time.Millisecond*time.Duration(100))
@@ -212,7 +212,7 @@ func cacher_Clear(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
-		if err != ErrNotFound {
+		if err != ErrCacheMiss {
 			t.Fatal(err)
 		}
 	}
@@ -249,7 +249,7 @@ func cacher_GetItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetItem(key)
-		if err != ErrNotFound {
+		if err != ErrCacheMiss {
 			t.Fatal(err)
 		}
 	}
@@ -282,7 +282,7 @@ func cacher_GetDeItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetDeItem(key, time.Second)
-		if err != ErrNotFound {
+		if err != ErrCacheMiss {
 			t.Fatal(err)
 		}
 		_, err = cache.GetDeAsyncItem(key, time.Second)
@@ -377,7 +377,7 @@ func TestSetTxn_Commit(t *testing.T) {
 
 	// The item shouldn't exist in the cache before commit
 	_, err = cache.Get(key)
-	if err != ErrNotFound {
+	if err != ErrCacheMiss {
 		txn.Rollback()
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestSetTxn_Rollback(t *testing.T) {
 
 	// The item shouldn't exist in the cache after the rollback.
 	_, err = cache.Get(key)
-	if err != ErrNotFound {
+	if err != ErrCacheMiss {
 		t.Fatal(err)
 	}
 }
