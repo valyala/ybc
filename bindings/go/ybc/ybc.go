@@ -66,6 +66,21 @@ type Item struct {
 	offset     int
 }
 
+// Cache and Cluster implement this interface
+type Cacher interface {
+	Set(key []byte, value []byte, ttl time.Duration) error
+	Get(key []byte) (value []byte, err error)
+	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
+	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
+	Delete(key []byte) bool
+	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
+	GetItem(key []byte) (item *Item, err error)
+	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
+	GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error)
+	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
+	Clear()
+}
+
 // TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
 // Currently amd64's sizeof(int) = 4. See http://golang.org/doc/go_faq.html#q_int_sizes .
 //

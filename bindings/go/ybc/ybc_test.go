@@ -8,21 +8,6 @@ import (
 	"time"
 )
 
-// Cache and Cluster implement this interface
-type cacher interface {
-	Set(key []byte, value []byte, ttl time.Duration) error
-	Get(key []byte) (value []byte, err error)
-	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
-	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
-	Delete(key []byte) bool
-	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
-	GetItem(key []byte) (item *Item, err error)
-	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
-	GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error)
-	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
-	Clear()
-}
-
 func expectPanic(t *testing.T, f func()) {
 	defer func() {
 		r := recover()
@@ -135,7 +120,7 @@ func checkValue(t *testing.T, expectedValue, actualValue []byte) {
 	}
 }
 
-func cacher_Set_Get_Remove(cache cacher, t *testing.T) {
+func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
@@ -181,7 +166,7 @@ func TestCache_Set_Get_Remove(t *testing.T) {
 	cacher_Set_Get_Remove(cache, t)
 }
 
-func cacher_GetDe(cache cacher, t *testing.T) {
+func cacher_GetDe(cache Cacher, t *testing.T) {
 	key := []byte("test")
 	_, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
 	if err != ErrNotFound {
@@ -212,7 +197,7 @@ func TestCache_GetDe(t *testing.T) {
 	cacher_GetDe(cache, t)
 }
 
-func cacher_Clear(cache cacher, t *testing.T) {
+func cacher_Clear(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -240,7 +225,7 @@ func TestCache_Clear(t *testing.T) {
 	cacher_Clear(cache, t)
 }
 
-func cacher_SetItem(cache cacher, t *testing.T) {
+func cacher_SetItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -260,7 +245,7 @@ func TestCache_SetItem(t *testing.T) {
 	cacher_SetItem(cache, t)
 }
 
-func cacher_GetItem(cache cacher, t *testing.T) {
+func cacher_GetItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetItem(key)
@@ -293,7 +278,7 @@ func TestCache_GetItem(t *testing.T) {
 	cacher_GetItem(cache, t)
 }
 
-func cacher_GetDeItem(cache cacher, t *testing.T) {
+func cacher_GetDeItem(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetDeItem(key, time.Second)
@@ -330,7 +315,7 @@ func TestCache_GetDeItem(t *testing.T) {
 	cacher_GetDeItem(cache, t)
 }
 
-func cacher_NewSetTxn(cache cacher, t *testing.T) {
+func cacher_NewSetTxn(cache Cacher, t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
