@@ -58,7 +58,7 @@ func main() {
 
 	cache, err := config.OpenCache(true)
 	if err != nil {
-		log.Fatal("Cannot open cache: [%s]", err)
+		log.Fatalf("Cannot open cache: [%s]", err)
 	}
 	defer cache.Close()
 
@@ -71,6 +71,6 @@ func main() {
 		OSWriteBufferSize: *osWriteBufferSize,
 	}
 	if err := s.Serve(); err != nil {
-		log.Fatal("Cannot serve traffic: [%s]", err)
+		log.Fatalf("Cannot serve traffic: [%s]", err)
 	}
 }
