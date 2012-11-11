@@ -30,14 +30,6 @@ func main() {
 
 	runtime.GOMAXPROCS(*goMaxProcs)
 
-	hotItemsCount_ := ybc.SizeT(*hotItemsCount)
-	if hotItemsCount_ == 0 {
-		hotItemsCount_ = ybc.ConfigDisableHotItems
-	}
-	hotDataSize_ := ybc.SizeT(*hotDataSize)
-	if hotDataSize_ == 0 {
-		hotDataSize_ = ybc.ConfigDisableHotData
-	}
 	syncInterval_ := time.Duration(*syncInterval) * time.Millisecond
 	if syncInterval_ <= 0 {
 		syncInterval_ = ybc.ConfigDisableSync
@@ -45,8 +37,8 @@ func main() {
 	config := &ybc.Config{
 		MaxItemsCount:   ybc.SizeT(*maxItemsCount),
 		DataFileSize:    ybc.SizeT(*cacheSize),
-		HotItemsCount:   hotItemsCount_,
-		HotDataSize:     hotDataSize_,
+		HotItemsCount:   ybc.SizeT(*hotItemsCount),
+		HotDataSize:     ybc.SizeT(*hotDataSize),
 		DeHashtableSize: *deHashtableSize,
 		SyncInterval:    syncInterval_,
 	}
