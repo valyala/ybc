@@ -701,35 +701,35 @@ func (t *taskNowait) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 }
 
 type taskSetNowait struct {
-	item *Item
+	item Item
 	taskNowait
 }
 
 func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeSetRequest(w, t.item, true, scratchBuf)
+	return writeSetRequest(w, &t.item, true, scratchBuf)
 }
 
 func (c *Client) SetNowait(item *Item) {
 	t := taskSetNowait{
-		item: item,
+		item: *item,
 	}
 	c.do(&t)
 }
 
 type taskCSetNowait struct {
-	item        *Item
+	item        Item
 	etag        int64
 	validateTtl int
 	taskNowait
 }
 
 func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCSetRequest(w, t.item, t.etag, t.validateTtl, true, scratchBuf)
+	return writeCSetRequest(w, &t.item, t.etag, t.validateTtl, true, scratchBuf)
 }
 
 func (c *Client) CSetNowait(item *Item, etag int64, validateTtl int) {
 	t := taskCSetNowait{
-		item:        item,
+		item:        *item,
 		etag:        etag,
 		validateTtl: validateTtl,
 	}
