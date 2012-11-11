@@ -1,3 +1,4 @@
+// Benchmark for memcache servers.
 package main
 
 import (
