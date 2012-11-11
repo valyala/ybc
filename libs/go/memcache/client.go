@@ -19,20 +19,49 @@ var (
 )
 
 const (
-	defaultConnectionsCount        = 1
+	defaultConnectionsCount        = 4
 	defaultMaxPendingRequestsCount = 1024
-	defaultReconnectTimeout        = time.Second
 )
 
+// Memcache client
 type Client struct {
-	ConnectAddr             string
-	ConnectionsCount        int
+	// TCP address of memcached server to connect to.
+	// The address should be in the form addr:port.
+	ConnectAddr string
+
+	// The number of simultaneous TCP connections to establish
+	// to memcached server.
+	//
+	// The Client is able to squeeze out impossible from a single
+	// connection by pipelining a ton of requests on it.
+	// Multiple simultaneous connections may be required in the following
+	// cases:
+	//   * If memcached server delays incoming requests' execution.
+	//     Since memcached protocol doesn't allow out-of-order requests'
+	//     execution, a single slow request may delay execution of all
+	//     the requests pipelined on the connection after it.
+	//     Multiple concurrent connections may help in such a situation.
+	//   * If memcached server runs on multi-CPU system, but uses a single
+	//     CPU (thread) per connection.
+	ConnectionsCount int
+
+	// The maximum number of pending requests awaiting to be processed
+	// by memcached server.
 	MaxPendingRequestsCount int
-	ReadBufferSize          int
-	WriteBufferSize         int
-	OSReadBufferSize        int
-	OSWriteBufferSize       int
-	ReconnectTimeout        time.Duration
+
+	// The size in bytes of buffer used by the Client for reading responses
+	// received from memcached per connection.
+	ReadBufferSize int
+
+	// The size in bytes of buffer used by the Client for writing requests
+	// to be sent to memcached per connection.
+	WriteBufferSize int
+
+	// The size in bytes of OS-supplied read buffer per TCP connection.
+	OSReadBufferSize int
+
+	// The size in bytes of OS-supplied write buffer per TCP connection.
+	OSWriteBufferSize int
 
 	requests chan tasker
 	done     *sync.WaitGroup
@@ -76,9 +105,6 @@ func requestsSender(w *bufio.Writer, requests <-chan tasker, responses chan<- ta
 		}
 		responses <- t
 	}
-	for t := range requests {
-		t.Done(false)
-	}
 }
 
 func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, done *sync.WaitGroup) {
@@ -97,19 +123,16 @@ func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, don
 	}
 }
 
-func handleAddr(c *Client) bool {
+func handleAddr(c *Client) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", c.ConnectAddr)
 	if err != nil {
 		log.Printf("Cannot resolve tcp address=[%s]: [%s]", c.ConnectAddr, err)
-		return false
+		return
 	}
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
 		log.Printf("Cannot establish tcp connection to addr=[%s]: [%s]", tcpAddr, err)
-		for t := range c.requests {
-			t.Done(false)
-		}
-		return false
+		return
 	}
 	defer conn.Close()
 
@@ -129,28 +152,25 @@ func handleAddr(c *Client) bool {
 	sendRecvDone.Add(2)
 	go requestsSender(w, c.requests, responses, conn, sendRecvDone)
 	go responsesReceiver(r, responses, conn, sendRecvDone)
-
-	return true
 }
 
 func addrHandler(c *Client, done *sync.WaitGroup) {
 	defer done.Done()
 	for {
-		if !handleAddr(c) {
-			time.Sleep(c.ReconnectTimeout)
+		handleAddr(c)
+
+		// cancel all pending requests
+		for t := range c.requests {
+			t.Done(false)
 		}
 
-		// Check whether the requests channel is drained and closed.
-		select {
-		case t, ok := <-c.requests:
-			if !ok {
-				// The requests channel is drained and closed.
-				return
-			}
-			c.requests <- t
-		default:
-			// The requests channel is drained, but not closed.
+		// wait for new incoming requests
+		t, ok := <-c.requests
+		if !ok {
+			// The requests channel is closed.
+			return
 		}
+		c.requests <- t
 	}
 }
 
@@ -172,9 +192,6 @@ func (c *Client) init() {
 	}
 	if c.OSWriteBufferSize == 0 {
 		c.OSWriteBufferSize = defaultOSWriteBufferSize
-	}
-	if c.ReconnectTimeout == time.Duration(0) {
-		c.ReconnectTimeout = defaultReconnectTimeout
 	}
 
 	c.requests = make(chan tasker, c.MaxPendingRequestsCount)

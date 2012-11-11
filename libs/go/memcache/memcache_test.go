@@ -73,8 +73,7 @@ func TestServer_Wait(t *testing.T) {
 
 func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache) {
 	c = &Client{
-		ConnectAddr:      testAddr,
-		ReconnectTimeout: time.Millisecond * time.Duration(100),
+		ConnectAddr: testAddr,
 	}
 	s, cache = newServerCache(t)
 	s.Start()
