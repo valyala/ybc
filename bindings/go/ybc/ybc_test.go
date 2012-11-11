@@ -83,15 +83,15 @@ func TestConfig_OpenCache_Existing(t *testing.T) {
 	}
 }
 
-func TestConfig_OpenCache_DisabledHotItems(t *testing.T) {
+func TestConfig_OpenCache_EnabledHotItems(t *testing.T) {
 	config := newConfig()
-	config.HotItemsCount = ConfigDisableHotItems
+	config.HotItemsCount = config.MaxItemsCount / 10
 	expectOpenCacheSuccess(config, true, t)
 }
 
-func TestConfig_OpenCache_DisabledHotData(t *testing.T) {
+func TestConfig_OpenCache_EnabledHotData(t *testing.T) {
 	config := newConfig()
-	config.HotDataSize = ConfigDisableHotData
+	config.HotDataSize = config.DataFileSize / 10
 	expectOpenCacheSuccess(config, true, t)
 }
 

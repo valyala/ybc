@@ -1,3 +1,15 @@
+// Package ybc provides Go wrapper around YBC library - see
+// https://github.com/valyala/ybc .
+//
+// YBC is intended for creating extremly fast in-process blob caches,
+// which can efficiently cache virtually unlimited number of items.
+//
+// YBC knows how to deal with huge items (i.e. videos, audios, images)
+// and caches exceeding available RAM sizes by multiple orders of magnitude.
+//
+// YBC supports persistent caches surviving application restarts.
+//
+// YBC is optimized for both HDDs and SSDs.
 package ybc
 
 // #cgo release CFLAGS: -O2 -DNDEBUG
@@ -11,14 +23,12 @@ import (
 	"errors"
 	"hash/fnv"
 	"io"
-	"math"
 	"reflect"
 	"time"
 	"unsafe"
 )
 
 var (
-	// Public errors
 	ErrNoSpace           = errors.New("not enough space for the item in the cache")
 	ErrCacheMiss         = errors.New("the item is not found in the cache")
 	ErrOpenFailed        = errors.New("cannot open the cache")
@@ -32,6 +42,10 @@ var (
 )
 
 var (
+	// Maximum time to live for cached items.
+	//
+	// Use this value when adding items, which must live in the cache as long
+	// as possible.
 	MaxTtl = time.Hour * 24 * 365 * 100
 )
 
@@ -41,30 +55,6 @@ var (
 	addTxnSize = int(C.ybc_set_txn_get_size())
 	itemSize   = int(C.ybc_item_get_size())
 )
-
-/*******************************************************************************
- * Public entities
- ******************************************************************************/
-
-type Cache struct {
-	dg  debugGuard
-	cg  cacheGuard
-	buf []byte
-}
-
-type SetTxn struct {
-	dg             debugGuard
-	buf            []byte
-	unsafeBufCache []byte
-	offset         int
-}
-
-type Item struct {
-	dg         debugGuard
-	buf        []byte
-	valueCache C.struct_ybc_value
-	offset     int
-}
 
 // Cache and Cluster implement this interface
 type Cacher interface {
@@ -81,54 +71,111 @@ type Cacher interface {
 	Clear()
 }
 
-// TODO: substitute SizeT by int after sizeof(int) will become 8 on 64-bit machines.
-// Currently amd64's sizeof(int) = 4. See http://golang.org/doc/go_faq.html#q_int_sizes .
-//
-// Though the hack with SizeT raises the maximum cache size from 2^31-1 to 2^63-1,
-// it doesn't help with the maximum cache item size.
-// Ybc uses byte slices for represening cache items. So the maximum cache item size
-// is limited by the maximum size of a slice. Currently this limit it set to 2^31-1 -
-// the maximum value, which can be stored in int type on all platforms.
-type SizeT uintptr
-
 /*******************************************************************************
  * Config
  ******************************************************************************/
 
+// Type used in Config for setting big numbers, which may exceed int capacity.
+//
+// Though the hack with SizeT raises the maximum cache size from 2^31-1
+// to 2^63-1, it doesn't help with the maximum cache item size.
+// Ybc uses byte slices for represening cache items. So the maximum cache
+// item size is limited by the maximum size of a slice. Currently this limit
+// is set to 2^31-1 - the maximum value, which can be stored in int type
+// on all platforms.
+//
+// TODO(valyala): substitute SizeT by int after sizeof(int) will become 8
+// on 64-bit architectures. Currently amd64's sizeof(int) = 4.
+// See http://golang.org/doc/go_faq.html#q_int_sizes for details.
+type SizeT uintptr
+
 const (
-	ConfigDisableHotItems = SizeT(math.MaxUint64)
-	ConfigDisableHotData  = SizeT(math.MaxUint64)
-	ConfigDisableSync     = time.Duration(-1)
+	// Disables periodic data syncing if assigned to Config.SyncInterval.
+	ConfigDisableSync = time.Duration(-1)
 )
 
 // Cache configuration.
 type Config struct {
-	// The number of items the cache can store.
+	// The maximum number of items the cache can store.
 	MaxItemsCount SizeT
 
-	// Cache size in bytes.
+	// Cache size (in bytes).
 	DataFileSize SizeT
 
-	// Path to index file. Leave empty for anonymous cache.
+	// Path to index file for the cache.
+	//
+	// Set this field if you want cache surviving application restarts.
+	// The size of index file is proportional to Config.MaxItemsCount.
+	//
+	// Leave this field empty if you want temporary cache, which is
+	// destroyed on application exit.
 	IndexFile string
 
-	// Path to data file. Leave empty for anonymous cache.
+	// Path to data file for the cache.
+	//
+	// Set this field if you want cache surviving application restarts.
+	// The size of data file is equivalent to Config.DataFileSize.
+	//
+	// Leave this field empty if you want temporary cache, which is
+	// destroyed on application exit.
 	DataFile string
 
 	// The expected number of hot items in the cache.
-	// Set to ConfigDisableHotItems to disable hot items optimization.
+	//
+	// Setting HotItemsCount to non-zero value enables 'hot items'
+	// optimization. This optimization can improve performance for huge
+	// caches containing many rarely accessed items (aka 'cold items') and
+	// a relatively small number of frequently accessed items
+	// (aka 'hot items').
+	//
+	// Leave this field empty (set to 0) in the following cases:
+	//   * if your cache contains less than 1M items.
+	//   * if the number of cold items in your cache is comparable to
+	//     or smaller than the number of hot items.
+	//   * if you are unsure :)
 	HotItemsCount SizeT
 
-	// The expected size of hot data in bytes.
-	// Set to ConfigDisableHotData to disable hot data optimization.
+	// The expected size of hot data in the cache (in bytes).
+	//
+	// Setting HotDataSize to non-zero value enables 'hot data'
+	// optimization. This optimization can improve performance for caches
+	// containing many small items, where only a small part of these items
+	// are frequently accessed (aka 'hot items'). Setting HotDataSize
+	// to value close to summary size of hot items in the cache may improve
+	// cache performance.
+	//
+	// Leave this field empty (set to 0) in the following cases:
+	//   * if your cache contains only big items with sizes exceeding 64Kb
+	//     (for instance, videos, music files, images, etc.).
+	//   * if the number of cold items in your cache is comparable to
+	//     or smaller than the number of hot items.
+	//   * if you are unsure :)
 	HotDataSize SizeT
 
-	// The number of buckets in a hashtable used for tracking items affected
-	// by dogpile effect.
+	// The number of buckets in the hashtable used for tracking items
+	// affected by dogpile effect.
+	//
+	// Tune this value only if you plan using dogpile effect-aware
+	// functions. This value should be close to the average number
+	// of distinct pending items concurrently affected by dogpile effect.
+	//
+	// Leave this field empty (set to 0) if you are in doubt.
+	//
+	// Read more about dogpile effect
+	// at https://www.google.com/search?q=dogpile+effect .
 	DeHashtableSize int
 
-	// Interval for data syncing to files.
-	// Set to ConfigDisableSync to disable it.
+	// Interval for cache syncing to data file.
+	//
+	// Items added to the cache are synced to data file with this interval.
+	// Non-synced cache items may be lost after the program crash or
+	// the operating system crash.
+	//
+	// Setting SyncInterval to ConfigDisableSync disables data syncing.
+	// Even if syncing is disabled, all cache items are persisted
+	// on Cache.Close() call.
+	//
+	// Leave this field empty (set to 0) if you are in doubt.
 	SyncInterval time.Duration
 }
 
@@ -138,6 +185,24 @@ type configInternal struct {
 	cg  cacheGuard
 }
 
+// Opens a cache.
+//
+// If force is true, then tries fixing the following non-critical errors
+// instead of returning ErrOpenFailed:
+//   * creates missing index or data files.
+//   * fixes incorrect sizes for index or data files.
+//
+// Do not open the same cache more than once at the same time!
+//
+// The returned cache must be closed with cache.Close() call!
+// Prefer using defer for closing opened caches:
+//
+//   cache, err := config.OpenCache(true)
+//   if err != nil {
+//     log.Fatalf("Error when opening the cache: [%s]", err)
+//   }
+//   defer cache.Close()
+//
 func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
 	c := cfg.internal()
 	defer C.ybc_config_destroy(c.ctx)
@@ -168,6 +233,7 @@ func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
 	return
 }
 
+// Removes cache files from filesystem.
 func (cfg *Config) RemoveCache() {
 	c := cfg.internal()
 	defer C.ybc_config_destroy(c.ctx)
@@ -201,20 +267,8 @@ func (cfg *Config) internal() *configInternal {
 		C.ybc_config_set_data_file(ctx, dataFileCStr)
 		c.cg.SetDataFile(cfg.DataFile)
 	}
-	if cfg.HotItemsCount != 0 {
-		hotItemsCount := cfg.HotItemsCount
-		if hotItemsCount == ConfigDisableHotItems {
-			hotItemsCount = 0
-		}
-		C.ybc_config_set_hot_items_count(ctx, C.size_t(hotItemsCount))
-	}
-	if cfg.HotDataSize != 0 {
-		hotDataSize := cfg.HotDataSize
-		if hotDataSize == ConfigDisableHotData {
-			hotDataSize = 0
-		}
-		C.ybc_config_set_hot_data_size(ctx, C.size_t(hotDataSize))
-	}
+	C.ybc_config_set_hot_items_count(ctx, C.size_t(cfg.HotItemsCount))
+	C.ybc_config_set_hot_data_size(ctx, C.size_t(cfg.HotDataSize))
 	if cfg.DeHashtableSize != 0 {
 		C.ybc_config_set_de_hashtable_size(ctx, C.size_t(cfg.DeHashtableSize))
 	}
@@ -234,6 +288,17 @@ func (cfg *Config) internal() *configInternal {
  * Cache
  ******************************************************************************/
 
+// Cache handler.
+type Cache struct {
+	dg  debugGuard
+	cg  cacheGuard
+	buf []byte
+}
+
+// Closes the cache.
+//
+// All opened caches must be closed with this call!
+// Do not close the same cache more than once!
 func (cache *Cache) Close() error {
 	cache.dg.Close()
 	cache.cg.Release()
@@ -241,6 +306,10 @@ func (cache *Cache) Close() error {
 	return nil
 }
 
+// Stores value with the given key and the given ttl in the cache.
+//
+// Do not use this method for storing big values in the cache such as video
+// files - use Cache.NewSetTxn() instead.
 func (cache *Cache) Set(key []byte, value []byte, ttl time.Duration) error {
 	cache.dg.CheckLive()
 	k := newKey(key)
@@ -251,6 +320,12 @@ func (cache *Cache) Set(key []byte, value []byte, ttl time.Duration) error {
 	return nil
 }
 
+// Returns value associated with the given key from the cache.
+//
+// Sets err to ErrCacheMiss on cache miss.
+//
+// Do not use this method for obtaining big values from the cache such as video
+// files - use Cache.GetItem() instead.
 func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	item, err := cache.GetItem(key)
 	if err != nil {
@@ -261,6 +336,19 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	return
 }
 
+// Returns value associated with the given key from the cache using automatic
+// protection against dogpile effect during graceTtl interval.
+//
+// graceTtl is the expected time required for creating the item if it is missing
+// in the cache, i.e. if GetDe() sets err to ErrCacheMiss.
+// If the caller found missing item with GetDe() call, it should try creating
+// the item and storing it into the cache during graceTtl interval.
+//
+// Since Cache.GetDe() is slower than Cache.Get(), use it only for items
+// vulnerable to dogpile effect.
+//
+// Do not use this method for obtaining big values from the cache such as video
+// files - use Cache.GetDeItem() instead.
 func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
 	item, err := cache.GetDeItem(key, graceTtl)
 	if err != nil {
@@ -271,6 +359,11 @@ func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err
 	return
 }
 
+// The same as Cache.GetDe(), but sets err to ErrWouldBlock instead of waiting
+// for the value affected by dogpile effect.
+//
+// Do not use this method for obtaining big values from the cache such as video
+// files - use Cache.GetDeAsyncItem() instead.
 func (cache *Cache) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
 	item, err := cache.GetDeAsyncItem(key, graceTtl)
 	if err != nil {
@@ -281,12 +374,19 @@ func (cache *Cache) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte
 	return
 }
 
+// Deletes value associated with the given key from the cache.
+//
+// Returns true on success, false if there was no such value in the cache.
 func (cache *Cache) Delete(key []byte) bool {
 	cache.dg.CheckLive()
 	k := newKey(key)
 	return C.ybc_item_remove(cache.ctx(), &k) != C.int(0)
 }
 
+// The same as Cache.Set(), but additionally returns item object associated
+// with just addded item.
+//
+// The returned item must be closed with item.Close() call!
 func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = acquireItem()
@@ -301,6 +401,14 @@ func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *
 	return
 }
 
+// The same as Cache.Get(), but returns item instead of item's value.
+//
+// Sets err to ErrCacheMiss on cache miss.
+//
+// The returned item must be closed with item.Close() call!
+//
+// Use this method instead of Cache.Get() for obtaining big values
+// from the cache such as video files.
 func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = acquireItem()
@@ -314,6 +422,12 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	return
 }
 
+// The same as Cache.GetDe(), but returns item instead of item's value.
+//
+// The returned item must be closed with item.Close() call!
+//
+// Use this method instead of Cache.GetDe() for obtaining big values
+// from the cache such as video files.
 func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	for {
 		item, err = cache.GetDeAsyncItem(key, graceTtl)
@@ -326,6 +440,12 @@ func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, e
 	panic("not reachable")
 }
 
+// The same as Cache.GetDeAsync(), but returns item instead of item's value.
+//
+// The returned item must be closed with item.Close() call!
+//
+// Use this method instead of Cache.GetDeAsync() for obtaining big values
+// from the cache such as video files.
 func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	if graceTtl < 0 {
@@ -350,6 +470,13 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *It
 	panic("unreachable")
 }
 
+// Starts new 'set transaction' for storing an item in the cache
+// with the given valueSize size, the given ttl and the given key.
+//
+// Returned txn must be finished with txn.Commit*() or txn.Rollback() calls.
+//
+// Use this method instead of Cache.Set() for storing big items in the cache
+// such as video files.
 func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
 	cache.dg.CheckLive()
 	checkNonNegative(valueSize)
@@ -366,6 +493,10 @@ func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn
 	return
 }
 
+// Instantly removes all the cache contents.
+//
+// This method is very fast - its' speed doesn't depend on the number of items
+// stored in the cache and on the size of the cache.
 func (cache *Cache) Clear() {
 	cache.dg.CheckLive()
 	C.ybc_clear(cache.ctx())
@@ -379,6 +510,19 @@ func (cache *Cache) ctx() *C.struct_ybc {
  * SetTxn
  ******************************************************************************/
 
+// 'set transaction' handler.
+// It is used for efficient storage of big items in the cache such as video
+// files.
+type SetTxn struct {
+	dg             debugGuard
+	buf            []byte
+	unsafeBufCache []byte
+	offset         int
+}
+
+// Commits the transaction.
+//
+// The item appears atomically in the cache after the commit.
 func (txn *SetTxn) Commit() (err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
@@ -392,6 +536,7 @@ func (txn *SetTxn) Commit() (err error) {
 	return
 }
 
+// Rolls back the transaction.
 func (txn *SetTxn) Rollback() {
 	txn.dg.CheckLive()
 	C.ybc_set_txn_rollback(txn.ctx())
@@ -423,6 +568,9 @@ func (txn *SetTxn) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
+// The same as SetTxn.Commit(), but additionally returns commited item.
+//
+// The returned item must be closed with item.Close() call!
 func (txn *SetTxn) CommitItem() (item *Item, err error) {
 	txn.dg.CheckLive()
 	buf := txn.unsafeBuf()
@@ -462,6 +610,17 @@ func (txn *SetTxn) ctx() *C.struct_ybc_set_txn {
  * Item
  ******************************************************************************/
 
+// Cache item.
+type Item struct {
+	dg         debugGuard
+	buf        []byte
+	valueCache C.struct_ybc_value
+	offset     int
+}
+
+// Closes the item.
+//
+// Every opened item must be closed only once!
 func (item *Item) Close() error {
 	item.dg.Close()
 	C.ybc_item_release(item.ctx())
@@ -471,21 +630,28 @@ func (item *Item) Close() error {
 	return nil
 }
 
+// Returns value associated with the item.
+//
+// Do not use this method for obtaining big values such as video files -
+// use io.* interface implementations provided by the Item instead.
 func (item *Item) Value() []byte {
 	item.dg.CheckLive()
 	mValue := item.value()
 	return C.GoBytes(mValue.ptr, C.int(mValue.size))
 }
 
+// Returns the size of value associated with the item.
 func (item *Item) Size() int {
 	mValue := item.value()
 	return int(mValue.size)
 }
 
+// Returns the number of bytes remaining to read from the item.
 func (item *Item) Available() int {
 	return item.Size() - item.offset
 }
 
+// Returns remaining ttl for the item.
 func (item *Item) Ttl() time.Duration {
 	item.dg.CheckLive()
 	return time.Duration(item.value().ttl) * time.Millisecond
@@ -576,8 +742,25 @@ func (item *Item) ctx() *C.struct_ybc_item {
  * ClusterConfig
  ******************************************************************************/
 
+// Configuration required for opening a Cluster.
 type ClusterConfig []*Config
 
+// Opens a cluster of caches.
+//
+// Tries fixing the following errors if force is set to true:
+//   * creating missing index and data files;
+//   * adjusting invalid sizes for index and data files.
+//
+// Cluster of caches may work faster than a single Cache only if the following
+// conditions are met:
+//   * The total size of frequently accessed items in the cluster exceeds
+//     available RAM size.
+//   * Backing files for distinct caches in the cluster are located on distinct
+//     physical storages.
+//
+// The returned cluster must be closed with cluster.Close() call!
+//
+// Do not open the same cluster more than once at the same time!
 func (cfg ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
 	cachesCount := len(cfg)
 	openedCachesCount := 0
@@ -612,6 +795,7 @@ func (cfg ClusterConfig) OpenCluster(force bool) (cluster *Cluster, err error) {
 	return
 }
 
+// Removes all files associated with the cluster.
 func (cfg ClusterConfig) RemoveCluster() {
 	for _, c := range cfg {
 		c.RemoveCache()
@@ -622,6 +806,7 @@ func (cfg ClusterConfig) RemoveCluster() {
  * Cluster
  ******************************************************************************/
 
+// Cluster of caches.
 type Cluster struct {
 	dg             debugGuard
 	caches         []*Cache
@@ -629,6 +814,9 @@ type Cluster struct {
 	maxSlotIndexes []SizeT
 }
 
+// Closes the cluster.
+//
+// Each opened cluster must be closed only once!
 func (cluster *Cluster) Close() error {
 	cluster.dg.Close()
 	cachesCount := len(cluster.caches)
@@ -638,46 +826,57 @@ func (cluster *Cluster) Close() error {
 	return nil
 }
 
+// See Cache.Set()
 func (cluster *Cluster) Set(key []byte, value []byte, ttl time.Duration) error {
 	return cluster.cache(key).Set(key, value, ttl)
 }
 
+// See Cache.Get()
 func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
 	return cluster.cache(key).Get(key)
 }
 
+// See Cache.GetDe()
 func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
 	return cluster.cache(key).GetDe(key, graceTtl)
 }
 
+// See Cache.GetDeAsync()
 func (cluster *Cluster) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
 	return cluster.cache(key).GetDeAsync(key, graceTtl)
 }
 
+// See Cache.Delete()
 func (cluster *Cluster) Delete(key []byte) bool {
 	return cluster.cache(key).Delete(key)
 }
 
+// See Cache.SetItem()
 func (cluster *Cluster) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	return cluster.cache(key).SetItem(key, value, ttl)
 }
 
+// See Cache.GetItem()
 func (cluster *Cluster) GetItem(key []byte) (item *Item, err error) {
 	return cluster.cache(key).GetItem(key)
 }
 
+// See Cache.GetDeItem()
 func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	return cluster.cache(key).GetDeItem(key, graceTtl)
 }
 
+// See Cache.GetDeAsyncItem()
 func (cluster *Cluster) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
 	return cluster.cache(key).GetDeAsyncItem(key, graceTtl)
 }
 
+// See Cache.NewSetTxn()
 func (cluster *Cluster) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error) {
 	return cluster.cache(key).NewSetTxn(key, valueSize, ttl)
 }
 
+// See Cache.Clear()
 func (cluster *Cluster) Clear() {
 	for _, cache := range cluster.caches {
 		cache.Clear()
