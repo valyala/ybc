@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"runtime"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ var (
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
 	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes")
 	value                   = flag.String("value", "value", "Value to store in memcache")
-	workerMode              = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit'")
+	workerMode              = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSetRand'")
 	workersCount            = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
 	writeBufferSize         = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes")
 )
@@ -53,6 +54,46 @@ func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 		}
 		if !bytes.Equal(valueOrig, item.Value) {
 			log.Fatalf("Unexpected value read=[%s]. Expected=[%s]", item.Value, valueOrig)
+		}
+	}
+}
+
+func workerSet(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	var item memcache.Item
+	for i := range ch {
+		item.Key = []byte(fmt.Sprintf("%s_%d", *key, i))
+		item.Value = []byte(fmt.Sprintf("%s_%d", *value, i))
+		if err := client.Set(&item); err != nil {
+			log.Fatalf("Error in Client.Set(): [%s]", err)
+		}
+	}
+}
+
+func workerGetSetRand(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	var item memcache.Item
+	itemsCount := *requestsCount / *workersCount
+	for _ = range ch {
+		n := rand.Intn(itemsCount)
+		item.Key = []byte(fmt.Sprintf("%s_%d", *key, n))
+		v := []byte(fmt.Sprintf("%s_%d", *value, n))
+		if rand.Float32() < 0.5 {
+			err := client.Get(&item)
+			if err == memcache.ErrCacheMiss {
+				continue
+			}
+			if err != nil {
+				log.Fatalf("Error in Client.Get(): [%s]", err)
+			}
+			if !bytes.Equal(item.Value, v) {
+				log.Fatalf("Unexpected value=[%s] obtained. Expected [%s]", item.Value, v)
+			}
+		} else {
+			item.Value = v
+			if err := client.Set(&item); err != nil {
+				log.Fatalf("Error in Client.Set(): [%s]", err)
+			}
 		}
 	}
 }
@@ -92,7 +133,7 @@ func main() {
 	fmt.Printf("Preparing...")
 	ch := make(chan int, *requestsCount)
 	for i := 0; i < *requestsCount; i++ {
-		ch <- 1
+		ch <- i
 	}
 	close(ch)
 	fmt.Printf("done\n")
@@ -112,16 +153,22 @@ func main() {
 	}
 
 	worker := workerGetMiss
-	if *workerMode == "GetHit" {
+	switch *workerMode {
+	case "GetHit":
 		if err := client.Set(&item); err != nil {
 			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
 		worker = workerGetHit
-	} else if *workerMode == "GetMiss" {
+	case "GetMiss":
 		if err := client.Delete(item.Key); err != nil && err != memcache.ErrCacheMiss {
 			log.Fatalf("Cannot delete item with key=[%s]: [%s]", item.Key, err)
 		}
-	} else {
+		worker = workerGetMiss
+	case "Set":
+		worker = workerSet
+	case "GetSetRand":
+		worker = workerGetSetRand
+	default:
 		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
 	}
 
