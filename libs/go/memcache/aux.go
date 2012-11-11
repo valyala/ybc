@@ -26,12 +26,14 @@ var (
 	strDelete      = []byte("delete ")
 	strDeleted     = []byte("DELETED")
 	strEnd         = []byte("END")
+	strFlushAll    = []byte("flush_all ")
 	strGet         = []byte("get ")
 	strGetDe       = []byte("getde ")
 	strGets        = []byte("gets ")
 	strNoreply     = []byte("noreply")
 	strNotFound    = []byte("NOT_FOUND")
 	strNotModified = []byte("NM")
+	strOkCrLf      = []byte("OK\r\n")
 	strSet         = []byte("set ")
 	strStored      = []byte("STORED")
 	strValue       = []byte("VALUE ")
@@ -62,7 +64,7 @@ func matchByte(r *bufio.Reader, ch byte) bool {
 	return true
 }
 
-func matchBytes(r *bufio.Reader, s []byte) bool {
+func matchStr(r *bufio.Reader, s []byte) bool {
 	for _, c := range s {
 		if !matchByte(r, c) {
 			return false

@@ -304,7 +304,7 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 		ok = false
 		return
 	}
-	ok = matchBytes(r, strCrLf)
+	ok = matchStr(r, strCrLf)
 	return
 }
 
@@ -414,10 +414,10 @@ func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, e
 	if !ok || eof || wouldBlock {
 		return
 	}
-	if ok = matchBytes(r, strEnd); !ok {
+	if ok = matchStr(r, strEnd); !ok {
 		return
 	}
-	if ok = matchBytes(r, strCrLf); !ok {
+	if ok = matchStr(r, strCrLf); !ok {
 		return
 	}
 	if ok = bytes.Equal(keyOriginal, item.Key); !ok {
@@ -622,7 +622,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]by
 }
 
 func readSetResponse(r *bufio.Reader) bool {
-	return matchBytes(r, strStored) && matchBytes(r, strCrLf)
+	return matchStr(r, strStored) && matchStr(r, strCrLf)
 }
 
 func (t *taskSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
@@ -802,5 +802,80 @@ func (c *Client) DeleteNowait(key []byte) {
 	t := taskDeleteNowait{
 		key: key,
 	}
+	c.do(&t)
+}
+
+type taskFlushAllDelayed struct {
+	exptime int
+	taskSync
+}
+
+func (t *taskFlushAllDelayed) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeStr(w, strFlushAll) && writeInt(w, t.exptime, scratchBuf) && writeStr(w, strCrLf)
+}
+
+func (t *taskFlushAllDelayed) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	return matchStr(r, strOkCrLf)
+}
+
+func (c *Client) FlushAllDelayed(exptime int) error {
+	t := taskFlushAllDelayed{
+		exptime: exptime,
+	}
+	t.Init()
+	if !c.do(&t) {
+		return ErrCommunicationFailure
+	}
+	return nil
+}
+
+type taskFlushAll struct {
+	taskSync
+}
+
+func (t *taskFlushAll) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeStr(w, strFlushAll) && writeStr(w, strCrLf)
+}
+
+func (t *taskFlushAll) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	return matchStr(r, strOkCrLf)
+}
+
+func (c *Client) FlushAll() error {
+	t := taskFlushAll{}
+	t.Init()
+	if !c.do(&t) {
+		return ErrCommunicationFailure
+	}
+	return nil
+}
+
+type taskFlushAllDelayedNowait struct {
+	exptime int
+	taskNowait
+}
+
+func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeStr(w, strFlushAll) && writeInt(w, t.exptime, scratchBuf) && writeStr(w, strWs) &&
+		writeStr(w, strNoreply) && writeStr(w, strCrLf)
+}
+
+func (c *Client) FlushAllDelayedNowait(exptime int) {
+	t := taskFlushAllDelayedNowait{
+		exptime: exptime,
+	}
+	c.do(&t)
+}
+
+type taskFlushAllNowait struct {
+	taskNowait
+}
+
+func (t *taskFlushAllNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeStr(w, strFlushAll) && writeStr(w, strNoreply) && writeStr(w, strCrLf)
+}
+
+func (c *Client) FlushAllNowait() {
+	t := taskFlushAllNowait{}
 	c.do(&t)
 }

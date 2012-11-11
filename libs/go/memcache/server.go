@@ -30,7 +30,7 @@ func parseExptime(s []byte) (exptime time.Duration, ok bool) {
 	return
 }
 
-func writeValue(w *bufio.Writer, item *ybc.Item, size int) bool {
+func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 	n, err := item.WriteTo(w)
 	if err != nil {
 		log.Printf("Error when writing payload with size=[%d] to output stream: [%s]", size, err)
@@ -49,7 +49,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, scratchBuf *[
 		!writeInt(w, size, scratchBuf) || !writeStr(w, strZeroCrLf) {
 		return false
 	}
-	return writeValue(w, item, size)
+	return writeItem(w, item, size)
 }
 
 func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, scratchBuf *[]byte) bool {
@@ -145,7 +145,7 @@ func writeCGetResponse(w *bufio.Writer, etag int64, validateTtl int, item *ybc.I
 		!writeInt(w, validateTtl, scratchBuf) || !writeStr(w, strCrLf) {
 		return false
 	}
-	return writeValue(w, item, size)
+	return writeItem(w, item, size)
 }
 
 func cGetFromCache(cache ybc.Cacher, key []byte, etag *int64) (item *ybc.Item, validateTtl int, err error) {
@@ -308,7 +308,7 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 		log.Printf("Unexpected payload size=[%d]. Expected [%d]", n, size)
 		return false
 	}
-	if !matchBytes(c.Reader, strCrLf) {
+	if !matchStr(c.Reader, strCrLf) {
 		return false
 	}
 	if noreply {
@@ -432,7 +432,66 @@ func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 	return writeStr(c.Writer, response) && writeCrLf(c.Writer)
 }
 
-func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte) bool {
+func parseFlushAllCmd(line []byte) (exptime time.Duration, noreply bool, ok bool) {
+	if len(line) == 0 {
+		noreply = false
+		ok = true
+		return
+	}
+
+	ok = false
+	noreply = false
+	n := -1
+	s, n := nextToken(line, n, "exptime_or_noreply")
+	if s == nil {
+		return
+	}
+	if bytes.Equal(s, strNoreply) {
+		noreply = true
+		ok = expectEof(line, n)
+		return
+	}
+
+	exptime, ok = parseExptime(s)
+	if !ok {
+		return
+	}
+	if n == len(line) {
+		ok = true
+		return
+	}
+
+	n, ok = expectNoreply(line, n)
+	if !ok {
+		return
+	}
+	noreply = true
+	ok = expectEof(line, n)
+	return
+}
+
+func cacheClearFunc(cache ybc.Cacher) func() {
+	return func() { cache.Clear() }
+}
+
+func processFlushAllCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, flushAllTimer **time.Timer) bool {
+	exptime, noreply, ok := parseFlushAllCmd(line)
+	if !ok {
+		return false
+	}
+	(*flushAllTimer).Stop()
+	if exptime <= 0 {
+		cache.Clear()
+	} else {
+		*flushAllTimer = time.AfterFunc(exptime, cacheClearFunc(cache))
+	}
+	if noreply {
+		return true
+	}
+	return writeStr(c.Writer, strOkCrLf)
+}
+
+func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, flushAllTimer **time.Timer) bool {
 	if !readLine(c.Reader, scratchBuf) {
 		return false
 	}
@@ -461,6 +520,9 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte) b
 	if bytes.HasPrefix(line, strDelete) {
 		return processDeleteCmd(c, cache, line[len(strDelete):], scratchBuf)
 	}
+	if bytes.HasPrefix(line, strFlushAll) {
+		return processFlushAllCmd(c, cache, line[len(strFlushAll):], flushAllTimer)
+	}
 	log.Printf("Unrecognized command=[%s]", line)
 	return false
 }
@@ -473,9 +535,12 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	c := bufio.NewReadWriter(r, w)
 	defer w.Flush()
 
+	flushAllTimer := time.NewTimer(0)
+	defer flushAllTimer.Stop()
+
 	scratchBuf := make([]byte, 0, 1024)
 	for {
-		if !processRequest(c, cache, &scratchBuf) {
+		if !processRequest(c, cache, &scratchBuf, &flushAllTimer) {
 			break
 		}
 		if r.Buffered() == 0 {

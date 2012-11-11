@@ -396,3 +396,74 @@ func TestClient_DeleteNowait(t *testing.T) {
 		}
 	}
 }
+
+func TestClient_FlushAll(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	itemsCount := 100
+	var item Item
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		item.Value = []byte(fmt.Sprintf("value_%d", i))
+		if err := c.Set(&item); err != nil {
+			t.Fatalf("error in client.Set(): [%s]", err)
+		}
+	}
+	c.FlushAllNowait()
+	c.FlushAll()
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		if err := c.Get(&item); err != ErrCacheMiss {
+			t.Fatalf("error when obtaining deleted item: [%s]", err)
+		}
+	}
+}
+
+func TestClient_FlushAllDelayed(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	itemsCount := 100
+	var item Item
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		item.Value = []byte(fmt.Sprintf("value_%d", i))
+		if err := c.Set(&item); err != nil {
+			t.Fatalf("error in client.Set(): [%s]", err)
+		}
+	}
+	c.FlushAllDelayedNowait(1)
+	c.FlushAllDelayed(1)
+	foundItems := 0
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		err := c.Get(&item)
+		if err == ErrCacheMiss {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("error when obtaining item: [%s]", err)
+		}
+		foundItems++
+	}
+	if foundItems == 0 {
+		t.Fatalf("It seems all the %d items are already delayed", itemsCount)
+	}
+
+	time.Sleep(time.Second * 2)
+	for i := 0; i < itemsCount; i++ {
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		if err := c.Get(&item); err != ErrCacheMiss {
+			t.Fatalf("error when obtaining deleted item: [%s]", err)
+		}
+	}
+}
