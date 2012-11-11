@@ -13,7 +13,7 @@ import (
 
 var (
 	connectAddr             = flag.String("connectAddr", ":11211", "Memcached address to test")
-	connectionsCount        = flag.Int("connectionsCount", 1, "The number of TCP connection to memcached server")
+	connectionsCount        = flag.Int("connectionsCount", 4, "The number of TCP connections to memcached server")
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	key                     = flag.String("key", "key", "The key to query in memcache")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests")
