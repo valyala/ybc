@@ -29,16 +29,16 @@ import (
 )
 
 var (
-	ErrNoSpace           = errors.New("not enough space for the item in the cache")
-	ErrCacheMiss         = errors.New("the item is not found in the cache")
-	ErrOpenFailed        = errors.New("cannot open the cache")
-	ErrOutOfRange        = errors.New("out of range offset")
-	ErrPartialCommit     = errors.New("partial commit")
-	ErrUnsupportedWhence = errors.New("unsupported whence")
-	ErrWouldBlock        = errors.New("the operation would block")
+	ErrNoSpace           = errors.New("ybc: not enough space in the cache")
+	ErrCacheMiss         = errors.New("ybc: the item is not found in the cache")
+	ErrOpenFailed        = errors.New("ybc: cannot open the cache")
+	ErrOutOfRange        = errors.New("ybc: out of range offset")
+	ErrPartialCommit     = errors.New("ybc: partial commit")
+	ErrUnsupportedWhence = errors.New("ybc: unsupported whence")
+	ErrWouldBlock        = errors.New("ybc: the operation would block")
 
 	// Errors for internal use only
-	errPanic = errors.New("panic")
+	errPanic = errors.New("ybc: panic")
 )
 
 var (
