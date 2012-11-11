@@ -141,7 +141,8 @@ func writeCGetResponse(w *bufio.Writer, etag int64, validateTtl int, item *ybc.I
 	}
 	if !writeStr(w, strValue) || !writeInt(w, size, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, int(exptime), scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt64(w, etag, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, validateTtl, scratchBuf) {
+		!writeInt64(w, etag, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, validateTtl, scratchBuf) || !writeStr(w, strCrLf) {
 		return false
 	}
 	return writeValue(w, item, size)
@@ -160,9 +161,10 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *int64) (item *ybc.Item, v
 			item.Close()
 		}
 	}()
+
 	etagOld := *etag
-	if *etag, err = binary.ReadVarint(item); err != nil {
-		log.Fatalf("Cannot read etag from item with key=[%s]: [%s]", key, err)
+	if err = binary.Read(item, binary.LittleEndian, etag); err != nil {
+		log.Printf("Cannot read etag from item with key=[%s]: [%s]", key, err)
 		return
 	}
 	if etagOld == *etag {
@@ -170,41 +172,36 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *int64) (item *ybc.Item, v
 		item = nil
 		return
 	}
-	tmp, err := binary.ReadVarint(item)
-	if err != nil {
+	var validateTtl32 int32
+	if err = binary.Read(item, binary.LittleEndian, &validateTtl32); err != nil {
 		log.Printf("Cannot read validateTtl from item with key=[%s]: [%s]", key, err)
 		return
 	}
-	validateTtl = int(tmp)
+	validateTtl = int(validateTtl32)
 	return
 }
 
-func resizeBuf(scratchBuf *[]byte, bufSize int) {
-	buf := *scratchBuf
-	for len(buf) < bufSize {
-		buf = append(buf, 0)
-	}
-	*scratchBuf = buf
-}
-
-func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, etag int64, validateTtl int, scratchBuf *[]byte) *ybc.SetTxn {
-	bufSize := binary.Size(&etag) + binary.Size(&validateTtl)
-	size += bufSize
+func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, etag int64, validateTtl int) *ybc.SetTxn {
+	validateTtl32 := int32(validateTtl)
+	size += binary.Size(&etag) + binary.Size(&validateTtl32)
 	txn, err := cache.NewSetTxn(key, size, exptime)
 	if err != nil {
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
 		return nil
 	}
+	defer func() {
+		if err != nil {
+			txn.Rollback()
+		}
+	}()
 
-	resizeBuf(scratchBuf, bufSize)
-	buf := *scratchBuf
-	n := binary.PutVarint(buf, etag)
-	n = binary.PutVarint(buf[n:], int64(validateTtl))
-	if n != bufSize {
-		log.Fatalf("Unexpected n=%d. Expected %d", n, bufSize)
+	if err = binary.Write(txn, binary.LittleEndian, &etag); err != nil {
+		log.Printf("Error when writing etag=[%d] into SetTxn: [%s]", etag, err)
+		return nil
 	}
-	if n, err = txn.Write(buf[:bufSize]); err != nil {
-		log.Fatalf("Error when writing etag=%d and validateTtl=%d into SetTxn: [%s]", etag, validateTtl, err)
+	if err = binary.Write(txn, binary.LittleEndian, &validateTtl32); err != nil {
+		log.Printf("Error when writing validateTtl=[%d] into SetTxn: [%s]", validateTtl32, err)
+		return nil
 	}
 	return txn
 }
@@ -228,6 +225,9 @@ func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	item, validateTtl, err := cGetFromCache(cache, key, &etag)
 	if err == ybc.ErrCacheMiss {
 		return writeStr(c.Writer, strNotFound) && writeStr(c.Writer, strCrLf)
+	}
+	if err != nil {
+		return false
 	}
 	if item == nil {
 		return writeStr(c.Writer, strNotModified) && writeStr(c.Writer, strCrLf)
@@ -391,7 +391,7 @@ func processCSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 		return false
 	}
 
-	txn := cSetToCache(cache, key, exptime, size, etag, validateTtl, scratchBuf)
+	txn := cSetToCache(cache, key, exptime, size, etag, validateTtl)
 	if txn == nil {
 		return false
 	}

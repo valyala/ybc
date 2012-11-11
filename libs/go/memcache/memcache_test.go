@@ -147,6 +147,72 @@ func TestClient_GetDe(t *testing.T) {
 			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d): [%s]", item.Key, grace, err)
 		}
 	}
+
+	item.Value = []byte("value")
+	if err := c.Set(&item); err != nil {
+		t.Fatalf("Cannot set value=[%s] for key=[%s]: [%s]", item.Value, item.Key, err)
+	}
+	oldValue := item.Value
+	item.Value = nil
+	if err := c.GetDe(&item, grace); err != nil {
+		t.Fatalf("Cannot obtain value fro key=[%s]: [%s]", item.Key, err)
+	}
+	if !bytes.Equal(oldValue, item.Value) {
+		t.Fatalf("Unexpected value obtained: [%s]. Expected [%s]", item.Value, oldValue)
+	}
+}
+
+func TestClient_CGetCSet(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	key := []byte("key")
+	value := []byte("value")
+	expiration := 123343
+
+	item := Item{
+		Key:        key,
+		Value:      value,
+		Expiration: expiration,
+	}
+	etag := int64(1234567890)
+	validateTtl := 98765432
+
+	if _, err := c.CGet(&item, &etag); err != ErrCacheMiss {
+		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrCacheMiss", err)
+	}
+
+	if err := c.CSet(&item, etag, validateTtl); err != nil {
+		t.Fatalf("Error in Client.CSet(): [%s]", err)
+	}
+
+	if _, err := c.CGet(&item, &etag); err != ErrNotModified {
+		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
+	}
+
+	etagNew := int64(3234422289)
+	item.Value = nil
+	item.Expiration = expiration + 10000
+	validateTtlNew, err := c.CGet(&item, &etagNew)
+	if err != nil {
+		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]", err)
+	}
+	if etagNew != etag {
+		t.Fatalf("Unexpected etag=[%d] returned from Client.CGet(). Expected [%d]", etagNew, etag)
+	}
+	if validateTtlNew != validateTtl {
+		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.CGet(). Expected [%d]", validateTtlNew, validateTtl)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("Unexpected value=[%s] returned from Client.CGet(). Expected [%d]", item.Value, value)
+	}
+	if item.Expiration > expiration {
+		t.Fatalf("Unexpected expiration=[%d] returned from Client.CGet(). Expected not more than [%d]", item.Expiration, expiration)
+	}
 }
 
 func lookupItem(items []Item, key []byte) *Item {

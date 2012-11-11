@@ -259,8 +259,8 @@ type taskGetMulti struct {
 func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	ok = false
 
-	if !bytes.Equal(line[:len(strValue)], strValue) {
-		log.Printf("Unexpected start of line: [%s]. Expected [%s]", line[:len(strValue)], strValue)
+	if !bytes.HasPrefix(line, strValue) {
+		log.Printf("Unexpected line read=[%s]. It should start with [%s]", line, strValue)
 		return
 	}
 	line = line[len(strValue):]
@@ -433,16 +433,13 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
-	if !eof {
-		t.itemFound = true
-	}
+	t.itemFound = !eof
 	return true
 }
 
 func (c *Client) Get(item *Item) error {
 	t := taskGet{
-		item:      item,
-		itemFound: false,
+		item: item,
 	}
 	t.Init()
 	if !c.do(&t) {
@@ -457,7 +454,7 @@ func (c *Client) Get(item *Item) error {
 type taskCGet struct {
 	item            *Item
 	etag            *int64
-	validateTtl     *int
+	validateTtl     int
 	itemFound       bool
 	itemNotModified bool
 	taskSync
@@ -487,6 +484,7 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		log.Printf("Unexpected line read=[%s]. It should start with [%s]", line, strValue)
 		return false
 	}
+	line = line[len(strValue):]
 
 	n := -1
 
@@ -517,35 +515,40 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if validateTtlStr == nil {
 		return false
 	}
-	if *t.validateTtl, ok = parseInt(validateTtlStr); !ok {
+	if t.validateTtl, ok = parseInt(validateTtlStr); !ok {
 		return false
 	}
 	if !expectEof(line, n) {
 		return false
 	}
-	t.item.Value, ok = readValue(r, size)
-	return ok
+	if t.item.Value, ok = readValue(r, size); !ok {
+		return false
+	}
+	t.itemFound = true
+	t.itemNotModified = false
+	return true
 }
 
-func (c *Client) CGet(item *Item, etag *int64, validateTtl *int) error {
+func (c *Client) CGet(item *Item, etag *int64) (validateTtl int, err error) {
 	t := taskCGet{
-		item:            item,
-		etag:            etag,
-		validateTtl:     validateTtl,
-		itemFound:       false,
-		itemNotModified: false,
+		item: item,
+		etag: etag,
 	}
 	t.Init()
 	if !c.do(&t) {
-		return ErrCommunicationFailure
+		err = ErrCommunicationFailure
+		return
 	}
 	if t.itemNotModified {
-		return ErrNotModified
+		err = ErrNotModified
+		return
 	}
 	if !t.itemFound {
-		return ErrCacheMiss
+		err = ErrCacheMiss
+		return
 	}
-	return nil
+	validateTtl = t.validateTtl
+	return
 }
 
 type taskGetDe struct {
@@ -567,12 +570,12 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		return false
 	}
 	if wouldBlock {
+		t.itemFound = true
 		t.wouldBlock = true
 		return true
 	}
-	if !eof {
-		t.itemFound = true
-	}
+	t.itemFound = !eof
+	t.wouldBlock = false
 	return true
 }
 
@@ -580,10 +583,8 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 func (c *Client) GetDe(item *Item, grace int) error {
 	for {
 		t := taskGetDe{
-			item:       item,
-			grace:      grace,
-			itemFound:  false,
-			wouldBlock: false,
+			item:  item,
+			grace: grace,
 		}
 		t.Init()
 		if !c.do(&t) {
