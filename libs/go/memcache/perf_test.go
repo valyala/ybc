@@ -250,12 +250,17 @@ func BenchmarkClientServer_SetNowait_1KPendingRequests(b *testing.B) {
 
 type WorkerFunc func(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
 
-func concurrentOps(workerFunc WorkerFunc, workersCount int, b *testing.B) {
+type SetupFunc func(c *Client)
+
+func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int, b *testing.B) {
 	c, s, cache := newBenchClientServerCache(b)
 	defer cache.Close()
 	defer s.Stop()
 	defer c.Stop()
 
+	if setupFunc != nil {
+		setupFunc(c)
+	}
 	wg := &sync.WaitGroup{}
 	defer wg.Wait()
 	ch := make(chan int, b.N)
@@ -284,7 +289,7 @@ func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B
 }
 
 func concurrentSet(workersCount int, b *testing.B) {
-	concurrentOps(setWorker, workersCount, b)
+	concurrentOps(nil, setWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentSet_1Workers(b *testing.B) {
@@ -322,11 +327,7 @@ func BenchmarkClientServer_ConcurrentSet_128Workers(b *testing.B) {
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := Item{
-		Key:   []byte(fmt.Sprintf("key_%d", i)),
-		Value: []byte(fmt.Sprintf("value_%d", i)),
-	}
-	if err := c.Set(&item); err != nil {
-		b.Fatalf("Error when calling channel.Set(): [%s]", err)
+		Key: []byte(fmt.Sprintf("key_%d", i)),
 	}
 	for _ = range ch {
 		if err := c.Get(&item); err != nil {
@@ -336,7 +337,18 @@ func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B
 }
 
 func concurrentGet(workersCount int, b *testing.B) {
-	concurrentOps(getWorker, workersCount, b)
+	setupFunc := func(c *Client) {
+		for i := 0; i < workersCount; i++ {
+			item := Item{
+				Key:   []byte(fmt.Sprintf("key_%d", i)),
+				Value: []byte(fmt.Sprintf("value_%d", i)),
+			}
+			if err := c.Set(&item); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOps(setupFunc, getWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGet_1Workers(b *testing.B) {
@@ -374,22 +386,29 @@ func BenchmarkClientServer_ConcurrentGet_128Workers(b *testing.B) {
 func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	item := Item{
-		Key:   []byte(fmt.Sprintf("key_%d", i)),
-		Value: []byte(fmt.Sprintf("value_%d", i)),
-	}
-	if err := c.Set(&item); err != nil {
-		b.Fatalf("Error when calling channel.Set(): [%s]", err)
+		Key: []byte(fmt.Sprintf("key_%d", i)),
 	}
 	grace := 100 * time.Millisecond
 	for _ = range ch {
 		if err := c.GetDe(&item, grace); err != nil {
-			b.Fatalf("Error when calling channel.Get(): [%s]", err)
+			b.Fatalf("Error when calling channel.GetDe(): [%s]", err)
 		}
 	}
 }
 
 func concurrentGetDe(workersCount int, b *testing.B) {
-	concurrentOps(getDeWorker, workersCount, b)
+	setupFunc := func(c *Client) {
+		for i := 0; i < workersCount; i++ {
+			item := Item{
+				Key:   []byte(fmt.Sprintf("key_%d", i)),
+				Value: []byte(fmt.Sprintf("value_%d", i)),
+			}
+			if err := c.Set(&item); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOps(setupFunc, getDeWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGetDe_1Workers(b *testing.B) {
@@ -457,7 +476,7 @@ func getSetWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testin
 }
 
 func concurrentGetSet(workersCount int, b *testing.B) {
-	concurrentOps(getSetWorker, workersCount, b)
+	concurrentOps(nil, getSetWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGetSet_1Workers(b *testing.B) {

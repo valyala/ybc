@@ -73,7 +73,8 @@ func TestServer_Wait(t *testing.T) {
 
 func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache) {
 	c = &Client{
-		ConnectAddr: testAddr,
+		ConnectAddr:      testAddr,
+		ConnectionsCount: 1, // tests require single connection!
 	}
 	s, cache = newServerCache(t)
 	s.Start()
