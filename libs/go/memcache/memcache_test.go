@@ -245,6 +245,35 @@ func checkItems(c *Client, orig_items []Item, t *testing.T) {
 	}
 }
 
+func checkCItems(c *Client, items []Item, etags []int64, validateTtls []int, t *testing.T) {
+	for i := 0; i < len(items); i++ {
+		item := items[i]
+		etag := etags[i]
+		_, err := c.CGet(&item, &etag)
+		if err == ErrCacheMiss {
+			continue
+		}
+		if err != ErrNotModified {
+			t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
+		}
+
+		etag++
+		validateTtl, err := c.CGet(&item, &etag)
+		if err != nil {
+			t.Fatalf("Error when calling Client.CGet(): [%s]", err)
+		}
+		if etag != etags[i] {
+			t.Fatalf("Unexpected etag=%d returned. Expected %d", etag, etags[i])
+		}
+		if validateTtl != validateTtls[i] {
+			t.Fatalf("Unexpected validateTtl=%d returned. Expected %d", validateTtl, validateTtls[i])
+		}
+		if !bytes.Equal(item.Value, items[i].Value) {
+			t.Fatalf("Unexpected value=[%s] returned. Expected [%s]", item.Value, items[i].Value)
+		}
+	}
+}
+
 func TestClient_GetMulti(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
@@ -253,16 +282,15 @@ func TestClient_GetMulti(t *testing.T) {
 	c.Start()
 	defer c.Stop()
 
-	itemsCount := 100
+	itemsCount := 1000
 	items := make([]Item, itemsCount)
-	var item Item
 	for i := 0; i < itemsCount; i++ {
+		item := &items[i]
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
-		if err := c.Set(&item); err != nil {
+		if err := c.Set(item); err != nil {
 			t.Fatalf("error in client.Set(): [%s]", err)
 		}
-		items[i] = item
 	}
 
 	checkItems(c, items, t)
@@ -276,17 +304,40 @@ func TestClient_SetNowait(t *testing.T) {
 	c.Start()
 	defer c.Stop()
 
-	itemsCount := 100
+	itemsCount := 1000
 	items := make([]Item, itemsCount)
-	var item Item
 	for i := 0; i < itemsCount; i++ {
+		item := &items[i]
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
-		c.SetNowait(&item)
-		items[i] = item
+		c.SetNowait(item)
 	}
 
 	checkItems(c, items, t)
+}
+
+func TestClient_CSetNowait(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	itemsCount := 1000
+	items := make([]Item, itemsCount)
+	etags := make([]int64, itemsCount)
+	validateTtls := make([]int, itemsCount)
+	for i := 0; i < itemsCount; i++ {
+		item := &items[i]
+		item.Key = []byte(fmt.Sprintf("key_%d", i))
+		item.Value = []byte(fmt.Sprintf("value_%d", i))
+		etags[i] = int64(i)
+		validateTtls[i] = i
+		c.CSetNowait(item, etags[i], validateTtls[i])
+	}
+
+	checkCItems(c, items, etags, validateTtls, t)
 }
 
 func TestClient_Delete(t *testing.T) {
