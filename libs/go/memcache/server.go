@@ -549,12 +549,26 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	}
 }
 
+// Memcache server.
 type Server struct {
-	Cache             ybc.Cacher
-	ListenAddr        string
-	ReadBufferSize    int
-	WriteBufferSize   int
-	OSReadBufferSize  int
+	// The underlying cache storage.
+	Cache ybc.Cacher
+
+	// TCP address to listen to. Must be in the form addr:port.
+	ListenAddr string
+
+	// The size of buffer used for reading requests from clients
+	// per each connection.
+	ReadBufferSize int
+
+	// The size of buffer used for writing responses to clients
+	// per each connection.
+	WriteBufferSize int
+
+	// The size in bytes of OS-supplied read buffer per TCP connection.
+	OSReadBufferSize int
+
+	// The size in bytes of OS-supplied write buffer per TCP connection.
 	OSWriteBufferSize int
 
 	listenSocket *net.TCPListener
@@ -610,6 +624,7 @@ func (s *Server) run() {
 	}
 }
 
+// Starts the given server.
 func (s *Server) Start() {
 	if s.listenSocket != nil || s.done != nil {
 		panic("Did you forgot calling Server.Stop() before calling Server.Start()?")
@@ -618,16 +633,19 @@ func (s *Server) Start() {
 	go s.run()
 }
 
+// Waits until the server is stopped.
 func (s *Server) Wait() error {
 	s.done.Wait()
 	return s.err
 }
 
+// Start the server and waits until it is stopped.
 func (s *Server) Serve() error {
 	s.Start()
 	return s.Wait()
 }
 
+// Stops the server.
 func (s *Server) Stop() {
 	s.listenSocket.Close()
 	s.Wait()

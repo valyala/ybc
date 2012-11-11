@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	ErrCacheMiss            = errors.New("cache miss")
-	ErrCommunicationFailure = errors.New("communication failure")
-	ErrNotModified          = errors.New("not modified")
+	ErrCacheMiss            = errors.New("memcache: cache miss")
+	ErrCommunicationFailure = errors.New("memcache: communication failure")
+	ErrNotModified          = errors.New("memcache: item not modified")
 )
 
 const (
@@ -23,7 +23,9 @@ const (
 	defaultMaxPendingRequestsCount = 1024
 )
 
-// Memcache client
+// Fast memcache client.
+//
+// The client works with a single memcached server.
 type Client struct {
 	// TCP address of memcached server to connect to.
 	// The address should be in the form addr:port.
@@ -67,9 +69,13 @@ type Client struct {
 	done     *sync.WaitGroup
 }
 
+// Memcache item.
 type Item struct {
-	Key        []byte
-	Value      []byte
+	Key   []byte
+	Value []byte
+
+	// Expiration time in seconds or in absolute unix time if
+	// exceeds 30 days.
 	Expiration int
 }
 
@@ -211,18 +217,23 @@ func (c *Client) run() {
 }
 
 func (c *Client) do(t tasker) bool {
+	if c.requests == nil {
+		panic("Did you forgot calling Client.Start()?")
+	}
 	c.requests <- t
 	return t.Wait()
 }
 
+// Starts the given client.
 func (c *Client) Start() {
 	if c.requests != nil || c.done != nil {
-		panic("Did you forget calling Client.Stop() before calling Client.Start()?")
+		panic("Did you forgot calling Client.Stop() before calling Client.Start()?")
 	}
 	c.init()
 	go c.run()
 }
 
+// Stops the given client.
 func (c *Client) Stop() {
 	close(c.requests)
 	c.done.Wait()
@@ -401,6 +412,12 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
+// Obtains multiple items associated with the given keys.
+//
+// Sets Item.Key and Item.Value for each returned item.
+//
+// The number of returned items may be smaller than the number of keys,
+// because certain items may be missing in the memcache server.
 func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 	t := taskGetMulti{
 		keys:  keys,
@@ -454,6 +471,9 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
+// Obtains value (item.Value) for the given key (item.Key) from memcache server.
+//
+// Returns ErrCacheMiss on cache miss.
 func (c *Client) Get(item *Item) error {
 	t := taskGet{
 		item: item,
@@ -546,6 +566,18 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
+// Performs conditional get request for the given item.Key and etag.
+//
+// Fills item.Value, item.Expiration, etag and returns validateTtl only
+// on cache hit and only if the given etag doesn't match etag on the server,
+// i.e. if the server contains new item.
+//
+// Returns ErrCacheMiss on cache miss.
+// Returns ErrNotModified if the corresponding item on the server has
+// the same etag.
+//
+// Client.CSet() and Client.CGet() are intended for reducing network bandwidth
+// consumption in multi-level caches.
 func (c *Client) CGet(item *Item, etag *int64) (validateTtl int, err error) {
 	t := taskCGet{
 		item: item,
@@ -570,15 +602,16 @@ func (c *Client) CGet(item *Item, etag *int64) (validateTtl int, err error) {
 
 type taskGetDe struct {
 	item       *Item
-	grace      int
+	grace      time.Duration
 	itemFound  bool
 	wouldBlock bool
 	taskSync
 }
 
 func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	graceMilliseconds := int(t.grace / time.Millisecond)
 	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
-		writeInt(w, t.grace, scratchBuf) && writeCrLf(w))
+		writeInt(w, graceMilliseconds, scratchBuf) && writeCrLf(w))
 }
 
 func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -596,8 +629,12 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
-// grace period in milliseconds
-func (c *Client) GetDe(item *Item, grace int) error {
+// Performs dogpile effect-aware get for the given item.Key.
+//
+// Returns ErrCacheMiss on cache miss. It is expected that the caller
+// will create and store in the cache an item on cache miss during the given
+// grace interval.
+func (c *Client) GetDe(item *Item, grace time.Duration) error {
 	for {
 		t := taskGetDe{
 			item:  item,
@@ -650,6 +687,7 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return readSetResponse(r)
 }
 
+// Stores the given item in the memcache server.
 func (c *Client) Set(item *Item) error {
 	t := taskSet{
 		item: item,
@@ -692,6 +730,16 @@ func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return readSetResponse(r)
 }
 
+// Performs conditional set for the given item with the given etag
+// and validateTtl.
+//
+// Etag is used by Client.CGet() for determining whether item with the given
+// key is modified and should be returned to the client.
+//
+// validateTtl is an opaque value, which is returned by Client.CGet().
+//
+// Client.CSet() and Client.CGet() are intended for reducing network bandwidth
+// consumption in multi-level caches.
 func (c *Client) CSet(item *Item, etag int64, validateTtl int) error {
 	t := taskCSet{
 		item:        item,
@@ -726,6 +774,7 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return writeSetRequest(w, &t.item, true, scratchBuf)
 }
 
+// The same as Client.Set(), but doesn't wait for operation completion.
 func (c *Client) SetNowait(item *Item) {
 	t := taskSetNowait{
 		item: *item,
@@ -744,6 +793,7 @@ func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool 
 	return writeCSetRequest(w, &t.item, t.etag, t.validateTtl, true, scratchBuf)
 }
 
+// The same as Client.CSet(), but doesn't wait for operation completion.
 func (c *Client) CSetNowait(item *Item, etag int64, validateTtl int) {
 	t := taskCSetNowait{
 		item:        *item,
@@ -792,6 +842,10 @@ func (t *taskDelete) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return false
 }
 
+// Deletes an item with the given key from memcache server.
+//
+// Returns ErrCacheMiss if there were no item with such key
+// on the server.
 func (c *Client) Delete(key []byte) error {
 	t := taskDelete{
 		key: key,
@@ -815,6 +869,7 @@ func (t *taskDeleteNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) boo
 	return writeDeleteRequest(w, t.key, true)
 }
 
+// The same as Client.Delete(), but doesn't wait for operation completion.
 func (c *Client) DeleteNowait(key []byte) {
 	t := taskDeleteNowait{
 		key: key,
@@ -835,6 +890,9 @@ func (t *taskFlushAllDelayed) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) 
 	return matchStr(r, strOkCrLf)
 }
 
+// Flushes all the items on the server after the given delay in seconds.
+//
+// If exptime exceeds 30 days, then it is considered as an absolute unix time.
 func (c *Client) FlushAllDelayed(exptime int) error {
 	t := taskFlushAllDelayed{
 		exptime: exptime,
@@ -858,6 +916,7 @@ func (t *taskFlushAll) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return matchStr(r, strOkCrLf)
 }
 
+// Flushes all the items on the server.
 func (c *Client) FlushAll() error {
 	t := taskFlushAll{}
 	t.Init()
@@ -877,6 +936,8 @@ func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]
 		writeStr(w, strNoreply) && writeStr(w, strCrLf)
 }
 
+// The same as Client.FlushAllDelayed(), but doesn't wait for operation
+// completion.
 func (c *Client) FlushAllDelayedNowait(exptime int) {
 	t := taskFlushAllDelayedNowait{
 		exptime: exptime,
@@ -892,6 +953,7 @@ func (t *taskFlushAllNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) b
 	return writeStr(w, strFlushAll) && writeStr(w, strNoreply) && writeStr(w, strCrLf)
 }
 
+// The same as Client.FlushAll(), but doesn't wait for operation completion.
 func (c *Client) FlushAllNowait() {
 	t := taskFlushAllNowait{}
 	c.do(&t)

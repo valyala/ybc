@@ -140,7 +140,7 @@ func TestClient_GetDe(t *testing.T) {
 	item := Item{
 		Key: []byte("key"),
 	}
-	grace := 100
+	grace := 100 * time.Millisecond
 	for i := 0; i < 3; i++ {
 		if err := c.GetDe(&item, grace); err != ErrCacheMiss {
 			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d): [%s]", item.Key, grace, err)

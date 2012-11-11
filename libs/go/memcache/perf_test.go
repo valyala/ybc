@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newBenchClientServerCache_Ext(buffersSize, osBuffersSize, maxPendingRequestsCount int, b *testing.B) (c *Client, s *Server, cache *ybc.Cache) {
@@ -379,7 +380,7 @@ func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing
 	if err := c.Set(&item); err != nil {
 		b.Fatalf("Error when calling channel.Set(): [%s]", err)
 	}
-	grace := 100
+	grace := 100 * time.Millisecond
 	for _ = range ch {
 		if err := c.GetDe(&item, grace); err != nil {
 			b.Fatalf("Error when calling channel.Get(): [%s]", err)
