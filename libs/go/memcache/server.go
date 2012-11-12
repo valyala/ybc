@@ -12,24 +12,6 @@ import (
 	"time"
 )
 
-func parseExptime(s []byte) (exptime time.Duration, ok bool) {
-	t, err := strconv.Atoi(string(s))
-	if err != nil {
-		log.Printf("Cannot convert exptime=[%s] to integer: [%s]", s, err)
-		ok = false
-		return
-	}
-	if t == 0 {
-		exptime = ybc.MaxTtl
-	} else if t > 30*24*3600 {
-		exptime = time.Unix(int64(t), 0).Sub(time.Now())
-	} else {
-		exptime = time.Second * time.Duration(t)
-	}
-	ok = true
-	return
-}
-
 func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 	n, err := item.WriteTo(w)
 	if err != nil {
@@ -107,11 +89,11 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	n := -1
 
-	key, n := nextToken(line, n, "key")
+	key := nextToken(line, &n, "key")
 	if key == nil {
 		return false
 	}
-	graceStr, n := nextToken(line, n, "grace")
+	graceStr := nextToken(line, &n, "grace")
 	if graceStr == nil {
 		return false
 	}
@@ -147,12 +129,9 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 
 func writeCGetResponse(w *bufio.Writer, etag uint64, validateTtl int, item *ybc.Item, scratchBuf *[]byte) bool {
 	size := item.Available()
-	exptime := item.Ttl() / time.Second
-	if exptime >= (1 << 31) {
-		exptime = (1 << 31) - 1
-	}
+	expiration := item.Ttl()
 	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeStr(w, strWs) &&
-		writeInt(w, int(exptime), scratchBuf) && writeStr(w, strWs) &&
+		writeExpiration(w, expiration, scratchBuf) && writeStr(w, strWs) &&
 		writeUint64(w, etag, scratchBuf) && writeStr(w, strWs) &&
 		writeInt(w, validateTtl, scratchBuf) && writeStr(w, strCrLf) &&
 		writeItem(w, item, size)
@@ -194,11 +173,11 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	n := -1
 
-	key, n := nextToken(line, n, "key")
+	key := nextToken(line, &n, "key")
 	if key == nil {
 		return false
 	}
-	etagStr, n := nextToken(line, n, "etag")
+	etagStr := nextToken(line, &n, "etag")
 	if etagStr == nil {
 		return false
 	}
@@ -222,45 +201,36 @@ func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	return writeCGetResponse(c.Writer, etag, validateTtl, item, scratchBuf)
 }
 
-func expectNoreply(line []byte, n int) (nn int, ok bool) {
-	var noreplyStr []byte
-	ok = false
-
-	noreplyStr, n = nextToken(line, n, "noreply")
+func expectNoreply(line []byte, n *int) bool {
+	noreplyStr := nextToken(line, n, "noreply")
 	if noreplyStr == nil {
-		return
+		return false
 	}
 	if !bytes.Equal(noreplyStr, strNoreply) {
 		log.Printf("Unexpected noreply in line=[%s]: [%s]. Expected [%s]", line, noreplyStr, strNoreply)
-		return
+		return false
 	}
-	nn = n
-	ok = true
-	return
+	return true
 }
 
-func parseSetCmd(line []byte) (key []byte, flags uint32, exptime time.Duration, size int, noreply bool, ok bool) {
+func parseSetCmd(line []byte) (key []byte, flags uint32, expiration time.Duration, size int, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
-	if key, n = nextToken(line, n, "key"); key == nil {
+	if key = nextToken(line, &n, "key"); key == nil {
 		return
 	}
-	flagsStr, n := nextToken(line, n, "flags")
+	flagsStr := nextToken(line, &n, "flags")
 	if flagsStr == nil {
 		return
 	}
 	if flags, ok = parseUint32(flagsStr); !ok {
 		return
 	}
-	exptimeStr, n := nextToken(line, n, "exptime")
-	if exptimeStr == nil {
+	if expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	if exptime, ok = parseExptime(exptimeStr); !ok {
-		return
-	}
-	sizeStr, n := nextToken(line, n, "size")
+	sizeStr := nextToken(line, &n, "size")
 	if sizeStr == nil {
 		return
 	}
@@ -274,7 +244,7 @@ func parseSetCmd(line []byte) (key []byte, flags uint32, exptime time.Duration, 
 		return
 	}
 
-	if n, ok = expectNoreply(line, n); !ok {
+	if ok = expectNoreply(line, &n); !ok {
 		return
 	}
 	if !expectEof(line, n) {
@@ -305,11 +275,11 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 	return writeStr(c.Writer, strStored) && writeCrLf(c.Writer)
 }
 
-func setToCache(cache ybc.Cacher, key []byte, flags uint32, exptime time.Duration, size int) *ybc.SetTxn {
+func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
 	size += binary.Size(&flags)
-	txn, err := cache.NewSetTxn(key, size, exptime)
+	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
-		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
+		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
 	defer func() {
@@ -326,12 +296,12 @@ func setToCache(cache ybc.Cacher, key []byte, flags uint32, exptime time.Duratio
 }
 
 func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, flags, exptime, size, noreply, ok := parseSetCmd(line)
+	key, flags, expiration, size, noreply, ok := parseSetCmd(line)
 	if !ok {
 		return false
 	}
 
-	txn := setToCache(cache, key, flags, exptime, size)
+	txn := setToCache(cache, key, flags, expiration, size)
 	if txn == nil {
 		return false
 	}
@@ -340,35 +310,31 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	return readValueAndWriteResponse(c, txn, size, noreply)
 }
 
-func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, etag uint64, validateTtl int, noreply bool, ok bool) {
+func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, etag uint64, validateTtl int, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
-	if key, n = nextToken(line, n, "key"); key == nil {
+	if key = nextToken(line, &n, "key"); key == nil {
 		return
 	}
-	exptimeStr, n := nextToken(line, n, "exptime")
-	if exptimeStr == nil {
+	if expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	if exptime, ok = parseExptime(exptimeStr); !ok {
-		return
-	}
-	sizeStr, n := nextToken(line, n, "size")
+	sizeStr := nextToken(line, &n, "size")
 	if sizeStr == nil {
 		return
 	}
 	if size, ok = parseInt(sizeStr); !ok {
 		return
 	}
-	etagStr, n := nextToken(line, n, "etag")
+	etagStr := nextToken(line, &n, "etag")
 	if etagStr == nil {
 		return
 	}
 	if etag, ok = parseUint64(etagStr); !ok {
 		return
 	}
-	validateTtlStr, n := nextToken(line, n, "validateTtl")
+	validateTtlStr := nextToken(line, &n, "validateTtl")
 	if validateTtlStr == nil {
 		return
 	}
@@ -381,7 +347,7 @@ func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, eta
 		ok = true
 		return
 	}
-	if n, ok = expectNoreply(line, n); !ok {
+	if ok = expectNoreply(line, &n); !ok {
 		return
 	}
 	if !expectEof(line, n) {
@@ -392,12 +358,12 @@ func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, eta
 	return
 }
 
-func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, etag uint64, validateTtl int) *ybc.SetTxn {
+func cSetToCache(cache ybc.Cacher, key []byte, expiration time.Duration, size int, etag uint64, validateTtl int) *ybc.SetTxn {
 	validateTtl32 := int32(validateTtl)
 	size += binary.Size(&etag) + binary.Size(&validateTtl32)
-	txn, err := cache.NewSetTxn(key, size, exptime)
+	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
-		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], exptime=[%d]: [%s]", key, size, exptime, err)
+		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
 	defer func() {
@@ -418,12 +384,12 @@ func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, 
 }
 
 func processCSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, exptime, size, etag, validateTtl, noreply, ok := parseCSetCmd(line)
+	key, expiration, size, etag, validateTtl, noreply, ok := parseCSetCmd(line)
 	if !ok {
 		return false
 	}
 
-	txn := cSetToCache(cache, key, exptime, size, etag, validateTtl)
+	txn := cSetToCache(cache, key, expiration, size, etag, validateTtl)
 	if txn == nil {
 		return false
 	}
@@ -435,15 +401,14 @@ func processCSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	n := -1
 
-	key, n := nextToken(line, n, "key")
+	key := nextToken(line, &n, "key")
 	if key == nil {
 		return false
 	}
 
 	noreply := false
 	if n < len(line) {
-		var ok bool
-		if n, ok = expectNoreply(line, n); !ok {
+		if !expectNoreply(line, &n) {
 			return false
 		}
 		noreply = true
@@ -464,7 +429,7 @@ func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 	return writeStr(c.Writer, response) && writeCrLf(c.Writer)
 }
 
-func parseFlushAllCmd(line []byte) (exptime time.Duration, noreply bool, ok bool) {
+func parseFlushAllCmd(line []byte) (expiration time.Duration, noreply bool, ok bool) {
 	if len(line) == 0 {
 		noreply = false
 		ok = true
@@ -474,7 +439,8 @@ func parseFlushAllCmd(line []byte) (exptime time.Duration, noreply bool, ok bool
 	ok = false
 	noreply = false
 	n := -1
-	s, n := nextToken(line, n, "exptime_or_noreply")
+
+	s := nextToken(line, &n, "expiration_or_noreply")
 	if s == nil {
 		return
 	}
@@ -484,8 +450,7 @@ func parseFlushAllCmd(line []byte) (exptime time.Duration, noreply bool, ok bool
 		return
 	}
 
-	exptime, ok = parseExptime(s)
-	if !ok {
+	if expiration, ok = parseExpiration(s); !ok {
 		return
 	}
 	if n == len(line) {
@@ -493,8 +458,7 @@ func parseFlushAllCmd(line []byte) (exptime time.Duration, noreply bool, ok bool
 		return
 	}
 
-	n, ok = expectNoreply(line, n)
-	if !ok {
+	if ok = expectNoreply(line, &n); !ok {
 		return
 	}
 	noreply = true
@@ -507,15 +471,15 @@ func cacheClearFunc(cache ybc.Cacher) func() {
 }
 
 func processFlushAllCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, flushAllTimer **time.Timer) bool {
-	exptime, noreply, ok := parseFlushAllCmd(line)
+	expiration, noreply, ok := parseFlushAllCmd(line)
 	if !ok {
 		return false
 	}
 	(*flushAllTimer).Stop()
-	if exptime <= 0 {
+	if expiration <= 0 {
 		cache.Clear()
 	} else {
-		*flushAllTimer = time.AfterFunc(exptime, cacheClearFunc(cache))
+		*flushAllTimer = time.AfterFunc(expiration, cacheClearFunc(cache))
 	}
 	if noreply {
 		return true

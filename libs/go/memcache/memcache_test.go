@@ -178,7 +178,7 @@ func TestClient_CGetCSet(t *testing.T) {
 
 	key := []byte("key")
 	value := []byte("value")
-	expiration := 123343
+	expiration := time.Hour * 123343
 
 	etag := uint64(1234567890)
 	validateTtl := 98765432
@@ -204,7 +204,7 @@ func TestClient_CGetCSet(t *testing.T) {
 
 	item.Value = nil
 	item.Etag = 3234898
-	item.Expiration = expiration + 10000
+	item.Expiration = expiration + 10000*time.Second
 	if err := c.CGet(&item); err != nil {
 		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]", err)
 	}
@@ -444,8 +444,8 @@ func TestClient_FlushAllDelayed(t *testing.T) {
 			t.Fatalf("error in client.Set(): [%s]", err)
 		}
 	}
-	c.FlushAllDelayedNowait(1)
-	c.FlushAllDelayed(1)
+	c.FlushAllDelayedNowait(time.Second)
+	c.FlushAllDelayed(time.Second)
 	foundItems := 0
 	for i := 0; i < itemsCount; i++ {
 		item.Key = []byte(fmt.Sprintf("key_%d", i))

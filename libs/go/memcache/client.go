@@ -74,10 +74,9 @@ type Item struct {
 	Key   []byte
 	Value []byte
 
-	// Expiration time in seconds or in absolute unix time if
-	// exceeds 30 days.
+	// Expiration time for the item.
 	// Zero means the item has no expiration time.
-	Expiration int
+	Expiration time.Duration
 
 	// An opaque value, which is passed to/from memcache
 	Flags uint32
@@ -299,18 +298,17 @@ func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool
 
 	n := -1
 
-	key, n = nextToken(line, n, "key")
-	if key == nil {
+	if key = nextToken(line, &n, "key"); key == nil {
 		return
 	}
-	flagsStr, n := nextToken(line, n, "flags")
+	flagsStr := nextToken(line, &n, "flags")
 	if flagsStr == nil {
 		return
 	}
 	if flags, ok = parseUint32(flagsStr); !ok {
 		return
 	}
-	sizeStr, n := nextToken(line, n, "size")
+	sizeStr := nextToken(line, &n, "size")
 	if sizeStr == nil {
 		return
 	}
@@ -322,8 +320,7 @@ func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool
 		return
 	}
 
-	casidUnused, n := nextToken(line, n, "casid")
-	if casidUnused == nil {
+	if casidUnused := nextToken(line, &n, "casid"); casidUnused == nil {
 		ok = false
 		return
 	}
@@ -503,10 +500,9 @@ type Citem struct {
 	// via Client.CGet().
 	ValidateTtl int
 
-	// Expiration time in seconds. If it exceeds 30 days, it is interpreted
-	// as an absolute unix time.
-	// Zero means 'no expiration time'.
-	Expiration int
+	// Expiration time for the item.
+	// Zero means the item has no expiration time.
+	Expiration time.Duration
 }
 
 type taskCGet struct {
@@ -544,7 +540,7 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 	n := -1
 
-	sizeStr, n := nextToken(line, n, "size")
+	sizeStr := nextToken(line, &n, "size")
 	if sizeStr == nil {
 		return false
 	}
@@ -552,22 +548,17 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
-	exptimeStr, n := nextToken(line, n, "exptime")
-	if exptimeStr == nil {
+	if t.item.Expiration, ok = parseExpirationToken(line, &n); !ok {
 		return false
 	}
-	t.item.Expiration, ok = parseInt(exptimeStr)
-	if !ok {
-		return false
-	}
-	etagStr, n := nextToken(line, n, "etag")
+	etagStr := nextToken(line, &n, "etag")
 	if etagStr == nil {
 		return false
 	}
 	if t.item.Etag, ok = parseUint64(etagStr); !ok {
 		return false
 	}
-	validateTtlStr, n := nextToken(line, n, "validateTtl")
+	validateTtlStr := nextToken(line, &n, "validateTtl")
 	if validateTtlStr == nil {
 		return false
 	}
@@ -685,7 +676,8 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]by
 	size := len(item.Value)
 	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
 		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, size, scratchBuf) {
+		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, size, scratchBuf) {
 		return false
 	}
 	if noreply {
@@ -727,7 +719,7 @@ type taskCSet struct {
 
 func writeCSetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
 	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
+		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, len(item.Value), scratchBuf) || !writeStr(w, strWs) ||
 		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, item.ValidateTtl, scratchBuf) {
@@ -891,24 +883,22 @@ func (c *Client) DeleteNowait(key []byte) {
 }
 
 type taskFlushAllDelayed struct {
-	exptime int
+	expiration time.Duration
 	taskSync
 }
 
 func (t *taskFlushAllDelayed) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeInt(w, t.exptime, scratchBuf) && writeStr(w, strCrLf)
+	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeStr(w, strCrLf)
 }
 
 func (t *taskFlushAllDelayed) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return matchStr(r, strOkCrLf)
 }
 
-// Flushes all the items on the server after the given delay in seconds.
-//
-// If exptime exceeds 30 days, then it is considered as an absolute unix time.
-func (c *Client) FlushAllDelayed(exptime int) error {
+// Flushes all the items on the server after the given expiration delay.
+func (c *Client) FlushAllDelayed(expiration time.Duration) error {
 	t := taskFlushAllDelayed{
-		exptime: exptime,
+		expiration: expiration,
 	}
 	t.Init()
 	if !c.do(&t) {
@@ -940,20 +930,20 @@ func (c *Client) FlushAll() error {
 }
 
 type taskFlushAllDelayedNowait struct {
-	exptime int
+	expiration time.Duration
 	taskNowait
 }
 
 func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeInt(w, t.exptime, scratchBuf) && writeStr(w, strWs) &&
+	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeStr(w, strWs) &&
 		writeStr(w, strNoreply) && writeStr(w, strCrLf)
 }
 
 // The same as Client.FlushAllDelayed(), but doesn't wait for operation
 // completion.
-func (c *Client) FlushAllDelayedNowait(exptime int) {
+func (c *Client) FlushAllDelayedNowait(expiration time.Duration) {
 	t := taskFlushAllDelayedNowait{
-		exptime: exptime,
+		expiration: expiration,
 	}
 	c.do(&t)
 }

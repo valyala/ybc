@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"strconv"
+	"time"
 )
 
 const (
@@ -17,6 +18,11 @@ const (
 
 	// see /proc/sys/net/core/wmem_default
 	defaultOSWriteBufferSize = 224 * 1024
+)
+
+const (
+	maxExpirationSeconds = 30 * 24 * 3600
+	maxExpiration        = time.Hour * 24 * 365
 )
 
 var (
@@ -109,13 +115,14 @@ func readLine(r *bufio.Reader, lineBuf *[]byte) bool {
 	return true
 }
 
-func nextToken(line []byte, first int, entity string) (s []byte, last int) {
+func nextToken(line []byte, n *int, entity string) []byte {
+	first := *n
 	first += 1
 	if first >= len(line) {
 		log.Printf("Cannot find entity=[%s] in line=[%s]: end of line", entity, line)
-		return
+		return nil
 	}
-	last = bytes.IndexByte(line[first:], ' ')
+	last := bytes.IndexByte(line[first:], ' ')
 	if last == -1 {
 		last = len(line)
 	} else {
@@ -123,10 +130,10 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	}
 	if first == last {
 		log.Printf("Cannot find entity=[%s] in line=[%s]: unexpected whitespace", entity, line)
-		return
+		return nil
 	}
-	s = line[first:last]
-	return
+	*n = last
+	return line[first:last]
 }
 
 func parseUint64(s []byte) (n uint64, ok bool) {
@@ -157,6 +164,35 @@ func parseInt(s []byte) (n int, ok bool) {
 	if err != nil {
 		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
 		ok = false
+		return
+	}
+	ok = true
+	return
+}
+
+func parseExpiration(s []byte) (expiration time.Duration, ok bool) {
+	t, ok := parseInt(s)
+	if !ok {
+		return
+	}
+	if t == 0 {
+		expiration = maxExpiration
+	} else if t > maxExpirationSeconds {
+		expiration = time.Unix(int64(t), 0).Sub(time.Now())
+	} else {
+		expiration = time.Second * time.Duration(t)
+	}
+	ok = true
+	return
+}
+
+func parseExpirationToken(line []byte, n *int) (expiration time.Duration, ok bool) {
+	ok = false
+	expirationStr := nextToken(line, n, "expiration")
+	if expirationStr == nil {
+		return
+	}
+	if expiration, ok = parseExpiration(expirationStr); !ok {
 		return
 	}
 	ok = true
@@ -197,4 +233,21 @@ func writeCrLf(w *bufio.Writer) bool {
 
 func writeNoreply(w *bufio.Writer) bool {
 	return writeStr(w, strWs) && writeStr(w, strNoreply)
+}
+
+func writeExpiration(w *bufio.Writer, expiration time.Duration, scratchBuf *[]byte) bool {
+	var t time.Duration
+	if expiration != 0 {
+		t = expiration / time.Second
+		if t <= 0 {
+			// Since parseExpiration() considers 0 as 'no expiration',
+			// set the expiration to negative value in order to mean
+			// 'expiration is over'.
+			t = -1
+		} else if t > time.Duration(maxExpirationSeconds) {
+			// 0 means 'no expiration'
+			t = 0
+		}
+	}
+	return writeInt(w, int(t), scratchBuf)
 }
