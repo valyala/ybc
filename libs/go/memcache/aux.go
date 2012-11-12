@@ -102,11 +102,9 @@ func readLine(r *bufio.Reader, lineBuf *[]byte) bool {
 		return true
 	}
 	lastN := len(line) - 1
-	if line[lastN] != '\r' {
-		log.Printf("Unexpected byte read=[%d]. Expected \\r", line[lastN])
-		return false
+	if line[lastN] == '\r' {
+		line = line[:lastN]
 	}
-	line = line[:lastN]
 	*lineBuf = line
 	return true
 }
