@@ -44,7 +44,7 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scratchBuf *[]byte) bool {
-	var flags int32
+	var flags uint32
 	if err := binary.Read(item, binary.LittleEndian, &flags); err != nil {
 		log.Printf("Cannot read flags from item with key=[%s]: [%s]", key, err)
 		return false
@@ -52,7 +52,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scr
 
 	size := item.Available()
 	if !writeStr(w, strValue) || !writeStr(w, key) || !writeStr(w, strWs) ||
-		!writeInt(w, int(flags), scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt64(w, int64(flags), scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
@@ -239,7 +239,7 @@ func expectNoreply(line []byte, n int) (nn int, ok bool) {
 	return
 }
 
-func parseSetCmd(line []byte) (key []byte, flags int32, exptime time.Duration, size int, noreply bool, ok bool) {
+func parseSetCmd(line []byte) (key []byte, flags uint32, exptime time.Duration, size int, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -250,11 +250,11 @@ func parseSetCmd(line []byte) (key []byte, flags int32, exptime time.Duration, s
 	if flagsStr == nil {
 		return
 	}
-	flagsTmp, ok := parseInt(flagsStr)
+	flagsTmp, ok := parseInt64(flagsStr)
 	if !ok {
 		return
 	}
-	flags = int32(flagsTmp)
+	flags = uint32(flagsTmp)
 	exptimeStr, n := nextToken(line, n, "exptime")
 	if exptimeStr == nil {
 		return
@@ -307,7 +307,7 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 	return writeStr(c.Writer, strStored) && writeCrLf(c.Writer)
 }
 
-func setToCache(cache ybc.Cacher, key []byte, flags int32, exptime time.Duration, size int) *ybc.SetTxn {
+func setToCache(cache ybc.Cacher, key []byte, flags uint32, exptime time.Duration, size int) *ybc.SetTxn {
 	size += binary.Size(&flags)
 	txn, err := cache.NewSetTxn(key, size, exptime)
 	if err != nil {

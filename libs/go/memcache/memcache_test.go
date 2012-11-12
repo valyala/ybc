@@ -109,7 +109,7 @@ func TestClient_GetSet(t *testing.T) {
 
 	key := []byte("key")
 	value := []byte("value")
-	flags := 12345
+	flags := uint32(12345)
 
 	item := Item{
 		Key: key,

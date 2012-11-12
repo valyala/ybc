@@ -76,10 +76,11 @@ type Item struct {
 
 	// Expiration time in seconds or in absolute unix time if
 	// exceeds 30 days.
+	// Zero means the item has no expiration time.
 	Expiration int
 
-	// Opaque value, which is passed to/from memcache
-	Flags int
+	// An opaque value, which is passed to/from memcache
+	Flags uint32
 }
 
 type tasker interface {
@@ -287,7 +288,7 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readValueResponse(line []byte) (key []byte, flags, size int, ok bool) {
+func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool) {
 	ok = false
 
 	if !bytes.HasPrefix(line, strValue) {
@@ -306,9 +307,11 @@ func readValueResponse(line []byte) (key []byte, flags, size int, ok bool) {
 	if flagsStr == nil {
 		return
 	}
-	if flags, ok = parseInt(flagsStr); !ok {
+	flagsTmp, ok := parseInt64(flagsStr)
+	if !ok {
 		return
 	}
+	flags = uint32(flagsTmp)
 	sizeStr, n := nextToken(line, n, "size")
 	if sizeStr == nil {
 		return
@@ -342,7 +345,7 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 	return
 }
 
-func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags int, value []byte, ok bool) {
+func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, value []byte, ok bool) {
 	var size int
 	key, flags, size, ok = readValueResponse(line)
 	if !ok {
@@ -664,7 +667,7 @@ type taskSet struct {
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
 	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeInt(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt64(w, int64(item.Flags), scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, size, scratchBuf) {
 		return false
 	}
