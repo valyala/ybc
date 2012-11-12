@@ -591,7 +591,7 @@ func (c *Client) CGet(item *Citem) error {
 
 type taskGetDe struct {
 	item          *Item
-	graceInterval time.Duration
+	graceDuration time.Duration
 	itemFound     bool
 	wouldBlock    bool
 	taskSync
@@ -599,7 +599,7 @@ type taskGetDe struct {
 
 func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
-		writeMilliseconds(w, t.graceInterval, scratchBuf) && writeCrLf(w))
+		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w))
 }
 
 func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -621,12 +621,12 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 //
 // Returns ErrCacheMiss on cache miss. It is expected that the caller
 // will create and store in the cache an item on cache miss during the given
-// grace interval.
-func (c *Client) GetDe(item *Item, graceInterval time.Duration) error {
+// graceDuration interval.
+func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
 	for {
 		t := taskGetDe{
 			item:          item,
-			graceInterval: graceInterval,
+			graceDuration: graceDuration,
 		}
 		t.Init()
 		if !c.do(&t) {

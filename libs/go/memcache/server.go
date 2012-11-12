@@ -92,7 +92,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	if key == nil {
 		return false
 	}
-	graceInterval, ok := parseMillisecondsToken(line, &n, "grace_interval")
+	graceDuration, ok := parseMillisecondsToken(line, &n, "graceDuration")
 	if !ok {
 		return false
 	}
@@ -100,7 +100,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 		return false
 	}
 
-	item, err := cache.GetDeAsyncItem(key, graceInterval)
+	item, err := cache.GetDeAsyncItem(key, graceDuration)
 	if err != nil {
 		if err == ybc.ErrWouldBlock {
 			return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
