@@ -1,0 +1,5 @@
+* Add support for multiple servers to the Client.
+* Implement consistent hashing on the client side.
+* Implement a client supporting local caching with efficient cache items'
+  re-validation based on Client.CSet() and Client.CGet().
+* Add more efficient binary communication protocol.
