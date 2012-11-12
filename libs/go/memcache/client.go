@@ -421,8 +421,8 @@ func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
 }
 
 type taskGet struct {
-	item      *Item
-	itemFound bool
+	item  *Item
+	found bool
 	taskSync
 }
 
@@ -455,7 +455,7 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
-	t.itemFound = !eof
+	t.found = !eof
 	return true
 }
 
@@ -471,7 +471,7 @@ func (c *Client) Get(item *Item) error {
 	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
-	if !t.itemFound {
+	if !t.found {
 		return ErrCacheMiss
 	}
 	return nil
@@ -496,9 +496,9 @@ type Citem struct {
 }
 
 type taskCGet struct {
-	item            *Citem
-	itemFound       bool
-	itemNotModified bool
+	item        *Citem
+	found       bool
+	notModified bool
 	taskSync
 }
 
@@ -513,13 +513,13 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	}
 	line := *scratchBuf
 	if bytes.Equal(line, strNotFound) {
-		t.itemFound = false
-		t.itemNotModified = false
+		t.found = false
+		t.notModified = false
 		return true
 	}
 	if bytes.Equal(line, strNotModified) {
-		t.itemFound = true
-		t.itemNotModified = true
+		t.found = true
+		t.notModified = true
 		return true
 	}
 	if !bytes.HasPrefix(line, strValue) {
@@ -549,8 +549,8 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if t.item.Value, ok = readValue(r, size); !ok {
 		return false
 	}
-	t.itemFound = true
-	t.itemNotModified = false
+	t.found = true
+	t.notModified = false
 	return true
 }
 
@@ -580,10 +580,10 @@ func (c *Client) CGet(item *Citem) error {
 	if !c.do(&t) {
 		return ErrCommunicationFailure
 	}
-	if t.itemNotModified {
+	if t.notModified {
 		return ErrNotModified
 	}
-	if !t.itemFound {
+	if !t.found {
 		return ErrCacheMiss
 	}
 	return nil
@@ -592,7 +592,7 @@ func (c *Client) CGet(item *Citem) error {
 type taskGetDe struct {
 	item          *Item
 	graceDuration time.Duration
-	itemFound     bool
+	found         bool
 	wouldBlock    bool
 	taskSync
 }
@@ -608,11 +608,11 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		return false
 	}
 	if wouldBlock {
-		t.itemFound = true
+		t.found = true
 		t.wouldBlock = true
 		return true
 	}
-	t.itemFound = !eof
+	t.found = !eof
 	t.wouldBlock = false
 	return true
 }
@@ -636,7 +636,7 @@ func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
 			time.Sleep(time.Millisecond * time.Duration(100))
 			continue
 		}
-		if !t.itemFound {
+		if !t.found {
 			return ErrCacheMiss
 		}
 		return nil
