@@ -174,6 +174,11 @@ func setNowait(buffersSize, osBuffersSize, maxPendingRequestsCount int, b *testi
 	for i := 0; i < b.N; i++ {
 		c.SetNowait(&item)
 	}
+
+	// this operation is required for waiting until all other operations are complete.
+	if err := c.Set(&item); err != nil {
+		b.Fatalf("Error in c.Set(): [%s]", err)
+	}
 }
 
 func BenchmarkClientServer_SetNowait_4KBuffers(b *testing.B) {
