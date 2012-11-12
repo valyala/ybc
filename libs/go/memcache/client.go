@@ -25,6 +25,9 @@ const (
 
 // Fast memcache client.
 //
+// The client is goroutine-safe. It is designed to work fast when hundreds
+// concurrent goroutines are calling simultaneously its' methods.
+//
 // The client works with a single memcached server.
 type Client struct {
 	// TCP address of memcached server to connect to.
