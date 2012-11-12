@@ -60,13 +60,13 @@ var (
 type Cacher interface {
 	Set(key []byte, value []byte, ttl time.Duration) error
 	Get(key []byte) (value []byte, err error)
-	GetDe(key []byte, graceTtl time.Duration) (value []byte, err error)
-	GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error)
+	GetDe(key []byte, graceDuration time.Duration) (value []byte, err error)
+	GetDeAsync(key []byte, graceDuration time.Duration) (value []byte, err error)
 	Delete(key []byte) bool
 	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
 	GetItem(key []byte) (item *Item, err error)
-	GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error)
-	GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error)
+	GetDeItem(key []byte, graceDuration time.Duration) (item *Item, err error)
+	GetDeAsyncItem(key []byte, graceDuration time.Duration) (item *Item, err error)
 	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
 	Clear()
 }
@@ -337,20 +337,20 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 }
 
 // Returns value associated with the given key from the cache using automatic
-// protection against dogpile effect during graceTtl interval.
+// protection against dogpile effect during graceDuration interval.
 //
-// graceTtl is the expected time required for creating the item if it is missing
-// in the cache, i.e. if GetDe() sets err to ErrCacheMiss.
+// graceDuration is the expected time required for creating the item if
+// it is missing in the cache, i.e. if GetDe() sets err to ErrCacheMiss.
 // If the caller found missing item with GetDe() call, it should try creating
-// the item and storing it into the cache during graceTtl interval.
+// the item and storing it into the cache during graceDuration interval.
 //
 // Since Cache.GetDe() is slower than Cache.Get(), use it only for items
 // vulnerable to dogpile effect.
 //
 // Do not use this method for obtaining big values from the cache such as video
 // files - use Cache.GetDeItem() instead.
-func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	item, err := cache.GetDeItem(key, graceTtl)
+func (cache *Cache) GetDe(key []byte, graceDuration time.Duration) (value []byte, err error) {
+	item, err := cache.GetDeItem(key, graceDuration)
 	if err != nil {
 		return
 	}
@@ -364,8 +364,8 @@ func (cache *Cache) GetDe(key []byte, graceTtl time.Duration) (value []byte, err
 //
 // Do not use this method for obtaining big values from the cache such as video
 // files - use Cache.GetDeAsyncItem() instead.
-func (cache *Cache) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	item, err := cache.GetDeAsyncItem(key, graceTtl)
+func (cache *Cache) GetDeAsync(key []byte, graceDuration time.Duration) (value []byte, err error) {
+	item, err := cache.GetDeAsyncItem(key, graceDuration)
 	if err != nil {
 		return
 	}
@@ -428,9 +428,9 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 //
 // Use this method instead of Cache.GetDe() for obtaining big values
 // from the cache such as video files.
-func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
+func (cache *Cache) GetDeItem(key []byte, graceDuration time.Duration) (item *Item, err error) {
 	for {
-		item, err = cache.GetDeAsyncItem(key, graceTtl)
+		item, err = cache.GetDeAsyncItem(key, graceDuration)
 		if err == ErrWouldBlock {
 			time.Sleep(time.Millisecond * 100)
 			continue
@@ -446,14 +446,14 @@ func (cache *Cache) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, e
 //
 // Use this method instead of Cache.GetDeAsync() for obtaining big values
 // from the cache such as video files.
-func (cache *Cache) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
+func (cache *Cache) GetDeAsyncItem(key []byte, graceDuration time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
-	if graceTtl < 0 {
-		graceTtl = 0
+	if graceDuration < 0 {
+		graceDuration = 0
 	}
 	item = acquireItem()
 	k := newKey(key)
-	mGraceTtl := C.uint64_t(graceTtl / time.Millisecond)
+	mGraceTtl := C.uint64_t(graceDuration / time.Millisecond)
 	switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
 	case C.YBC_DE_WOULDBLOCK:
 		releaseItem(item)
@@ -837,13 +837,13 @@ func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
 }
 
 // See Cache.GetDe()
-func (cluster *Cluster) GetDe(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	return cluster.cache(key).GetDe(key, graceTtl)
+func (cluster *Cluster) GetDe(key []byte, graceDuration time.Duration) (value []byte, err error) {
+	return cluster.cache(key).GetDe(key, graceDuration)
 }
 
 // See Cache.GetDeAsync()
-func (cluster *Cluster) GetDeAsync(key []byte, graceTtl time.Duration) (value []byte, err error) {
-	return cluster.cache(key).GetDeAsync(key, graceTtl)
+func (cluster *Cluster) GetDeAsync(key []byte, graceDuration time.Duration) (value []byte, err error) {
+	return cluster.cache(key).GetDeAsync(key, graceDuration)
 }
 
 // See Cache.Delete()
@@ -862,13 +862,13 @@ func (cluster *Cluster) GetItem(key []byte) (item *Item, err error) {
 }
 
 // See Cache.GetDeItem()
-func (cluster *Cluster) GetDeItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
-	return cluster.cache(key).GetDeItem(key, graceTtl)
+func (cluster *Cluster) GetDeItem(key []byte, graceDuration time.Duration) (item *Item, err error) {
+	return cluster.cache(key).GetDeItem(key, graceDuration)
 }
 
 // See Cache.GetDeAsyncItem()
-func (cluster *Cluster) GetDeAsyncItem(key []byte, graceTtl time.Duration) (item *Item, err error) {
-	return cluster.cache(key).GetDeAsyncItem(key, graceTtl)
+func (cluster *Cluster) GetDeAsyncItem(key []byte, graceDuration time.Duration) (item *Item, err error) {
+	return cluster.cache(key).GetDeAsyncItem(key, graceDuration)
 }
 
 // See Cache.NewSetTxn()
