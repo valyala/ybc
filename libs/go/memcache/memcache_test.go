@@ -180,38 +180,39 @@ func TestClient_CGetCSet(t *testing.T) {
 	value := []byte("value")
 	expiration := 123343
 
-	item := Item{
-		Key:        key,
-		Value:      value,
-		Expiration: expiration,
-	}
-	etag := int64(1234567890)
+	etag := uint64(1234567890)
 	validateTtl := 98765432
+	item := Citem{
+		Key:         key,
+		Value:       value,
+		Etag:        etag,
+		Expiration:  expiration,
+		ValidateTtl: validateTtl,
+	}
 
-	if _, err := c.CGet(&item, &etag); err != ErrCacheMiss {
+	if err := c.CGet(&item); err != ErrCacheMiss {
 		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrCacheMiss", err)
 	}
 
-	if err := c.CSet(&item, etag, validateTtl); err != nil {
+	if err := c.CSet(&item); err != nil {
 		t.Fatalf("Error in Client.CSet(): [%s]", err)
 	}
 
-	if _, err := c.CGet(&item, &etag); err != ErrNotModified {
+	if err := c.CGet(&item); err != ErrNotModified {
 		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
 	}
 
-	etagNew := int64(3234422289)
 	item.Value = nil
+	item.Etag = 3234898
 	item.Expiration = expiration + 10000
-	validateTtlNew, err := c.CGet(&item, &etagNew)
-	if err != nil {
+	if err := c.CGet(&item); err != nil {
 		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]", err)
 	}
-	if etagNew != etag {
-		t.Fatalf("Unexpected etag=[%d] returned from Client.CGet(). Expected [%d]", etagNew, etag)
+	if item.Etag != etag {
+		t.Fatalf("Unexpected etag=[%d] returned from Client.CGet(). Expected [%d]", item.Etag, etag)
 	}
-	if validateTtlNew != validateTtl {
-		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.CGet(). Expected [%d]", validateTtlNew, validateTtl)
+	if item.ValidateTtl != validateTtl {
+		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.CGet(). Expected [%d]", item.ValidateTtl, validateTtl)
 	}
 	if !bytes.Equal(item.Value, value) {
 		t.Fatalf("Unexpected value=[%s] returned from Client.CGet(). Expected [%d]", item.Value, value)
@@ -251,11 +252,10 @@ func checkItems(c *Client, orig_items []Item, t *testing.T) {
 	}
 }
 
-func checkCItems(c *Client, items []Item, etags []int64, validateTtls []int, t *testing.T) {
+func checkCItems(c *Client, items []Citem, t *testing.T) {
 	for i := 0; i < len(items); i++ {
 		item := items[i]
-		etag := etags[i]
-		_, err := c.CGet(&item, &etag)
+		err := c.CGet(&item)
 		if err == ErrCacheMiss {
 			continue
 		}
@@ -263,16 +263,15 @@ func checkCItems(c *Client, items []Item, etags []int64, validateTtls []int, t *
 			t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
 		}
 
-		etag++
-		validateTtl, err := c.CGet(&item, &etag)
-		if err != nil {
+		item.Etag++
+		if err := c.CGet(&item); err != nil {
 			t.Fatalf("Error when calling Client.CGet(): [%s]", err)
 		}
-		if etag != etags[i] {
-			t.Fatalf("Unexpected etag=%d returned. Expected %d", etag, etags[i])
+		if item.Etag != items[i].Etag {
+			t.Fatalf("Unexpected etag=%d returned. Expected %d", item.Etag, items[i].Etag)
 		}
-		if validateTtl != validateTtls[i] {
-			t.Fatalf("Unexpected validateTtl=%d returned. Expected %d", validateTtl, validateTtls[i])
+		if item.ValidateTtl != items[i].ValidateTtl {
+			t.Fatalf("Unexpected validateTtl=%d returned. Expected %d", item.ValidateTtl, items[i].ValidateTtl)
 		}
 		if !bytes.Equal(item.Value, items[i].Value) {
 			t.Fatalf("Unexpected value=[%s] returned. Expected [%s]", item.Value, items[i].Value)
@@ -331,19 +330,17 @@ func TestClient_CSetNowait(t *testing.T) {
 	defer c.Stop()
 
 	itemsCount := 1000
-	items := make([]Item, itemsCount)
-	etags := make([]int64, itemsCount)
-	validateTtls := make([]int, itemsCount)
+	items := make([]Citem, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &items[i]
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
-		etags[i] = int64(i)
-		validateTtls[i] = i
-		c.CSetNowait(item, etags[i], validateTtls[i])
+		item.Etag = uint64(i)
+		item.ValidateTtl = i
+		c.CSetNowait(item)
 	}
 
-	checkCItems(c, items, etags, validateTtls, t)
+	checkCItems(c, items, t)
 }
 
 func TestClient_Delete(t *testing.T) {

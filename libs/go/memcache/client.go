@@ -307,11 +307,9 @@ func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool
 	if flagsStr == nil {
 		return
 	}
-	flagsTmp, ok := parseInt64(flagsStr)
-	if !ok {
+	if flags, ok = parseUint32(flagsStr); !ok {
 		return
 	}
-	flags = uint32(flagsTmp)
 	sizeStr, n := nextToken(line, n, "size")
 	if sizeStr == nil {
 		return
@@ -491,10 +489,28 @@ func (c *Client) Get(item *Item) error {
 	return nil
 }
 
+// The item for 'conditional set/get' requests - Client.CGet(), Client.CSet(),
+// Client.CSetNowait().
+type Citem struct {
+	Key   []byte
+	Value []byte
+
+	// Etag should uniquely identify the given item.
+	Etag uint64
+
+	// Validation time in milliseconds. After this period of time the item
+	// cannot be returned to the caller without re-validation
+	// via Client.CGet().
+	ValidateTtl int
+
+	// Expiration time in seconds. If it exceeds 30 days, it is interpreted
+	// as an absolute unix time.
+	// Zero means 'no expiration time'.
+	Expiration int
+}
+
 type taskCGet struct {
-	item            *Item
-	etag            *int64
-	validateTtl     int
+	item            *Citem
 	itemFound       bool
 	itemNotModified bool
 	taskSync
@@ -502,7 +518,7 @@ type taskCGet struct {
 
 func (t *taskCGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return (writeStr(w, strCGet) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
-		writeInt64(w, *t.etag, scratchBuf) && writeCrLf(w))
+		writeUint64(w, t.item.Etag, scratchBuf) && writeCrLf(w))
 }
 
 func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -548,14 +564,14 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if etagStr == nil {
 		return false
 	}
-	if *t.etag, ok = parseInt64(etagStr); !ok {
+	if t.item.Etag, ok = parseUint64(etagStr); !ok {
 		return false
 	}
 	validateTtlStr, n := nextToken(line, n, "validateTtl")
 	if validateTtlStr == nil {
 		return false
 	}
-	if t.validateTtl, ok = parseInt(validateTtlStr); !ok {
+	if t.item.ValidateTtl, ok = parseInt(validateTtlStr); !ok {
 		return false
 	}
 	if !expectEof(line, n) {
@@ -569,38 +585,39 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
-// Performs conditional get request for the given item.Key and etag.
+// Performs conditional get request for the given item.Key and item.Etag.
 //
-// Fills item.Value, item.Expiration, etag and returns validateTtl only
-// on cache hit and only if the given etag doesn't match etag on the server,
-// i.e. if the server contains new item.
+// Conditional get requests must be performed only on items stored in the cache
+// via Client.CSet(). The method returns garbage for items stored via other
+// mechanisms.
+//
+// Fills item.Value, item.Expiration, item.Etag and item.ValidateTtl only
+// on cache hit and only if the given etag doesn't match the etag on the server,
+// i.e. if the server contains new value under the given key.
 //
 // Returns ErrCacheMiss on cache miss.
 // Returns ErrNotModified if the corresponding item on the server has
 // the same etag.
 //
 // Client.CSet() and Client.CGet() are intended for reducing network bandwidth
-// consumption in multi-level caches.
-func (c *Client) CGet(item *Item, etag *int64) (validateTtl int, err error) {
+// consumption in multi-level caches. They are modelled after HTTP cache
+// validation approach with entyty tags -
+// see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
+func (c *Client) CGet(item *Citem) error {
 	t := taskCGet{
 		item: item,
-		etag: etag,
 	}
 	t.Init()
 	if !c.do(&t) {
-		err = ErrCommunicationFailure
-		return
+		return ErrCommunicationFailure
 	}
 	if t.itemNotModified {
-		err = ErrNotModified
-		return
+		return ErrNotModified
 	}
 	if !t.itemFound {
-		err = ErrCacheMiss
-		return
+		return ErrCacheMiss
 	}
-	validateTtl = t.validateTtl
-	return
+	return nil
 }
 
 type taskGetDe struct {
@@ -667,7 +684,7 @@ type taskSet struct {
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
 	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeInt64(w, int64(item.Flags), scratchBuf) || !writeStr(w, strWs) ||
+		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, size, scratchBuf) {
 		return false
 	}
@@ -704,18 +721,16 @@ func (c *Client) Set(item *Item) error {
 }
 
 type taskCSet struct {
-	item        *Item
-	etag        int64
-	validateTtl int
+	item *Citem
 	taskSync
 }
 
-func writeCSetRequest(w *bufio.Writer, item *Item, etag int64, validateTtl int, noreply bool, scratchBuf *[]byte) bool {
+func writeCSetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
 	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, len(item.Value), scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt64(w, etag, scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt(w, validateTtl, scratchBuf) {
+		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, item.ValidateTtl, scratchBuf) {
 		return false
 	}
 	if noreply {
@@ -727,28 +742,26 @@ func writeCSetRequest(w *bufio.Writer, item *Item, etag int64, validateTtl int, 
 }
 
 func (t *taskCSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCSetRequest(w, t.item, t.etag, t.validateTtl, false, scratchBuf)
+	return writeCSetRequest(w, t.item, false, scratchBuf)
 }
 
 func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return readSetResponse(r)
 }
 
-// Performs conditional set for the given item with the given etag
-// and validateTtl.
+// Performs conditional set for the given item.
 //
-// Etag is used by Client.CGet() for determining whether item with the given
-// key is modified and should be returned to the client.
-//
-// validateTtl is an opaque value, which is returned by Client.CGet().
+// Items stored via this method must be obtained only via Client.CGet() call!
+// Calls to other methods such as Client.Get() will return garbage
+// for item's key.
 //
 // Client.CSet() and Client.CGet() are intended for reducing network bandwidth
-// consumption in multi-level caches.
-func (c *Client) CSet(item *Item, etag int64, validateTtl int) error {
+// consumption in multi-level caches. They are modelled after HTTP cache
+// validation approach with entyty tags -
+// see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
+func (c *Client) CSet(item *Citem) error {
 	t := taskCSet{
-		item:        item,
-		etag:        etag,
-		validateTtl: validateTtl,
+		item: item,
 	}
 	t.Init()
 	if !c.do(&t) {
@@ -787,22 +800,18 @@ func (c *Client) SetNowait(item *Item) {
 }
 
 type taskCSetNowait struct {
-	item        Item
-	etag        int64
-	validateTtl int
+	item Citem
 	taskNowait
 }
 
 func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCSetRequest(w, &t.item, t.etag, t.validateTtl, true, scratchBuf)
+	return writeCSetRequest(w, &t.item, true, scratchBuf)
 }
 
 // The same as Client.CSet(), but doesn't wait for operation completion.
-func (c *Client) CSetNowait(item *Item, etag int64, validateTtl int) {
+func (c *Client) CSetNowait(item *Citem) {
 	t := taskCSetNowait{
-		item:        *item,
-		etag:        etag,
-		validateTtl: validateTtl,
+		item: *item,
 	}
 	c.do(&t)
 }

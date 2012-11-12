@@ -129,10 +129,10 @@ func nextToken(line []byte, first int, entity string) (s []byte, last int) {
 	return
 }
 
-func parseInt64(s []byte) (n int64, ok bool) {
-	n, err := strconv.ParseInt(string(s), 10, 64)
+func parseUint64(s []byte) (n uint64, ok bool) {
+	n, err := strconv.ParseUint(string(s), 10, 64)
 	if err != nil {
-		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
+		log.Printf("Cannot convert n=[%s] to 64-bit integer: [%s]", s, err)
 		ok = false
 		return
 	}
@@ -140,9 +140,26 @@ func parseInt64(s []byte) (n int64, ok bool) {
 	return
 }
 
+func parseUint32(s []byte) (n uint32, ok bool) {
+	nn, err := strconv.ParseUint(string(s), 10, 32)
+	if err != nil {
+		log.Printf("Cannot convert n=[%s] to 32-bit integer: [%s]", s, err)
+		ok = false
+		return
+	}
+	n = uint32(nn)
+	ok = true
+	return
+}
+
 func parseInt(s []byte) (n int, ok bool) {
-	nn, ok := parseInt64(s)
-	n = int(nn)
+	n, err := strconv.Atoi(string(s))
+	if err != nil {
+		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
+		ok = false
+		return
+	}
+	ok = true
 	return
 }
 
@@ -154,16 +171,24 @@ func writeStr(w *bufio.Writer, s []byte) bool {
 	return true
 }
 
-func writeInt64(w *bufio.Writer, n int64, scratchBuf *[]byte) bool {
+func writeUint64(w *bufio.Writer, n uint64, scratchBuf *[]byte) bool {
 	buf := *scratchBuf
 	buf = buf[0:0]
-	buf = strconv.AppendInt(buf, n, 10)
+	buf = strconv.AppendUint(buf, n, 10)
 	*scratchBuf = buf
 	return writeStr(w, buf)
 }
 
+func writeUint32(w *bufio.Writer, n uint32, scratchBuf *[]byte) bool {
+	return writeUint64(w, uint64(n), scratchBuf)
+}
+
 func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
-	return writeInt64(w, int64(n), scratchBuf)
+	buf := *scratchBuf
+	buf = buf[0:0]
+	buf = strconv.AppendInt(buf, int64(n), 10)
+	*scratchBuf = buf
+	return writeStr(w, buf)
 }
 
 func writeCrLf(w *bufio.Writer) bool {

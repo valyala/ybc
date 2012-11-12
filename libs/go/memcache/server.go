@@ -52,7 +52,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scr
 
 	size := item.Available()
 	if !writeStr(w, strValue) || !writeStr(w, key) || !writeStr(w, strWs) ||
-		!writeInt64(w, int64(flags), scratchBuf) || !writeStr(w, strWs) ||
+		!writeUint32(w, flags, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
@@ -145,7 +145,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	return writeGetResponse(c.Writer, key, item, false, scratchBuf) && writeEndCrLf(c.Writer)
 }
 
-func writeCGetResponse(w *bufio.Writer, etag int64, validateTtl int, item *ybc.Item, scratchBuf *[]byte) bool {
+func writeCGetResponse(w *bufio.Writer, etag uint64, validateTtl int, item *ybc.Item, scratchBuf *[]byte) bool {
 	size := item.Available()
 	exptime := item.Ttl() / time.Second
 	if exptime >= (1 << 31) {
@@ -153,12 +153,12 @@ func writeCGetResponse(w *bufio.Writer, etag int64, validateTtl int, item *ybc.I
 	}
 	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeStr(w, strWs) &&
 		writeInt(w, int(exptime), scratchBuf) && writeStr(w, strWs) &&
-		writeInt64(w, etag, scratchBuf) && writeStr(w, strWs) &&
+		writeUint64(w, etag, scratchBuf) && writeStr(w, strWs) &&
 		writeInt(w, validateTtl, scratchBuf) && writeStr(w, strCrLf) &&
 		writeItem(w, item, size)
 }
 
-func cGetFromCache(cache ybc.Cacher, key []byte, etag *int64) (item *ybc.Item, validateTtl int, err error) {
+func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, validateTtl int, err error) {
 	item, err = cache.GetItem(key)
 	if err == ybc.ErrCacheMiss {
 		return
@@ -202,7 +202,7 @@ func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if etagStr == nil {
 		return false
 	}
-	etag, ok := parseInt64(etagStr)
+	etag, ok := parseUint64(etagStr)
 	if !ok {
 		return false
 	}
@@ -250,11 +250,9 @@ func parseSetCmd(line []byte) (key []byte, flags uint32, exptime time.Duration, 
 	if flagsStr == nil {
 		return
 	}
-	flagsTmp, ok := parseInt64(flagsStr)
-	if !ok {
+	if flags, ok = parseUint32(flagsStr); !ok {
 		return
 	}
-	flags = uint32(flagsTmp)
 	exptimeStr, n := nextToken(line, n, "exptime")
 	if exptimeStr == nil {
 		return
@@ -342,7 +340,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	return readValueAndWriteResponse(c, txn, size, noreply)
 }
 
-func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, etag int64, validateTtl int, noreply bool, ok bool) {
+func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, etag uint64, validateTtl int, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -367,7 +365,7 @@ func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, eta
 	if etagStr == nil {
 		return
 	}
-	if etag, ok = parseInt64(etagStr); !ok {
+	if etag, ok = parseUint64(etagStr); !ok {
 		return
 	}
 	validateTtlStr, n := nextToken(line, n, "validateTtl")
@@ -394,7 +392,7 @@ func parseCSetCmd(line []byte) (key []byte, exptime time.Duration, size int, eta
 	return
 }
 
-func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, etag int64, validateTtl int) *ybc.SetTxn {
+func cSetToCache(cache ybc.Cacher, key []byte, exptime time.Duration, size int, etag uint64, validateTtl int) *ybc.SetTxn {
 	validateTtl32 := int32(validateTtl)
 	size += binary.Size(&etag) + binary.Size(&validateTtl32)
 	txn, err := cache.NewSetTxn(key, size, exptime)
