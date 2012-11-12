@@ -35,7 +35,7 @@ func main() {
 	if syncInterval_ <= 0 {
 		syncInterval_ = ybc.ConfigDisableSync
 	}
-	config := &ybc.Config{
+	config := ybc.Config{
 		MaxItemsCount:   ybc.SizeT(*maxItemsCount),
 		DataFileSize:    ybc.SizeT(*cacheSize),
 		HotItemsCount:   ybc.SizeT(*hotItemsCount),
@@ -55,7 +55,7 @@ func main() {
 	}
 	defer cache.Close()
 
-	s := &memcache.Server{
+	s := memcache.Server{
 		Cache:             cache,
 		ListenAddr:        *listenAddr,
 		ReadBufferSize:    *readBufferSize,
