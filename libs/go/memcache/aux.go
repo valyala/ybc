@@ -23,6 +23,7 @@ const (
 const (
 	maxExpirationSeconds = 30 * 24 * 3600
 	maxExpiration        = time.Hour * 24 * 365
+	maxMilliseconds      = 1 << 31
 )
 
 var (
@@ -186,16 +187,57 @@ func parseExpiration(s []byte) (expiration time.Duration, ok bool) {
 	return
 }
 
+func parseFlagsToken(line []byte, n *int) (flags uint32, ok bool) {
+	flagsStr := nextToken(line, n, "flags")
+	if flagsStr == nil {
+		ok = false
+		return
+	}
+	flags, ok = parseUint32(flagsStr)
+	return
+}
+
+func parseSizeToken(line []byte, n *int) (size int, ok bool) {
+	sizeStr := nextToken(line, n, "size")
+	if sizeStr == nil {
+		ok = false
+		return
+	}
+	size, ok = parseInt(sizeStr)
+	return
+}
+
 func parseExpirationToken(line []byte, n *int) (expiration time.Duration, ok bool) {
-	ok = false
 	expirationStr := nextToken(line, n, "expiration")
 	if expirationStr == nil {
+		ok = false
 		return
 	}
-	if expiration, ok = parseExpiration(expirationStr); !ok {
+	expiration, ok = parseExpiration(expirationStr)
+	return
+}
+
+func parseEtagToken(line []byte, n *int) (etag uint64, ok bool) {
+	etagStr := nextToken(line, n, "etag")
+	if etagStr == nil {
+		ok = false
 		return
 	}
-	ok = true
+	etag, ok = parseUint64(etagStr)
+	return
+}
+
+func parseMillisecondsToken(line []byte, n *int, tokenName string) (duration time.Duration, ok bool) {
+	s := nextToken(line, n, tokenName)
+	if s == nil {
+		ok = false
+		return
+	}
+	t, ok := parseUint32(s)
+	if !ok {
+		return
+	}
+	duration = time.Millisecond * time.Duration(t)
 	return
 }
 
@@ -250,4 +292,14 @@ func writeExpiration(w *bufio.Writer, expiration time.Duration, scratchBuf *[]by
 		}
 	}
 	return writeInt(w, int(t), scratchBuf)
+}
+
+func writeMilliseconds(w *bufio.Writer, duration time.Duration, scratchBuf *[]byte) bool {
+	t := duration / time.Millisecond
+	if t < 0 {
+		t = 0
+	} else if t >= time.Duration(maxMilliseconds) {
+		t = maxMilliseconds
+	}
+	return writeUint32(w, uint32(t), scratchBuf)
 }

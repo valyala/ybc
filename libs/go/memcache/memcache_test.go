@@ -181,7 +181,7 @@ func TestClient_CGetCSet(t *testing.T) {
 	expiration := time.Hour * 123343
 
 	etag := uint64(1234567890)
-	validateTtl := 98765432
+	validateTtl := time.Millisecond * 98765432
 	item := Citem{
 		Key:         key,
 		Value:       value,
@@ -336,7 +336,7 @@ func TestClient_CSetNowait(t *testing.T) {
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
 		item.Etag = uint64(i)
-		item.ValidateTtl = i
+		item.ValidateTtl = time.Second * time.Duration(i)
 		c.CSetNowait(item)
 	}
 

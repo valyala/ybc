@@ -301,21 +301,12 @@ func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool
 	if key = nextToken(line, &n, "key"); key == nil {
 		return
 	}
-	flagsStr := nextToken(line, &n, "flags")
-	if flagsStr == nil {
+	if flags, ok = parseFlagsToken(line, &n); !ok {
 		return
 	}
-	if flags, ok = parseUint32(flagsStr); !ok {
+	if size, ok = parseSizeToken(line, &n); !ok {
 		return
 	}
-	sizeStr := nextToken(line, &n, "size")
-	if sizeStr == nil {
-		return
-	}
-	if size, ok = parseInt(sizeStr); !ok {
-		return
-	}
-
 	if n == len(line) {
 		return
 	}
@@ -495,10 +486,9 @@ type Citem struct {
 	// Etag should uniquely identify the given item.
 	Etag uint64
 
-	// Validation time in milliseconds. After this period of time the item
-	// cannot be returned to the caller without re-validation
-	// via Client.CGet().
-	ValidateTtl int
+	// Validation time. After this period of time the item cannot
+	// be returned to the caller without re-validation via Client.CGet().
+	ValidateTtl time.Duration
 
 	// Expiration time for the item.
 	// Zero means the item has no expiration time.
@@ -540,29 +530,17 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 	n := -1
 
-	sizeStr := nextToken(line, &n, "size")
-	if sizeStr == nil {
-		return false
-	}
-	size, ok := parseInt(sizeStr)
+	size, ok := parseSizeToken(line, &n)
 	if !ok {
 		return false
 	}
 	if t.item.Expiration, ok = parseExpirationToken(line, &n); !ok {
 		return false
 	}
-	etagStr := nextToken(line, &n, "etag")
-	if etagStr == nil {
+	if t.item.Etag, ok = parseEtagToken(line, &n); !ok {
 		return false
 	}
-	if t.item.Etag, ok = parseUint64(etagStr); !ok {
-		return false
-	}
-	validateTtlStr := nextToken(line, &n, "validateTtl")
-	if validateTtlStr == nil {
-		return false
-	}
-	if t.item.ValidateTtl, ok = parseInt(validateTtlStr); !ok {
+	if t.item.ValidateTtl, ok = parseMillisecondsToken(line, &n, "validateTtl"); !ok {
 		return false
 	}
 	if !expectEof(line, n) {
@@ -612,17 +590,16 @@ func (c *Client) CGet(item *Citem) error {
 }
 
 type taskGetDe struct {
-	item       *Item
-	grace      time.Duration
-	itemFound  bool
-	wouldBlock bool
+	item          *Item
+	graceInterval time.Duration
+	itemFound     bool
+	wouldBlock    bool
 	taskSync
 }
 
 func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	graceMilliseconds := int(t.grace / time.Millisecond)
 	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
-		writeInt(w, graceMilliseconds, scratchBuf) && writeCrLf(w))
+		writeMilliseconds(w, t.graceInterval, scratchBuf) && writeCrLf(w))
 }
 
 func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -645,11 +622,11 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // Returns ErrCacheMiss on cache miss. It is expected that the caller
 // will create and store in the cache an item on cache miss during the given
 // grace interval.
-func (c *Client) GetDe(item *Item, grace time.Duration) error {
+func (c *Client) GetDe(item *Item, graceInterval time.Duration) error {
 	for {
 		t := taskGetDe{
-			item:  item,
-			grace: grace,
+			item:          item,
+			graceInterval: graceInterval,
 		}
 		t.Init()
 		if !c.do(&t) {
@@ -718,11 +695,12 @@ type taskCSet struct {
 }
 
 func writeCSetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
+	size := len(item.Value)
 	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
 		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt(w, len(item.Value), scratchBuf) || !writeStr(w, strWs) ||
+		!writeInt(w, size, scratchBuf) || !writeStr(w, strWs) ||
 		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
-		!writeInt(w, item.ValidateTtl, scratchBuf) {
+		!writeMilliseconds(w, item.ValidateTtl, scratchBuf) {
 		return false
 	}
 	if noreply {

@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -93,26 +92,15 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	if key == nil {
 		return false
 	}
-	graceStr := nextToken(line, &n, "grace")
-	if graceStr == nil {
+	graceInterval, ok := parseMillisecondsToken(line, &n, "grace_interval")
+	if !ok {
 		return false
 	}
-	graceInt, err := strconv.Atoi(string(graceStr))
-	if err != nil {
-		log.Printf("Cannot parse grace=[%s] in 'getde' request for the key=[%s]: [%s]", graceStr, key, err)
-		return false
-	}
-	if graceInt <= 0 {
-		log.Printf("grace=[%d] cannot be negative or zero", graceInt)
-		return false
-	}
-	grace := time.Millisecond * time.Duration(graceInt)
-
 	if !expectEof(line, n) {
 		return false
 	}
 
-	item, err := cache.GetDeAsyncItem(key, grace)
+	item, err := cache.GetDeAsyncItem(key, graceInterval)
 	if err != nil {
 		if err == ybc.ErrWouldBlock {
 			return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
@@ -127,17 +115,17 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	return writeGetResponse(c.Writer, key, item, false, scratchBuf) && writeEndCrLf(c.Writer)
 }
 
-func writeCGetResponse(w *bufio.Writer, etag uint64, validateTtl int, item *ybc.Item, scratchBuf *[]byte) bool {
+func writeCGetResponse(w *bufio.Writer, etag uint64, validateTtl time.Duration, item *ybc.Item, scratchBuf *[]byte) bool {
 	size := item.Available()
 	expiration := item.Ttl()
 	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeStr(w, strWs) &&
 		writeExpiration(w, expiration, scratchBuf) && writeStr(w, strWs) &&
 		writeUint64(w, etag, scratchBuf) && writeStr(w, strWs) &&
-		writeInt(w, validateTtl, scratchBuf) && writeStr(w, strCrLf) &&
+		writeMilliseconds(w, validateTtl, scratchBuf) && writeStr(w, strCrLf) &&
 		writeItem(w, item, size)
 }
 
-func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, validateTtl int, err error) {
+func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, validateTtl time.Duration, err error) {
 	item, err = cache.GetItem(key)
 	if err == ybc.ErrCacheMiss {
 		return
@@ -166,7 +154,7 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 		log.Printf("Cannot read validateTtl from item with key=[%s]: [%s]", key, err)
 		return
 	}
-	validateTtl = int(validateTtl32)
+	validateTtl = time.Millisecond * time.Duration(validateTtl32)
 	return
 }
 
@@ -177,11 +165,7 @@ func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if key == nil {
 		return false
 	}
-	etagStr := nextToken(line, &n, "etag")
-	if etagStr == nil {
-		return false
-	}
-	etag, ok := parseUint64(etagStr)
+	etag, ok := parseEtagToken(line, &n)
 	if !ok {
 		return false
 	}
@@ -220,21 +204,13 @@ func parseSetCmd(line []byte) (key []byte, flags uint32, expiration time.Duratio
 	if key = nextToken(line, &n, "key"); key == nil {
 		return
 	}
-	flagsStr := nextToken(line, &n, "flags")
-	if flagsStr == nil {
-		return
-	}
-	if flags, ok = parseUint32(flagsStr); !ok {
+	if flags, ok = parseFlagsToken(line, &n); !ok {
 		return
 	}
 	if expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	sizeStr := nextToken(line, &n, "size")
-	if sizeStr == nil {
-		return
-	}
-	if size, ok = parseInt(sizeStr); !ok {
+	if size, ok = parseSizeToken(line, &n); !ok {
 		return
 	}
 
@@ -310,7 +286,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	return readValueAndWriteResponse(c, txn, size, noreply)
 }
 
-func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, etag uint64, validateTtl int, noreply bool, ok bool) {
+func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, etag uint64, validateTtl time.Duration, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -320,25 +296,13 @@ func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, 
 	if expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	sizeStr := nextToken(line, &n, "size")
-	if sizeStr == nil {
+	if size, ok = parseSizeToken(line, &n); !ok {
 		return
 	}
-	if size, ok = parseInt(sizeStr); !ok {
+	if etag, ok = parseEtagToken(line, &n); !ok {
 		return
 	}
-	etagStr := nextToken(line, &n, "etag")
-	if etagStr == nil {
-		return
-	}
-	if etag, ok = parseUint64(etagStr); !ok {
-		return
-	}
-	validateTtlStr := nextToken(line, &n, "validateTtl")
-	if validateTtlStr == nil {
-		return
-	}
-	if validateTtl, ok = parseInt(validateTtlStr); !ok {
+	if validateTtl, ok = parseMillisecondsToken(line, &n, "validateTtl"); !ok {
 		return
 	}
 
@@ -358,8 +322,8 @@ func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, 
 	return
 }
 
-func cSetToCache(cache ybc.Cacher, key []byte, expiration time.Duration, size int, etag uint64, validateTtl int) *ybc.SetTxn {
-	validateTtl32 := int32(validateTtl)
+func cSetToCache(cache ybc.Cacher, key []byte, expiration time.Duration, size int, etag uint64, validateTtl time.Duration) *ybc.SetTxn {
+	validateTtl32 := int32(validateTtl / time.Millisecond)
 	size += binary.Size(&etag) + binary.Size(&validateTtl32)
 	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
