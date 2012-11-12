@@ -39,8 +39,7 @@ var (
 	strValue       = []byte("VALUE ")
 	strWouldBlock  = []byte("WB")
 	strWs          = []byte(" ")
-	strZero        = []byte(" 0 ")
-	strZeroCrLf    = []byte(" 0\r\n")
+	strZero        = []byte("0")
 )
 
 func expectEof(line []byte, n int) bool {

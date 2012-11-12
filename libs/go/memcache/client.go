@@ -663,7 +663,8 @@ type taskSet struct {
 
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strZero) ||
+	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
+		!writeStr(w, strZero) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, size, scratchBuf) {
 		return false
 	}
