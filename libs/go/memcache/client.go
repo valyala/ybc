@@ -77,6 +77,9 @@ type Item struct {
 	// Expiration time in seconds or in absolute unix time if
 	// exceeds 30 days.
 	Expiration int
+
+	// Opaque value, which is passed to/from memcache
+	Flags int
 }
 
 type tasker interface {
@@ -284,7 +287,7 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readValueResponse(line []byte) (key []byte, size int, ok bool) {
+func readValueResponse(line []byte) (key []byte, flags, size int, ok bool) {
 	ok = false
 
 	if !bytes.HasPrefix(line, strValue) {
@@ -299,8 +302,11 @@ func readValueResponse(line []byte) (key []byte, size int, ok bool) {
 	if key == nil {
 		return
 	}
-	flagsUnused, n := nextToken(line, n, "flags")
-	if flagsUnused == nil {
+	flagsStr, n := nextToken(line, n, "flags")
+	if flagsStr == nil {
+		return
+	}
+	if flags, ok = parseInt(flagsStr); !ok {
 		return
 	}
 	sizeStr, n := nextToken(line, n, "size")
@@ -336,9 +342,9 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 	return
 }
 
-func readKeyValue(r *bufio.Reader, line []byte) (key []byte, value []byte, ok bool) {
+func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags int, value []byte, ok bool) {
 	var size int
-	key, size, ok = readValueResponse(line)
+	key, flags, size, ok = readValueResponse(line)
 	if !ok {
 		return
 	}
@@ -364,14 +370,7 @@ func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof boo
 		return
 	}
 
-	var key, value []byte
-	key, value, ok = readKeyValue(r, line)
-	if !ok {
-		return
-	}
-
-	item.Key = key
-	item.Value = value
+	item.Key, item.Flags, item.Value, ok = readKeyValue(r, line)
 	return
 }
 
@@ -414,7 +413,7 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Obtains multiple items associated with the given keys.
 //
-// Sets Item.Key and Item.Value for each returned item.
+// Sets Item.Key, Item.Value and Item.Flags for each returned item.
 //
 // The number of returned items may be smaller than the number of keys,
 // because certain items may be missing in the memcache server.
@@ -471,7 +470,8 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
-// Obtains value (item.Value) for the given key (item.Key) from memcache server.
+// Obtains value (item.Value) and flags (item.Flags) for the given key
+// (item.Key) from memcache server.
 //
 // Returns ErrCacheMiss on cache miss.
 func (c *Client) Get(item *Item) error {
@@ -664,7 +664,7 @@ type taskSet struct {
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
 	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeStr(w, strZero) || !writeStr(w, strWs) ||
+		!writeInt(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) || !writeInt(w, size, scratchBuf) {
 		return false
 	}

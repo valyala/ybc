@@ -109,6 +109,7 @@ func TestClient_GetSet(t *testing.T) {
 
 	key := []byte("key")
 	value := []byte("value")
+	flags := 12345
 
 	item := Item{
 		Key: key,
@@ -118,15 +119,20 @@ func TestClient_GetSet(t *testing.T) {
 	}
 
 	item.Value = value
+	item.Flags = flags
 	if err := c.Set(&item); err != nil {
 		t.Fatalf("error in client.Set(): [%s]", err)
 	}
 	item.Value = nil
+	item.Flags = 0
 	if err := c.Get(&item); err != nil {
 		t.Fatalf("cannot obtain value for key=[%s] from memcache: [%s]", key, err)
 	}
 	if !bytes.Equal(item.Value, value) {
 		t.Fatalf("invalid value=[%s] returned. Expected [%s]", item.Value, value)
+	}
+	if item.Flags != flags {
+		t.Fatalf("invalid flags=[%d] returned. Expected [%d]", item.Flags, flags)
 	}
 }
 
