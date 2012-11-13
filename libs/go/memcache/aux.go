@@ -54,7 +54,6 @@ func validateKey(key []byte) bool {
 	// validate it instead.
 	for _, ch := range key {
 		if ch == ' ' || ch == '\n' {
-			log.Printf("Key=[%s] cannot contain whitespace and \\n chars", key)
 			return false
 		}
 	}
