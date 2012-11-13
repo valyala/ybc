@@ -417,8 +417,8 @@ YBC_API size_t ybc_set_txn_get_size(void);
  * Starts 'set' transaction for the given key and value of the given size.
  *
  * Allocates space in the cache for storing an item (key + value) and sets
- * the given ttl for the item. Set ttl to YBC_MAX_TTL for items without
- * expiration time.
+ * the given ttl in milliseconds for the item. Set ttl to YBC_MAX_TTL
+ * for items without expiration time.
  *
  * The caller is responsible for filling up value_size bytes returned
  * by ybc_set_txn_get_value() before commiting the transaction.
