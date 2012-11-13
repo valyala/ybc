@@ -470,3 +470,43 @@ func TestClient_FlushAllDelayed(t *testing.T) {
 		}
 	}
 }
+
+func checkMalformedKey(c *Client, key string, t *testing.T) {
+	item := Item{
+		Key: []byte(key),
+	}
+	if err := c.Get(&item); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+	if err := c.GetDe(&item, time.Second); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+	if err := c.Set(&item); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+	if err := c.Delete(item.Key); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+
+	citem := Citem{
+		Key: item.Key,
+	}
+	if err := c.CGet(&citem); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+	if err := c.CSet(&citem); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+}
+
+func TestClient_MalformedKey(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	c.Start()
+	defer c.Stop()
+
+	checkMalformedKey(c, "malformed key with spaces", t)
+	checkMalformedKey(c, "malformed\nkey\nwith\nnewlines", t)
+}

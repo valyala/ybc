@@ -49,6 +49,18 @@ var (
 	strZero        = []byte("0")
 )
 
+func validateKey(key []byte) bool {
+	// Do not check for key length - let servers with key length limit
+	// validate it instead.
+	for _, ch := range key {
+		if ch == ' ' || ch == '\n' {
+			log.Printf("Key=[%s] cannot contain whitespace and \\n chars", key)
+			return false
+		}
+	}
+	return true
+}
+
 func expectEof(line []byte, n int) bool {
 	if len(line) != n {
 		log.Printf("Unexpected length of line=[%s]: %d. Expected %d", line, len(line), n)

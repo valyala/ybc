@@ -15,6 +15,7 @@ import (
 var (
 	ErrCacheMiss            = errors.New("memcache: cache miss")
 	ErrCommunicationFailure = errors.New("memcache: communication failure")
+	ErrMalformedKey         = errors.New("memcache: malformed key")
 	ErrNotModified          = errors.New("memcache: item not modified")
 )
 
@@ -410,6 +411,12 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // The number of returned items may be smaller than the number of keys,
 // because certain items may be missing in the memcache server.
 func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
+	for _, key := range keys {
+		if !validateKey(key) {
+			err = ErrMalformedKey
+			return
+		}
+	}
 	t := taskGetMulti{
 		keys:  keys,
 		items: make([]Item, 0, len(keys)),
@@ -467,6 +474,9 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 //
 // Returns ErrCacheMiss on cache miss.
 func (c *Client) Get(item *Item) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
 	t := taskGet{
 		item: item,
 	}
@@ -576,6 +586,9 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // validation approach with entyty tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
 func (c *Client) CGet(item *Citem) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
 	t := taskCGet{
 		item: item,
 	}
@@ -626,6 +639,9 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // will create and store in the cache an item on cache miss during the given
 // graceDuration interval.
 func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
 	for {
 		t := taskGetDe{
 			item:          item,
@@ -682,6 +698,9 @@ func (t *taskSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Stores the given item in the memcache server.
 func (c *Client) Set(item *Item) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
 	t := taskSet{
 		item: item,
 	}
@@ -733,6 +752,9 @@ func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // validation approach with entyty tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
 func (c *Client) CSet(item *Citem) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
 	t := taskCSet{
 		item: item,
 	}
@@ -766,6 +788,9 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 
 // The same as Client.Set(), but doesn't wait for operation completion.
 func (c *Client) SetNowait(item *Item) {
+	if !validateKey(item.Key) {
+		return
+	}
 	t := taskSetNowait{
 		item: *item,
 	}
@@ -783,6 +808,9 @@ func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool 
 
 // The same as Client.CSet(), but doesn't wait for operation completion.
 func (c *Client) CSetNowait(item *Citem) {
+	if !validateKey(item.Key) {
+		return
+	}
 	t := taskCSetNowait{
 		item: *item,
 	}
@@ -833,6 +861,9 @@ func (t *taskDelete) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // Returns ErrCacheMiss if there were no item with such key
 // on the server.
 func (c *Client) Delete(key []byte) error {
+	if !validateKey(key) {
+		return ErrMalformedKey
+	}
 	t := taskDelete{
 		key: key,
 	}
@@ -857,6 +888,9 @@ func (t *taskDeleteNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) boo
 
 // The same as Client.Delete(), but doesn't wait for operation completion.
 func (c *Client) DeleteNowait(key []byte) {
+	if !validateKey(key) {
+		return
+	}
 	t := taskDeleteNowait{
 		key: key,
 	}
