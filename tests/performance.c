@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <stdint.h>  /* uint*_t */
 #include <stdio.h>   /* printf */
-#include <stdlib.h>  /* exit, malloc, free */
+#include <stdlib.h>  /* exit, free */
 #include <string.h>  /* memset, memcmp */
 
 
@@ -60,23 +60,21 @@ static int m_memset_check(const void *const s, const char c, const size_t n)
 
   for (size_t i = 0; i < n; ++i) {
     if (ss[i] != c) {
+      fprintf(stderr, "Expected %d char, but obtained %d at position %zu\n",
+          (int)i, (int)ss[i], n);
       return 0;
     }
   }
   return 1;
 }
 
-static void simple_add(struct ybc *const cache, const size_t requests_count,
+static void simple_set(struct ybc *const cache, const size_t requests_count,
     const size_t items_count, const size_t max_item_size)
 {
   struct m_rand_state rand_state;
   uint64_t tmp;
 
-  char *const buf = malloc(max_item_size);
-
-  if (buf == NULL) {
-    M_ERROR("Cannot allocate memory");
-  }
+  char *const buf = p_malloc(max_item_size);
 
   const struct ybc_key key = {
       .ptr = &tmp,
@@ -129,6 +127,7 @@ static void simple_get(struct ybc *const cache, const size_t requests_count,
         M_ERROR("Unexpected value size");
       }
       if (!m_memset_check(value.ptr, (char)value.size, value.size)) {
+        fprintf(stderr, "i=%zu, requests_count=%zu, value.size=%zu\n", i, requests_count, value.size);
         M_ERROR("Unexpected value");
       }
       ybc_item_release(item);
@@ -173,11 +172,11 @@ static void measure_simple_ops(struct ybc *const cache,
 
   start_time = p_get_current_time();
   const double first_start_time = start_time;
-  simple_add(cache, requests_count, items_count, max_item_size);
+  simple_set(cache, requests_count, items_count, max_item_size);
   end_time = p_get_current_time();
 
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  simple_add: %.02f qps\n", qps);
+  printf("  simple_set: %.02f qps\n", qps);
 
   const size_t get_items_count = hot_items_count ? hot_items_count :
       items_count;
@@ -230,7 +229,7 @@ static void thread_func(void *const ctx)
       break;
     }
 
-    simple_add(task->cache, requests_count, task->items_count,
+    simple_set(task->cache, requests_count, task->items_count,
         task->max_item_size);
 
     simple_get(task->cache, requests_count, task->get_items_count,

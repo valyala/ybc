@@ -10,7 +10,7 @@
 
 #include <assert.h>
 #include <stdio.h>   /* printf, fopen, fclose, fwrite */
-#include <stdlib.h>  /* malloc, free, rand */
+#include <stdlib.h>  /* free, rand */
 #include <string.h>  /* memcmp, memcpy, memset */
 
 #define M_ERROR(error_message)  assert(0 && (error_message))
@@ -889,7 +889,7 @@ static void test_large_cache(struct ybc *const cache)
   ybc_config_destroy(config);
 
   const size_t value_buf_size = 13 * 3457;
-  char *const value_buf = malloc(value_buf_size);
+  char *const value_buf = p_malloc(value_buf_size);
   memset(value_buf, 'q', value_buf_size);
 
   struct ybc_key key;
