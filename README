@@ -146,6 +146,14 @@ A: Cache persistence allows skipping cache warm-up step ater the application
    of the 'golden' cache, thus avoiding warm-up step on all nodes
    in the cluster.
 
+Q: Why cache performance doesn't scale on multiple CPUs, but actually drops?
+A: Because the cache uses global lock for keeping your data in a consistent
+   state. But this lock is held only for very short period of time during
+   'lookup' and 'new add transaction' operations. The cache doesn't hold
+   the lock when data is read/written to/from the cache. So, your application
+   shuld scale well on multiple CPUs if it works with cache items exceeding
+   1Kb size.
+
 Q: Are cache files platform-neutral?
 A: No. Cache files are tightly tied to the platform they were created.
    Cache files created on one platform (for example, x86) will be completely
