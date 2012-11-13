@@ -787,6 +787,9 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 }
 
 // The same as Client.Set(), but doesn't wait for operation completion.
+//
+// Do not modify slices pointed by item.Key and item.Value after passing
+// to this function - it actually becomes an owner of these slices.
 func (c *Client) SetNowait(item *Item) {
 	if !validateKey(item.Key) {
 		return
@@ -807,6 +810,9 @@ func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool 
 }
 
 // The same as Client.CSet(), but doesn't wait for operation completion.
+//
+// Do not modify slices pointed by item.Key and item.Value after passing
+// to this function - it actually becomes an owner of these slices.
 func (c *Client) CSetNowait(item *Citem) {
 	if !validateKey(item.Key) {
 		return
@@ -887,6 +893,9 @@ func (t *taskDeleteNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) boo
 }
 
 // The same as Client.Delete(), but doesn't wait for operation completion.
+//
+// Do not modify slice pointed by key after passing to this function -
+// it actually becomes an owner of this slice.
 func (c *Client) DeleteNowait(key []byte) {
 	if !validateKey(key) {
 		return
