@@ -117,8 +117,13 @@ perftests: build-perftests
 	tests/performance-32-release
 	tests/performance-64-release
 
-go-perftests:
+go-perftests-binding:
+	$(GOCC) test -a -tags release -test.bench=".*" ./bindings/go/ybc
+
+go-perftests-memcache:
 	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
+
+go-perftests: go-perftests-binding go-perftests-memcache
 
 go-memcached-debug:
 	$(GOCC) build -o memcached-debug -a ./apps/go/memcached
