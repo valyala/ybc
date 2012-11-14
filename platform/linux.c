@@ -169,7 +169,7 @@ static void p_lock_init(struct p_lock *const lock)
   }
 
 #ifdef NDEBUG
-  const int type = PTHREAD_MUTEX_DEFAULT;
+  const int type = PTHREAD_MUTEX_NORMAL;
 #else
   const int type = PTHREAD_MUTEX_ERRORCHECK;
 #endif
