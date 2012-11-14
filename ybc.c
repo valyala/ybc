@@ -586,11 +586,11 @@ static int m_storage_allocate(struct m_storage *const storage,
  */
 static int m_storage_payload_check(const struct m_storage *const storage,
     const struct m_storage_cursor *const next_cursor,
-    const struct m_storage_payload *const payload)
+    const struct m_storage_payload *const payload, const uint64_t current_time)
 {
   size_t max_offset = next_cursor->offset;
 
-  if (payload->expiration_time < p_get_current_time()) {
+  if (payload->expiration_time < current_time) {
     /* The item has been expired. */
     return 0;
   }
@@ -2112,9 +2112,10 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
     return 0;
   }
 
+  const uint64_t current_time = p_get_current_time();
   p_lock_lock(&cache->lock);
   if (!m_storage_payload_check(&cache->storage, &cache->storage.next_cursor,
-      &item->payload)) {
+      &item->payload, current_time)) {
     p_lock_unlock(&cache->lock);
     return 0;
   }
