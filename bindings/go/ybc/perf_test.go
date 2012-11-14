@@ -25,7 +25,7 @@ func runBenchmark(initFunc benchmark_InitFunc, iterationFunc benchmark_Iteration
 
 	batchSize := 1000
 	loopsCount := b.N
-	ch := make(chan int, b.N / batchSize + 1)
+	ch := make(chan int, b.N/batchSize+1)
 	for {
 		if batchSize > loopsCount {
 			ch <- loopsCount

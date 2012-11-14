@@ -121,6 +121,7 @@ func checkValue(t *testing.T, expectedValue, actualValue []byte) {
 }
 
 func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
@@ -161,12 +162,11 @@ func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 
 func TestCache_Set_Get_Remove(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_Set_Get_Remove(cache, t)
 }
 
 func cacher_GetDe(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	key := []byte("test")
 	_, err := cache.GetDe(key, time.Millisecond*time.Duration(100))
 	if err != ErrCacheMiss {
@@ -192,12 +192,11 @@ func cacher_GetDe(cache Cacher, t *testing.T) {
 
 func TestCache_GetDe(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_GetDe(cache, t)
 }
 
 func cacher_Clear(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -220,12 +219,11 @@ func cacher_Clear(cache Cacher, t *testing.T) {
 
 func TestCache_Clear(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_Clear(cache, t)
 }
 
 func cacher_SetItem(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -240,12 +238,11 @@ func cacher_SetItem(cache Cacher, t *testing.T) {
 
 func TestCache_SetItem(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_SetItem(cache, t)
 }
 
 func cacher_GetItem(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetItem(key)
@@ -273,12 +270,11 @@ func cacher_GetItem(cache Cacher, t *testing.T) {
 
 func TestCache_GetItem(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_GetItem(cache, t)
 }
 
 func cacher_GetDeItem(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.GetDeItem(key, time.Second)
@@ -310,12 +306,11 @@ func cacher_GetDeItem(cache Cacher, t *testing.T) {
 
 func TestCache_GetDeItem(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_GetDeItem(cache, t)
 }
 
 func cacher_NewSetTxn(cache Cacher, t *testing.T) {
+	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -346,8 +341,6 @@ func cacher_NewSetTxn(cache Cacher, t *testing.T) {
 
 func TestCache_NewSetTxn(t *testing.T) {
 	cache := newCache(t)
-	defer cache.Close()
-
 	cacher_NewSetTxn(cache, t)
 }
 
@@ -838,49 +831,35 @@ func TestCluster_Ops(t *testing.T) {
 
 func TestCluster_Set_Get_Remove(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_Set_Get_Remove(cluster, t)
 }
 
 func TestCluster_GetDe(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_GetDe(cluster, t)
 }
 
 func TestCluster_Clear(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_Clear(cluster, t)
 }
 
 func TestCluster_SetItem(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_SetItem(cluster, t)
 }
 
 func TestCluster_GetItem(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_GetItem(cluster, t)
 }
 
 func TestCluster_GetDeItem(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_GetDeItem(cluster, t)
 }
 
 func TestCluster_NewSetTxn(t *testing.T) {
 	cluster := newCluster(t)
-	defer cluster.Close()
-
 	cacher_NewSetTxn(cluster, t)
 }

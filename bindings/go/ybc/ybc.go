@@ -69,6 +69,7 @@ type Cacher interface {
 	GetDeAsyncItem(key []byte, graceDuration time.Duration) (item *Item, err error)
 	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
 	Clear()
+	Close() error
 }
 
 /*******************************************************************************
