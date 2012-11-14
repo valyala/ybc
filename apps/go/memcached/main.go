@@ -60,6 +60,7 @@ func main() {
 	}
 
 	var cache ybc.Cacher
+	var err error
 
 	cacheFilesPath_ := strings.Split(*cacheFilesPath, ",")
 	cacheFilesCount := len(cacheFilesPath_)
@@ -69,12 +70,10 @@ func main() {
 			config.DataFile = cacheFilesPath_[0] + ".data"
 			config.IndexFile = cacheFilesPath_[0] + ".index"
 		}
-		c, err := config.OpenCache(true)
+		cache, err = config.OpenCache(true)
 		if err != nil {
 			log.Fatalf("Cannot open cache: [%s]", err)
 		}
-		defer c.Close()
-		cache = c
 	} else if cacheFilesCount > 1 {
 		config.MaxItemsCount /= ybc.SizeT(cacheFilesCount)
 		config.DataFileSize /= ybc.SizeT(cacheFilesCount)
@@ -86,13 +85,12 @@ func main() {
 			cfg.IndexFile = cacheFilesPath_[i] + ".index"
 			configs[i] = &cfg
 		}
-		c, err := configs.OpenCluster(true)
+		cache, err = configs.OpenCluster(true)
 		if err != nil {
 			log.Fatalf("Cannot open cache cluster: [%s]", err)
 		}
-		defer c.Close()
-		cache = c
 	}
+	defer cache.Close()
 
 	s := memcache.Server{
 		Cache:             cache,
