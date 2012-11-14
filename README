@@ -115,6 +115,33 @@ A: No. YBC is designed for modern OSes running on modern hardware. It takes
    avoiding their weaknesses. This results in high performance and low resource
    usage. Read 'Features' chapter for more details.
 
+Q: OK, how to use it in my program?
+A:   1. Investigate API provided by YBC at ybc.h . See tests/ folder
+        for examples on how to properly use the API.
+     2. Use this API in your program.
+     3. Build either object file (ybc-[32|64]-[debug|release].o) or library
+        (libybc-[debug|release].so) using the corresponding build target
+        in the provided Makefile.
+     4. Link the object file or library against your program.
+     5. ?????
+     6. PROFIT!!!
+
+   Take a look also at bindings/ folder. It contains YBC bindings for various
+   programming languages if you don't like programming in C. Though currently
+   only Go is supported :)
+
+   Other folders also worth investigation:
+     * libs/ folder contains additional libraries built on top of YBC.
+     * apps/ folder contains applications built on top of YBC. Currently
+       there are two apps here with self-describing names:
+         * memcached - memcache server implementation on top of Go bindings
+           for YBC. Unlike the original memcache server, it supports cache
+           sizes exceeding available RAM by multiple orders of magnitude.
+           It also provides cache persistence, so cached data survives server
+           restarts or server crashes.
+         * memcached-bench - benchmark tool for memcached servers.
+   Makefile already contains build targets for all these apps.
+
 Q: Why recently added items may disappear from the cache, while their ttl isn't
    expired yet?
 A: Because YBC is a cache, not a storage. They serve different pruposes:
