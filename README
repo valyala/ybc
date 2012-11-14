@@ -152,7 +152,8 @@ A: Because the cache uses global lock for keeping your data in a consistent
    'lookup' and 'new add transaction' operations. The cache doesn't hold
    the lock when data is read/written to/from the cache. So, your application
    shuld scale well on multiple CPUs if it works with cache items exceeding
-   1Kb size.
+   1Kb size or if it is busy with other tasks except hammering the cache
+   in a tight loop.
 
 Q: Are cache files platform-neutral?
 A: No. Cache files are tightly tied to the platform they were created.
@@ -160,5 +161,5 @@ A: No. Cache files are tightly tied to the platform they were created.
    broken when read on another platform (for example, x64). Though it is likely
    they will appear as empty.
    Platform interoperability may result in code complication and, probably,
-   performance degradation. So share cache files only between machines with
+   performance degradation. So copy cache files only between machines with
    identical platforms.
