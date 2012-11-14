@@ -12,9 +12,9 @@
 package main
 
 import (
-	"../../../bindings/go/ybc"
-	"../../../libs/go/memcache"
 	"flag"
+	"github.com/valyala/ybc/bindings/go/ybc"
+	"github.com/valyala/ybc/libs/go/memcache"
 	"log"
 	"runtime"
 	"strings"

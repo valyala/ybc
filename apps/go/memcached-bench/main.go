@@ -2,10 +2,10 @@
 package main
 
 import (
-	"../../../libs/go/memcache"
 	"bytes"
 	"flag"
 	"fmt"
+	"github.com/valyala/ybc/libs/go/memcache"
 	"log"
 	"math/rand"
 	"runtime"
