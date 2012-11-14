@@ -20,7 +20,7 @@ YBC features.
 
 * Data file layout is optimized for HDD and SSD devices. The code
   prefers sequential I/O instead of random I/O. If random I/O is inevitable,
-  the code tries hard localizing it in the smallest possible range.
+  the code tries hard localizing it in the smallest possible memory region.
 
 * Automatic robust recovery from corrupted index files. Corruptions in data
   files may be left unnoticed due to performance reasons - it may be quite
