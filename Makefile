@@ -125,11 +125,8 @@ go-perftests-memcache:
 
 go-perftests: go-perftests-binding go-perftests-memcache
 
-go-memcached-debug:
-	$(GOCC) build -o memcached-debug -a ./apps/go/memcached
-
-go-memcached-release:
-	$(GOCC) build -o memcached-release -a -tags release ./apps/go/memcached
+go-memcached:
+	$(GOCC) build -o memcached -a -tags release ./apps/go/memcached
 
 go-memcached-bench:
 	$(GOCC) build -o memcached-bench -a -tags release ./apps/go/memcached-bench
@@ -151,6 +148,5 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
-	rm -f memcached-debug
-	rm -f memcached-release
+	rm -f memcached
 	rm -f memcached-bench
