@@ -101,8 +101,33 @@ static void simple_set(struct ybc *const cache, const size_t requests_count,
   free(buf);
 }
 
-static void simple_get(struct ybc *const cache, const size_t requests_count,
-    const size_t items_count, const size_t max_item_size)
+static void simple_get_miss(struct ybc *const cache,
+    const size_t requests_count, const size_t items_count)
+{
+  char item_buf[ybc_item_get_size()];
+  struct ybc_item *const item = (struct ybc_item *)item_buf;
+  struct m_rand_state rand_state;
+  uint64_t tmp;
+
+  const struct ybc_key key = {
+      .ptr = &tmp,
+      .size = sizeof(tmp),
+  };
+
+  m_rand_init(&rand_state);
+
+  for (size_t i = 0; i < requests_count; ++i) {
+    tmp = m_rand_next(&rand_state) % items_count;
+
+    if (ybc_item_get(cache, item, &key)) {
+      M_ERROR("Unexpected item found");
+    }
+  }
+}
+
+static void simple_get_hit(struct ybc *const cache,
+    const size_t requests_count, const size_t items_count,
+    const size_t max_item_size)
 {
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
@@ -166,29 +191,29 @@ static void measure_simple_ops(struct ybc *const cache,
 
   m_open(cache, items_count, hot_items_count, max_item_size);
 
-  printf("simple_ops(requests_count=%zu, items_count=%zu, "
-      "hot_items_count=%zu, max_item_size=%zu)\n",
+  printf("simple_ops(requests=%zu, items=%zu, "
+      "hot_items=%zu, max_item_size=%zu)\n",
       requests_count, items_count, hot_items_count, max_item_size);
 
   start_time = p_get_current_time();
-  const double first_start_time = start_time;
+  simple_get_miss(cache, requests_count, items_count);
+  end_time = p_get_current_time();
+  qps = requests_count / (end_time - start_time) * 1000;
+  printf("  get_miss: %.02f qps\n", qps);
+
+  start_time = p_get_current_time();
   simple_set(cache, requests_count, items_count, max_item_size);
   end_time = p_get_current_time();
-
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  simple_set: %.02f qps\n", qps);
+  printf("  set     : %.02f qps\n", qps);
 
   const size_t get_items_count = hot_items_count ? hot_items_count :
       items_count;
   start_time = p_get_current_time();
-  simple_get(cache, requests_count, get_items_count, max_item_size);
+  simple_get_hit(cache, requests_count, get_items_count, max_item_size);
   end_time = p_get_current_time();
-
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  simple_get: %.02f qps\n", qps);
-
-  qps = 2 * requests_count / (end_time - first_start_time) * 1000;
-  printf("  avg %.02f qps\n", qps);
+  printf("  get_hit : %.02f qps\n", qps);
 
   ybc_close(cache);
 }
@@ -203,38 +228,95 @@ struct thread_task
   size_t max_item_size;
 };
 
-static void thread_func(void *const ctx)
+static size_t get_batch_requests_count(struct thread_task *const task)
 {
-  static const size_t batch_requests_count = 10000;
+    static const size_t batch_requests_count = 10000;
+    size_t requests_count = batch_requests_count;
 
-  struct thread_task *const task = ctx;
-
-  for (;;) {
-    size_t requests_count;
-
-    /*
-     * Grab and process requests in batches.
-     */
     p_lock_lock(&task->lock);
-    if (task->requests_count > batch_requests_count) {
-      requests_count = batch_requests_count;
-    }
-    else {
+    if (task->requests_count < batch_requests_count) {
       requests_count = task->requests_count;
     }
     task->requests_count -= requests_count;
     p_lock_unlock(&task->lock);
 
+    return requests_count;
+}
+
+static void thread_func_set(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
     if (requests_count == 0) {
       break;
     }
-
     simple_set(task->cache, requests_count, task->items_count,
         task->max_item_size);
+  }
+}
 
-    simple_get(task->cache, requests_count, task->get_items_count,
+static void thread_func_get_miss(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
+    if (requests_count == 0) {
+      break;
+    }
+    simple_get_miss(task->cache, requests_count, task->get_items_count);
+  }
+}
+
+static void thread_func_get_hit(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
+    if (requests_count == 0) {
+      break;
+    }
+    simple_get_hit(task->cache, requests_count, task->get_items_count,
         task->max_item_size);
   }
+}
+
+static void thread_func_set_get(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
+    if (requests_count == 0) {
+      break;
+    }
+    const size_t set_requests_count = (size_t)(requests_count * 0.1);
+    const size_t get_requests_count = requests_count - set_requests_count;
+
+    simple_set(task->cache, set_requests_count, task->items_count,
+        task->max_item_size);
+    simple_get_hit(task->cache, get_requests_count, task->get_items_count,
+        task->max_item_size);
+  }
+}
+
+static double measure_qps(struct thread_task *const task,
+    const p_thread_func thread_func, const size_t threads_count,
+    const size_t requests_count)
+{
+  struct p_thread threads[threads_count];
+  task->requests_count = requests_count;
+
+  double start_time = p_get_current_time();
+  for (size_t i = 0; i < threads_count; ++i) {
+    p_thread_init_and_start(&threads[i], thread_func, task);
+  }
+
+  for (size_t i = 0; i < threads_count; ++i) {
+    p_thread_join_and_destroy(&threads[i]);
+  }
+  double end_time = p_get_current_time();
+
+  return requests_count / (end_time - start_time) * 1000;
 }
 
 static void measure_multithreaded_ops(struct ybc *const cache,
@@ -242,16 +324,12 @@ static void measure_multithreaded_ops(struct ybc *const cache,
     const size_t items_count, const size_t hot_items_count,
     const size_t max_item_size)
 {
-  double start_time, end_time;
   double qps;
 
   m_open(cache, items_count, hot_items_count, max_item_size);
 
-  struct p_thread threads[threads_count];
-
   struct thread_task task = {
       .cache = cache,
-      .requests_count = requests_count,
       .items_count = items_count,
       .get_items_count = hot_items_count ? hot_items_count : items_count,
       .max_item_size = max_item_size,
@@ -259,23 +337,24 @@ static void measure_multithreaded_ops(struct ybc *const cache,
 
   p_lock_init(&task.lock);
 
-  start_time = p_get_current_time();
-  for (size_t i = 0; i < threads_count; ++i) {
-    p_thread_init_and_start(&threads[i], thread_func, &task);
-  }
+  printf("multithreaded_ops(requests=%zu, items=%zu, hot_items=%zu, "
+      "max_item_size=%zu, threads=%zu)\n",
+      requests_count, items_count, hot_items_count, max_item_size,
+      threads_count);
 
-  for (size_t i = 0; i < threads_count; ++i) {
-    p_thread_join_and_destroy(&threads[i]);
-  }
-  end_time = p_get_current_time();
+  qps = measure_qps(&task, thread_func_get_miss, threads_count, requests_count);
+  printf("  get_miss: %.2f qps\n", qps);
+
+  qps = measure_qps(&task, thread_func_set, threads_count, requests_count);
+  printf("  set     : %.2f qps\n", qps);
+
+  qps = measure_qps(&task, thread_func_get_hit, threads_count, requests_count);
+  printf("  get_hit : %.2f qps\n", qps);
+
+  qps = measure_qps(&task, thread_func_set_get, threads_count, requests_count);
+  printf("  get_set : %.2f qps\n", qps);
 
   p_lock_destroy(&task.lock);
-
-  qps = 2 * requests_count / (end_time - start_time) * 1000;
-  printf("multithreaded_ops(threads_count=%zu, requests_count=%zu, "
-      "items_count=%zu, hot_items_count=%zu, max_item_size=%zu): %.2f qps\n",
-      threads_count, requests_count, items_count, hot_items_count,
-      max_item_size, qps);
 
   ybc_close(cache);
 }

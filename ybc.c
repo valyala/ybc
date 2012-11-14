@@ -1028,21 +1028,8 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
 
 /*
  * Adds the given payload with the given key_digest into the map.
- *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_map_set(..., &next_cursor, ...);
  */
 static void m_map_set(const struct m_map *const map,
-    const struct m_storage *const storage,
-    const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
     const struct m_storage_payload *const payload)
 {
@@ -1061,8 +1048,7 @@ static void m_map_set(const struct m_map *const map,
       const struct m_storage_payload current_payload =
           map->payloads[slot_index];
 
-      if (m_key_digest_is_empty(&map->key_digests[slot_index]) ||
-          !m_storage_payload_check(storage, next_cursor, &current_payload)) {
+      if (m_key_digest_is_empty(&map->key_digests[slot_index])) {
         /* Found an empty slot. */
         break;
       }
@@ -1109,41 +1095,20 @@ static int m_map_remove(const struct m_map *const map,
 /*
  * Obtains a payload with the given key_digest in the map.
  *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_map_get(..., &next_cursor, ...);
- *
  * Returns 1 if a payload with the given key_digest has been found in the map.
  * Returns 0 otherwise.
  */
 static int m_map_get(const struct m_map *const map,
-    const struct m_storage *const storage,
-    const struct m_storage_cursor *const next_cursor,
     const struct m_key_digest *const key_digest,
     struct m_storage_payload *const payload)
 {
-  size_t start_index, slot_index;
+  size_t start_index_unused, slot_index;
 
-  if (!m_map_lookup_slot_index(map, key_digest, &start_index, &slot_index)) {
+  if (!m_map_lookup_slot_index(map, key_digest, &start_index_unused,
+      &slot_index)) {
     return 0;
   }
   *payload = map->payloads[slot_index];
-
-  if (!m_storage_payload_check(storage, next_cursor, payload)) {
-    /*
-     * Optimization: clear the key_digest for invalid payload,
-     * so it won't be returned and checked next time.
-     */
-    m_key_digest_clear(&map->key_digests[slot_index]);
-    return 0;
-  }
 
   return 1;
 }
@@ -1208,76 +1173,52 @@ static void m_map_cache_destroy(struct m_map *const map_cache)
 /*
  * Obtains a payload for the given key_digest in the map_cache and/or map.
  *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_map_cace_get(..., &next_cursor, ...);
- *
  * Returns 1 if a payload with the given key_digest has been found
  * in the map_cache and/or map. Otherwise returns 0.
  */
 static int m_map_cache_get(const struct m_map *const map,
-    const struct m_map *const map_cache, const struct m_storage *const storage,
-    const struct m_storage_cursor *const next_cursor,
+    const struct m_map *const map_cache,
     const struct m_key_digest *const key_digest,
     struct m_storage_payload *const payload)
 {
   if (map_cache->slots_count == 0) {
     /* The map cache is disabled. Look up the item via map. */
-    return m_map_get(map, storage, next_cursor, key_digest, payload);
+    return m_map_get(map, key_digest, payload);
   }
 
   /*
    * Fast path: look up the item via the map cache.
    */
-  if (m_map_get(map_cache, storage, next_cursor, key_digest, payload)) {
+  if (m_map_get(map_cache, key_digest, payload)) {
     return 1;
   }
 
   /*
    * Slow path: fall back to looking up the item via map.
    */
-  if (!m_map_get(map, storage, next_cursor, key_digest, payload)) {
+  if (!m_map_get(map, key_digest, payload)) {
     return 0;
   }
 
   /*
    * Add the found item to the map cache.
    */
-  m_map_set(map_cache, storage, next_cursor, key_digest, payload);
+  m_map_set(map_cache, key_digest, payload);
   return 1;
 }
 
 /*
  * Adds the given payload with the given key_digest into the map_cache and map.
- *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_map_cache_set(..., &next_cursor, ...);
  */
 static void m_map_cache_set(const struct m_map *const map,
-    const struct m_map *const map_cache, const struct m_storage *const storage,
-    const struct m_storage_cursor *const next_cursor,
+    const struct m_map *const map_cache,
     const struct m_key_digest *const key_digest,
     const struct m_storage_payload *const payload)
 {
   if (map_cache->slots_count != 0) {
     (void)m_map_remove(map_cache, key_digest);
   }
-  m_map_set(map, storage, next_cursor, key_digest, payload);
+  m_map_set(map, key_digest, payload);
 }
 
 static int m_map_cache_remove(const struct m_map *const map,
@@ -2041,27 +1982,25 @@ static uint64_t m_item_get_ttl(const struct ybc_item *const item)
 }
 
 static void m_item_register(struct ybc_item *const item,
-    struct p_lock *const cache_lock,
     struct ybc_item *const acquired_items_head)
 {
-  p_lock_lock(cache_lock);
   m_item_skiplist_get_prevs(acquired_items_head, item->next,
       item->payload.cursor.offset);
   m_item_skiplist_add(item);
-  p_lock_unlock(cache_lock);
 }
 
-static void m_item_deregister(struct ybc_item *const item,
-    struct p_lock *const cache_lock)
+static void m_item_deregister(struct ybc_item *const item)
 {
-  p_lock_lock(cache_lock);
   m_item_skiplist_del(item);
-  p_lock_unlock(cache_lock);
 }
 
 static void m_item_release(struct ybc_item *const item)
 {
-  m_item_deregister(item, &item->cache->lock);
+  struct p_lock *const cache_lock = &item->cache->lock;
+
+  p_lock_lock(cache_lock);
+  m_item_deregister(item);
+  p_lock_unlock(cache_lock);
   item->cache = NULL;
 }
 
@@ -2123,12 +2062,8 @@ void ybc_set_txn_commit(struct ybc_set_txn *const txn)
   struct m_storage_payload payload = txn->item.payload;
   struct ybc *const cache = txn->item.cache;
 
-  p_lock_lock(&cache->lock);
-  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
-  p_lock_unlock(&cache->lock);
-
-  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
-      &next_cursor, &txn->key_digest, &payload);
+  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &txn->key_digest,
+      &payload);
 
   m_item_release(&txn->item);
 }
@@ -2141,11 +2076,10 @@ void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
   p_lock_lock(&cache->lock);
   m_item_relocate(item, &txn->item);
   item->is_set_txn = 0;
-  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   p_lock_unlock(&cache->lock);
 
-  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &cache->storage,
-      &next_cursor, &txn->key_digest, &item->payload);
+  m_map_cache_set(&cache->index.map, &cache->index.map_cache, &txn->key_digest,
+      &item->payload);
 }
 
 void ybc_set_txn_rollback(struct ybc_set_txn *const txn)
@@ -2173,28 +2107,32 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
   item->key_size = key->size;
   item->is_set_txn = 0;
 
+  if (!m_map_cache_get(&cache->index.map, &cache->index.map_cache,
+      key_digest, &item->payload)) {
+    return 0;
+  }
+
   p_lock_lock(&cache->lock);
+  if (!m_storage_payload_check(&cache->storage, &cache->storage.next_cursor,
+      &item->payload)) {
+    p_lock_unlock(&cache->lock);
+    return 0;
+  }
+  m_item_register(item, &cache->acquired_items_head);
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   p_lock_unlock(&cache->lock);
 
-  int is_found = m_map_cache_get(&cache->index.map, &cache->index.map_cache,
-      &cache->storage, &next_cursor, key_digest, &item->payload);
-  if (is_found) {
-    m_item_register(item, &cache->lock, &cache->acquired_items_head);
-
-    assert(m_storage_payload_check(&cache->storage, &next_cursor,
-        &item->payload));
-    if (!m_storage_metadata_check(&cache->storage, &item->payload, key)) {
-      m_item_release(item);
-      return 0;
-    }
-    if (m_ws_should_defragment(&cache->storage, &next_cursor, &item->payload,
-        cache->hot_data_size)) {
-      m_ws_defragment(cache, item, key);
-    }
+  if (!m_storage_metadata_check(&cache->storage, &item->payload, key)) {
+    m_item_release(item);
+    return 0;
   }
 
-  return is_found;
+  if (m_ws_should_defragment(&cache->storage, &next_cursor, &item->payload,
+      cache->hot_data_size)) {
+    m_ws_defragment(cache, item, key);
+  }
+
+  return 1;
 }
 
 size_t ybc_item_get_size(void)
