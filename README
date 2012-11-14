@@ -1,6 +1,6 @@
 YBC - Yet another Blob Cache library.
 
-This library implements fast in-process blob cache.
+This library implements fast in-process blob cache with persistence support.
 
 
 ===============================================================================
@@ -9,11 +9,11 @@ YBC features.
 
 * Huge amounts of data can be cached. Cache size may be much larger than
   the available RAM size.
-  + Very large keys and values are supported (up to 2^64 bytes each).
+  + Very large cache values are supported (up to 2^64 bytes). Think of media
+    files such as videos, audios and images.
   + Very large cache size is supported (up to 2^64 items and up to 2^64 bytes).
-    In practice cache size is limited by free space on backing store.
-  32-bit builds have much smaller limits (2^32), so use them only if your
-  cache fits 4GB.
+    In practice cache size is limited by free space on backing store,
+    not by available RAM.
 
 * Persistence support. Cache data survives process restart if the cache
   is explicitly backed by files.
@@ -40,11 +40,11 @@ YBC features.
 * 'Add transaction' support allows constructing item's value on the fly
   without serializing it into a temporary buffer (aka 'zero-copy').
   Uncommited transaction can be rolled back at any time.
-  Think of media files streamed from the backend or complex objects, which
-  require serialization from multiple distinct places before storing into
-  the cache.
+  Think of videos streamed directly into the cache without usage of temporary
+  buffers or complex objects requiring serialization from multiple distinct
+  places before storing into the cache.
 
-* Readers and writers don't block each other while reading/writing blobs
+* Readers and writers don't block each other while reading/writing data
   from/into the cache. The speed is actually limited by hardware memory
   bandwidth (if frequently accessed items fit RAM) or backing store
   random I/O bandwidth (if requently accessed items don't fit RAM).
