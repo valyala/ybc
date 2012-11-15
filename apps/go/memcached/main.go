@@ -66,7 +66,7 @@ func main() {
 	cacheFilesCount := len(cacheFilesPath_)
 	log.Printf("Opening data files. This can take a while for the first time if files are big")
 	if cacheFilesCount < 2 {
-		if cacheFilesCount == 1 {
+		if cacheFilesPath_[0] != "" {
 			config.DataFile = cacheFilesPath_[0] + ".data"
 			config.IndexFile = cacheFilesPath_[0] + ".index"
 		}
