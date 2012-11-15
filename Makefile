@@ -123,7 +123,7 @@ go-perftests-bindings:
 go-perftests-memcache:
 	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
 
-go-perftests: go-perftests-binding go-perftests-memcache
+go-perftests: go-perftests-bindings go-perftests-memcache
 
 go-memcached:
 	$(GOCC) build -o memcached -a -tags release ./apps/go/memcached
