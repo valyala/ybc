@@ -569,6 +569,9 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Performs conditional get request for the given item.Key and item.Etag.
 //
+// This is an extension to memcache protocol, so it isn't supported
+// by the original memcache server.
+//
 // Conditional get requests must be performed only on items stored in the cache
 // via Client.CSet(). The method returns garbage for items stored via other
 // mechanisms.
@@ -634,6 +637,9 @@ func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 }
 
 // Performs dogpile effect-aware get for the given item.Key.
+//
+// This is an extension to memcache protocol, so it isn't supported
+// by the original memcache server.
 //
 // Returns ErrCacheMiss on cache miss. It is expected that the caller
 // will create and store in the cache an item on cache miss during the given
@@ -742,6 +748,9 @@ func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 }
 
 // Performs conditional set for the given item.
+//
+// This is an extension to memcache protocol, so it isn't supported
+// by the original memcache server.
 //
 // Items stored via this method must be obtained only via Client.CGet() call!
 // Calls to other methods such as Client.Get() will return garbage
