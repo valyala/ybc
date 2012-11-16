@@ -16,6 +16,7 @@ var (
 	ErrCacheMiss            = errors.New("memcache: cache miss")
 	ErrCommunicationFailure = errors.New("memcache: communication failure")
 	ErrMalformedKey         = errors.New("memcache: malformed key")
+	ErrNilValue             = errors.New("memcache: nil value")
 	ErrNotModified          = errors.New("memcache: item not modified")
 )
 
@@ -714,6 +715,9 @@ func (c *Client) Set(item *Item) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
+	if item.Value == nil {
+		return ErrNilValue
+	}
 	t := taskSet{
 		item: item,
 	}
@@ -771,6 +775,9 @@ func (c *Client) Cset(item *Citem) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
+	if item.Value == nil {
+		return ErrNilValue
+	}
 	t := taskCset{
 		item: item,
 	}
@@ -807,7 +814,7 @@ func (t *taskSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 // Do not modify slices pointed by item.Key and item.Value after passing
 // to this function - it actually becomes an owner of these slices.
 func (c *Client) SetNowait(item *Item) {
-	if !validateKey(item.Key) {
+	if !validateKey(item.Key) || item.Value == nil {
 		return
 	}
 	t := taskSetNowait{
@@ -830,7 +837,7 @@ func (t *taskCsetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool 
 // Do not modify slices pointed by item.Key and item.Value after passing
 // to this function - it actually becomes an owner of these slices.
 func (c *Client) CsetNowait(item *Citem) {
-	if !validateKey(item.Key) {
+	if !validateKey(item.Key) || item.Value == nil {
 		return
 	}
 	t := taskCsetNowait{

@@ -52,6 +52,11 @@ var (
 )
 
 func validateKey(key []byte) bool {
+	// Disallow empty keys.
+	if len(key) == 0 {
+		return false
+	}
+
 	// Do not check for key length - let servers with key length limit
 	// validate it instead.
 	for _, ch := range key {

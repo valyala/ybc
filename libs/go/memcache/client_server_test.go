@@ -487,9 +487,9 @@ func TestClient_FlushAllDelayed(t *testing.T) {
 	client_RunTest(cacher_FlushAllDelayed, t)
 }
 
-func checkMalformedKey(c Cacher, key string, t *testing.T) {
+func checkMalformedKey(c Cacher, key []byte, t *testing.T) {
 	item := Item{
-		Key: []byte(key),
+		Key: key,
 	}
 	if err := c.Get(&item); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
@@ -516,12 +516,82 @@ func checkMalformedKey(c Cacher, key string, t *testing.T) {
 }
 
 func cacher_MalformedKey(c Cacher, t *testing.T) {
-	checkMalformedKey(c, "malformed key with spaces", t)
-	checkMalformedKey(c, "malformed\nkey\nwith\nnewlines", t)
+	checkMalformedKey(c, nil, t)
+	checkMalformedKey(c, []byte{}, t)
+	checkMalformedKey(c, []byte("malformed key with spaces"), t)
+	checkMalformedKey(c, []byte("malformed\nkey\nwith\nnewlines"), t)
 }
 
 func TestClient_MalformedKey(t *testing.T) {
 	client_RunTest(cacher_MalformedKey, t)
+}
+
+func cacher_NilValue(c Cacher, t *testing.T) {
+	item := Item{
+		Key: []byte("test"),
+	}
+	if err := c.Set(&item); err != ErrNilValue {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrNilValue", err)
+	}
+
+	citem := Citem{
+		Key: item.Key,
+	}
+	if err := c.Cset(&citem); err != ErrNilValue {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrNilValue", err)
+	}
+}
+
+func TestClient_NilValue(t *testing.T) {
+	client_RunTest(cacher_NilValue, t)
+}
+
+func cacher_EmptyValue(c Cacher, t *testing.T) {
+	item := Item{
+		Key:   []byte("test"),
+		Value: []byte{},
+	}
+	if err := c.Set(&item); err != nil {
+		t.Fatalf("Cannot set item with empty value: [%s]", err)
+	}
+	item.Value = nil
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("Error when obtaining empty value: [%s]", err)
+	}
+	if item.Value == nil || len(item.Value) != 0 {
+		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", item.Value)
+	}
+
+	etag := uint64(1234)
+	validateTtl := time.Second
+	citem := Citem{
+		Key:         item.Key,
+		Value:       item.Value,
+		Etag:        etag,
+		ValidateTtl: validateTtl,
+	}
+	if err := c.Cset(&citem); err != nil {
+		t.Fatalf("Cannot set item with empty value: [%s]", err)
+	}
+	citem.Value = nil
+	citem.Etag = 0
+	citem.ValidateTtl = 0
+	if err := c.Cget(&citem); err != nil {
+		t.Fatalf("Error when obtaining empty value: [%s]", err)
+	}
+	if citem.Value == nil || len(citem.Value) != 0 {
+		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", citem.Value)
+	}
+	if citem.Etag != etag {
+		t.Fatalf("Unexpected etag obtained=[%d]. Expected [%d]", citem.Etag, etag)
+	}
+	if citem.ValidateTtl != validateTtl {
+		t.Fatalf("Unexpected validateTtl obtained=[%s]. Expected [%s]", citem.ValidateTtl, validateTtl)
+	}
+}
+
+func TestClient_EmptyValue(t *testing.T) {
+	client_RunTest(cacher_EmptyValue, t)
 }
 
 func TestDistributedClient_NoServers(t *testing.T) {
@@ -673,4 +743,12 @@ func TestDistributedClient_FlushAllDelayed(t *testing.T) {
 
 func TestDistributedClient_MalformedKey(t *testing.T) {
 	distributedClient_RunTest(cacher_MalformedKey, t)
+}
+
+func TestDistributedClient_NilValue(t *testing.T) {
+	distributedClient_RunTest(cacher_NilValue, t)
+}
+
+func TestDistributedClient_EmptyValue(t *testing.T) {
+	distributedClient_RunTest(cacher_EmptyValue, t)
 }
