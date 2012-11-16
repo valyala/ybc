@@ -238,6 +238,16 @@ func parseEtagToken(line []byte, n *int) (etag uint64, ok bool) {
 	return
 }
 
+func parseUint32Token(line []byte, n *int, tokenName string) (n32 uint32, ok bool) {
+	s := nextToken(line, n, tokenName)
+	if s == nil {
+		ok = false
+		return
+	}
+	n32, ok = parseUint32(s)
+	return
+}
+
 func parseMillisecondsToken(line []byte, n *int, tokenName string) (duration time.Duration, ok bool) {
 	s := nextToken(line, n, tokenName)
 	if s == nil {
