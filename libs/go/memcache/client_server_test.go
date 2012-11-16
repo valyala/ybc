@@ -157,14 +157,20 @@ func cacher_GetSet(c Cacher, t *testing.T) {
 	}
 }
 
-func TestClient_GetSet(t *testing.T) {
+type cacherTestFunc func(c Cacher, t *testing.T)
+
+func client_RunTest(testFunc cacherTestFunc, t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
 	c.Start()
 	defer c.Stop()
 
-	cacher_GetSet(c, t)
+	testFunc(c, t)
+}
+
+func TestClient_GetSet(t *testing.T) {
+	client_RunTest(cacher_GetSet, t)
 }
 
 func cacher_GetDe(c Cacher, t *testing.T) {
@@ -193,13 +199,7 @@ func cacher_GetDe(c Cacher, t *testing.T) {
 }
 
 func TestClient_GetDe(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_GetDe(c, t)
+	client_RunTest(cacher_GetDe, t)
 }
 
 func cacher_CgetCset(c Cacher, t *testing.T) {
@@ -250,13 +250,7 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 }
 
 func TestClient_CgetCset(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_CgetCset(c, t)
+	client_RunTest(cacher_CgetCset, t)
 }
 
 func lookupItem(items []Item, key []byte) *Item {
@@ -269,13 +263,9 @@ func lookupItem(items []Item, key []byte) *Item {
 }
 
 func checkItems(c Cacher, orig_items []Item, t *testing.T) {
-	keys := make([][]byte, 0, len(orig_items))
-	for _, item := range orig_items {
-		keys = append(keys, item.Key)
-	}
-
-	items, err := c.GetMulti(keys)
-	if err != nil {
+	items := make([]Item, len(orig_items))
+	copy(items, orig_items)
+	if err := c.GetMulti(orig_items); err != nil {
 		t.Fatalf("Error in client.GetMulti(): [%s]", err)
 	}
 	for _, item := range items {
@@ -316,6 +306,16 @@ func checkCItems(c Cacher, items []Citem, t *testing.T) {
 	}
 }
 
+func cacher_GetMulti_EmptyItems(c Cacher, t *testing.T) {
+	if err := c.GetMulti([]Item{}); err != nil {
+		t.Fatalf("Unexpected error in client.GetMulti(): [%s]", err)
+	}
+}
+
+func TestClient_GetMulti_EmptyItems(t *testing.T) {
+	client_RunTest(cacher_GetMulti_EmptyItems, t)
+}
+
 func cacher_GetMulti(c Cacher, t *testing.T) {
 	itemsCount := 1000
 	items := make([]Item, itemsCount)
@@ -332,13 +332,7 @@ func cacher_GetMulti(c Cacher, t *testing.T) {
 }
 
 func TestClient_GetMulti(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_GetMulti(c, t)
+	client_RunTest(cacher_GetMulti, t)
 }
 
 func cacher_SetNowait(c Cacher, t *testing.T) {
@@ -355,13 +349,7 @@ func cacher_SetNowait(c Cacher, t *testing.T) {
 }
 
 func TestClient_SetNowait(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_SetNowait(c, t)
+	client_RunTest(cacher_SetNowait, t)
 }
 
 func cacher_CsetNowait(c Cacher, t *testing.T) {
@@ -380,13 +368,7 @@ func cacher_CsetNowait(c Cacher, t *testing.T) {
 }
 
 func TestClient_CsetNowait(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_CsetNowait(c, t)
+	client_RunTest(cacher_CsetNowait, t)
 }
 
 func cacher_Delete(c Cacher, t *testing.T) {
@@ -411,13 +393,7 @@ func cacher_Delete(c Cacher, t *testing.T) {
 }
 
 func TestClient_Delete(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_Delete(c, t)
+	client_RunTest(cacher_Delete, t)
 }
 
 func cacher_DeleteNowait(c Cacher, t *testing.T) {
@@ -443,13 +419,7 @@ func cacher_DeleteNowait(c Cacher, t *testing.T) {
 }
 
 func TestClient_DeleteNowait(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_DeleteNowait(c, t)
+	client_RunTest(cacher_DeleteNowait, t)
 }
 
 func cacher_FlushAll(c Cacher, t *testing.T) {
@@ -473,13 +443,7 @@ func cacher_FlushAll(c Cacher, t *testing.T) {
 }
 
 func TestClient_FlushAll(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_FlushAll(c, t)
+	client_RunTest(cacher_FlushAll, t)
 }
 
 func cacher_FlushAllDelayed(c Cacher, t *testing.T) {
@@ -520,13 +484,7 @@ func cacher_FlushAllDelayed(c Cacher, t *testing.T) {
 }
 
 func TestClient_FlushAllDelayed(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_FlushAllDelayed(c, t)
+	client_RunTest(cacher_FlushAllDelayed, t)
 }
 
 func checkMalformedKey(c Cacher, key string, t *testing.T) {
@@ -563,13 +521,7 @@ func cacher_MalformedKey(c Cacher, t *testing.T) {
 }
 
 func TestClient_MalformedKey(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	cacher_MalformedKey(c, t)
+	client_RunTest(cacher_MalformedKey, t)
 }
 
 func TestDistributedClient_NoServers(t *testing.T) {
@@ -591,7 +543,7 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	if err := c.Get(&item); err != ErrNoServers {
 		t.Fatalf("Get() should return ErrNoServers, but returned [%s]", err)
 	}
-	if _, err := c.GetMulti([][]byte{item.Key}); err != ErrNoServers {
+	if err := c.GetMulti([]Item{item}); err != ErrNoServers {
 		t.Fatalf("GetMulti() should return ErrNoServers, but returned [%s]", err)
 	}
 	if err := c.GetDe(&item, time.Second); err != ErrNoServers {
@@ -664,7 +616,7 @@ func TestDistributedClient_StartStop_Multi(t *testing.T) {
 	cacher_StartStop_Multi(c)
 }
 
-func TestDistributedClient_GetSet(t *testing.T) {
+func distributedClient_RunTest(testFunc cacherTestFunc, t *testing.T) {
 	c, ss, caches := newDistributedClientServersCaches(t)
 	defer closeCaches(caches)
 	defer stopServers(ss)
@@ -672,115 +624,53 @@ func TestDistributedClient_GetSet(t *testing.T) {
 	defer c.Stop()
 	addServersToClient(c, ss)
 
-	cacher_GetSet(c, t)
+	testFunc(c, t)
+}
+
+func TestDistributedClient_GetSet(t *testing.T) {
+	distributedClient_RunTest(cacher_GetSet, t)
 }
 
 func TestDistributedClient_GetDe(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_GetDe(c, t)
+	distributedClient_RunTest(cacher_GetDe, t)
 }
 
 func TestDistributedClient_CgetCset(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
+	distributedClient_RunTest(cacher_CgetCset, t)
+}
 
-	cacher_CgetCset(c, t)
+func TestDistributedClient_GetMulti_EmptyItems(t *testing.T) {
+	distributedClient_RunTest(cacher_GetMulti_EmptyItems, t)
 }
 
 func TestDistributedClient_GetMulti(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_GetMulti(c, t)
+	distributedClient_RunTest(cacher_GetMulti, t)
 }
 
 func TestDistributedClient_SetNowait(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_SetNowait(c, t)
+	distributedClient_RunTest(cacher_SetNowait, t)
 }
 
 func TestDistributedClient_CsetNowait(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_CsetNowait(c, t)
+	distributedClient_RunTest(cacher_CsetNowait, t)
 }
 
 func TestDistributedClient_Delete(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_Delete(c, t)
+	distributedClient_RunTest(cacher_Delete, t)
 }
 
 func TestDistributedClient_DeleteNowait(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_DeleteNowait(c, t)
+	distributedClient_RunTest(cacher_DeleteNowait, t)
 }
 
 func TestDistributedClient_FlushAll(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_FlushAll(c, t)
+	distributedClient_RunTest(cacher_FlushAll, t)
 }
 
 func TestDistributedClient_FlushAllDelayed(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_FlushAllDelayed(c, t)
+	distributedClient_RunTest(cacher_FlushAllDelayed, t)
 }
 
 func TestDistributedClient_MalformedKey(t *testing.T) {
-	c, ss, caches := newDistributedClientServersCaches(t)
-	defer closeCaches(caches)
-	defer stopServers(ss)
-	c.Start()
-	defer c.Stop()
-	addServersToClient(c, ss)
-
-	cacher_MalformedKey(c, t)
+	distributedClient_RunTest(cacher_MalformedKey, t)
 }

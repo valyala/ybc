@@ -286,7 +286,6 @@ func (t *taskSync) Wait() bool {
 }
 
 type taskGetMulti struct {
-	keys  [][]byte
 	items []Item
 	taskSync
 }
@@ -371,18 +370,31 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	if !writeStr(w, strGets) {
 		return false
 	}
-	keysCount := len(t.keys)
-	if keysCount > 0 {
-		if !writeStr(w, t.keys[0]) {
+	itemsCount := len(t.items)
+	if itemsCount > 0 {
+		if !writeStr(w, t.items[0].Key) {
 			return false
 		}
 	}
-	for i := 1; i < keysCount; i++ {
-		if writeStr(w, strWs) && !writeStr(w, t.keys[i]) {
+	for i := 1; i < itemsCount; i++ {
+		if writeStr(w, strWs) && !writeStr(w, t.items[i].Key) {
 			return false
 		}
 	}
 	return writeCrLf(w)
+}
+
+func updateItemByKey(items []Item, item *Item) bool {
+	itemsCount := len(items)
+	updatedItemsCount := 0
+	for i := 0; i < itemsCount; i++ {
+		if bytes.Equal(items[i].Key, item.Key) {
+			items[i].Value = item.Value
+			items[i].Flags = item.Flags
+			updatedItemsCount++
+		}
+	}
+	return updatedItemsCount > 0
 }
 
 func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -395,39 +407,34 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		if eof {
 			break
 		}
-
-		keyCopy := make([]byte, len(item.Key))
-		copy(keyCopy, item.Key)
-		item.Key = keyCopy
-		t.items = append(t.items, item)
+		if !updateItemByKey(t.items, &item) {
+			return false
+		}
 	}
 	return true
 }
 
-// Obtains multiple items associated with the given keys.
+// Obtains multiple items associated with the the corresponding keys.
 //
-// Sets Item.Key, Item.Value and Item.Flags for each returned item.
-//
-// The number of returned items may be smaller than the number of keys,
-// because certain items may be missing in the memcache server.
-func (c *Client) GetMulti(keys [][]byte) (items []Item, err error) {
-	for _, key := range keys {
-		if !validateKey(key) {
-			err = ErrMalformedKey
-			return
+// Sets Item.Value and Item.Flags for each returned item.
+// Doesn't modify Item.Value and Item.Flags for items missing on the server.
+func (c *Client) GetMulti(items []Item) error {
+	if len(items) == 0 {
+		return nil
+	}
+	for _, item := range items {
+		if !validateKey(item.Key) {
+			return ErrMalformedKey
 		}
 	}
 	t := taskGetMulti{
-		keys:  keys,
-		items: make([]Item, 0, len(keys)),
+		items: items,
 	}
 	t.Init()
 	if !c.do(&t) {
-		err = ErrCommunicationFailure
-		return
+		return ErrCommunicationFailure
 	}
-	items = t.items
-	return
+	return nil
 }
 
 type taskGet struct {

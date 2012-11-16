@@ -58,8 +58,34 @@ type DistributedClient struct {
 	OSWriteBufferSize int
 
 	lock        sync.Mutex
-	clients     map[string]*Client
+	clientsList []*Client
+	clientsMap  map[string]*Client
 	clientsHash consistentHash
+}
+
+func (c *DistributedClient) Start() {
+	if c.clientsMap != nil {
+		panic("Did you forgot calling DistributedClient.Stop()?")
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.clientsMap = make(map[string]*Client)
+	c.clientsHash.ReplicasCount = consistentHashReplicasCount
+	c.clientsHash.BucketsCount = consistentHashBucketsCount
+	c.clientsHash.Init()
+}
+
+func (c *DistributedClient) Stop() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	for _, client := range c.clientsList {
+		client.Stop()
+	}
+
+	c.clientsList = nil
+	c.clientsMap = nil
 }
 
 func (c *DistributedClient) registerClient(client *Client) bool {
@@ -68,23 +94,38 @@ func (c *DistributedClient) registerClient(client *Client) bool {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if c.clients[connectAddr] != nil {
+	if c.clientsMap[connectAddr] != nil {
 		return false
 	}
 
-	c.clients[connectAddr] = client
-	c.clientsHash.Add([]byte(connectAddr), client)
+	c.clientsList = append(c.clientsList, client)
+	c.clientsMap[connectAddr] = client
+
+	clientIdx := len(c.clientsList) - 1
+	c.clientsHash.Add([]byte(connectAddr), clientIdx)
 	return true
+}
+
+func lookupClientIdx(clients []*Client, client *Client) int {
+	clientsCount := len(clients)
+	for i := 0; i < clientsCount; i++ {
+		if clients[i] == client {
+			return i
+		}
+	}
+	panic("Tere is no the given client in the clients list")
 }
 
 func (c *DistributedClient) deregisterClient(connectAddr string) *Client {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	client := c.clients[connectAddr]
+	client := c.clientsMap[connectAddr]
 	if client != nil {
+		clientIdx := lookupClientIdx(c.clientsList, client)
+		c.clientsList = append(c.clientsList[:clientIdx], c.clientsList[clientIdx+1:]...)
 		c.clientsHash.Delete([]byte(connectAddr))
-		delete(c.clients, connectAddr)
+		delete(c.clientsMap, connectAddr)
 	}
 	return client
 }
@@ -116,39 +157,20 @@ func (c *DistributedClient) DeleteServer(connectAddr string) {
 	client.Stop()
 }
 
-func (c *DistributedClient) Start() {
-	if c.clients != nil {
-		panic("Did you forgot calling DistributedClient.Stop()?")
-	}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	c.clients = make(map[string]*Client)
-	c.clientsHash.ReplicasCount = consistentHashReplicasCount
-	c.clientsHash.BucketsCount = consistentHashBucketsCount
-	c.clientsHash.Init()
-}
-
-func (c *DistributedClient) Stop() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	for _, client := range c.clients {
-		client.Stop()
-	}
-
-	c.clients = nil
+func (c *DistributedClient) clientIdx(key []byte) int {
+	return c.clientsHash.Get(key).(int)
 }
 
 func (c *DistributedClient) clientNolock(key []byte) *Client {
-	return c.clientsHash.Get(key).(*Client)
+	clientIdx := c.clientIdx(key)
+	return c.clientsList[clientIdx]
 }
 
 func (c *DistributedClient) clientsCount() int {
-	if c.clients == nil {
+	if c.clientsMap == nil {
 		panic("Did you fogot calling DistributedClient.Start()?")
 	}
-	return len(c.clients)
+	return len(c.clientsList)
 }
 
 func (c *DistributedClient) client(key []byte) (client *Client, err error) {
@@ -163,7 +185,7 @@ func (c *DistributedClient) client(key []byte) (client *Client, err error) {
 	return
 }
 
-func (c *DistributedClient) keysPerClient(keys [][]byte) (m map[*Client][][]byte, err error) {
+func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []*Client, err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -173,28 +195,28 @@ func (c *DistributedClient) keysPerClient(keys [][]byte) (m map[*Client][][]byte
 		return
 	}
 
-	m = make(map[*Client][][]byte, clientsCount)
-	for _, key := range keys {
-		client := c.clientNolock(key)
-		m[client] = append(m[client], key)
+	m = make([][]Item, clientsCount)
+	for _, item := range items {
+		clientIdx := c.clientIdx(item.Key)
+		m[clientIdx] = append(m[clientIdx], item)
 	}
+	clients = make([]*Client, clientsCount)
+	copy(clients, c.clientsList)
 	return
 }
 
-func (c *DistributedClient) GetMulti(keys [][]byte) (items []Item, err error) {
-	keysPerClient, err := c.keysPerClient(keys)
+func (c *DistributedClient) GetMulti(items []Item) error {
+	itemsPerClient, clients, err := c.itemsPerClient(items)
 	if err != nil {
-		return
+		return err
 	}
-	for client, clientKeys := range keysPerClient {
-		var tmpItems []Item
-		tmpItems, err = client.GetMulti(clientKeys)
-		if err != nil {
-			return
+
+	for clientIdx, clientItems := range itemsPerClient {
+		if err = clients[clientIdx].GetMulti(clientItems); err != nil {
+			return err
 		}
-		items = append(items, tmpItems...)
 	}
-	return
+	return nil
 }
 
 func (c *DistributedClient) Get(item *Item) error {
@@ -276,10 +298,8 @@ func (c *DistributedClient) allClients() (clients []*Client, err error) {
 		return
 	}
 
-	clients = make([]*Client, 0, clientsCount)
-	for _, client := range c.clients {
-		clients = append(clients, client)
-	}
+	clients = make([]*Client, clientsCount)
+	copy(clients, c.clientsList)
 	return
 }
 

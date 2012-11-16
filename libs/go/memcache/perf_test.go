@@ -120,13 +120,13 @@ func getMulti(batchSize int, b *testing.B) {
 		b.Fatalf("Error in client.Set(): [%s]", err)
 	}
 
-	var keys [][]byte
+	var items []Item
 	for i := 0; i < batchSize; i++ {
-		keys = append(keys, key)
+		items = append(items, item)
 	}
 
 	for i := 0; i < b.N; i += batchSize {
-		if _, err := c.GetMulti(keys); err != nil {
+		if err := c.GetMulti(items); err != nil {
 			b.Fatalf("Error in client.GetMulti(): [%s]", err)
 		}
 	}

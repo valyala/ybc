@@ -9,7 +9,7 @@ type Cacher interface {
 	Start()
 	Stop()
 	Get(item *Item) error
-	GetMulti(keys [][]byte) (items []Item, err error)
+	GetMulti(items []Item) error
 	GetDe(item *Item, graceDuration time.Duration) error
 	Cget(item *Citem) error
 	Set(item *Item) error
