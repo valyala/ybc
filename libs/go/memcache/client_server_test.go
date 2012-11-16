@@ -25,13 +25,17 @@ func newCache(t *testing.T) *ybc.Cache {
 	return cache
 }
 
-func newServerCache(t *testing.T) (s *Server, cache *ybc.Cache) {
+func newServerCacheWithAddr(listenAddr string, t *testing.T) (s *Server, cache *ybc.Cache) {
 	cache = newCache(t)
 	s = &Server{
 		Cache:      cache,
-		ListenAddr: testAddr,
+		ListenAddr: listenAddr,
 	}
 	return
+}
+
+func newServerCache(t *testing.T) (s *Server, cache *ybc.Cache) {
+	return newServerCacheWithAddr(testAddr, t)
 }
 
 func TestServer_StartStop(t *testing.T) {
@@ -81,32 +85,49 @@ func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache)
 	return
 }
 
-func TestClient_StartStop(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
+func newDistributedClientServersCaches(t *testing.T) (c *DistributedClient, ss []*Server, caches []*ybc.Cache) {
+	c = &DistributedClient{
+		ConnectionsCount: 1, // tests require single connection!
+	}
+	for i := 0; i < 4; i++ {
+		serverAddr := fmt.Sprintf("localhost:%d", 12345+i)
+		s, cache := newServerCacheWithAddr(serverAddr, t)
+		s.Start()
+		ss = append(ss, s)
+		caches = append(caches, cache)
+	}
+	return
+}
+
+func cacher_StartStop(c Cacher) {
 	c.Start()
 	c.Stop()
 }
 
-func TestClient_StartStop_Multi(t *testing.T) {
+func TestClient_StartStop(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
+
+	cacher_StartStop(c)
+}
+
+func cacher_StartStop_Multi(c Cacher) {
 	for i := 0; i < 3; i++ {
 		c.Start()
 		c.Stop()
 	}
 }
 
-func TestClient_GetSet(t *testing.T) {
+func TestClient_StartStop_Multi(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
 
-	c.Start()
-	defer c.Stop()
+	cacher_StartStop_Multi(c)
+}
 
+func cacher_GetSet(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 	flags := uint32(12345)
@@ -136,21 +157,24 @@ func TestClient_GetSet(t *testing.T) {
 	}
 }
 
-func TestClient_GetDe(t *testing.T) {
+func TestClient_GetSet(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_GetSet(c, t)
+}
+
+func cacher_GetDe(c Cacher, t *testing.T) {
 	item := Item{
 		Key: []byte("key"),
 	}
 	grace := 100 * time.Millisecond
 	for i := 0; i < 3; i++ {
 		if err := c.GetDe(&item, grace); err != ErrCacheMiss {
-			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d): [%s]", item.Key, grace, err)
+			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d)", err, item.Key, grace)
 		}
 	}
 
@@ -168,14 +192,17 @@ func TestClient_GetDe(t *testing.T) {
 	}
 }
 
-func TestClient_CGetCSet(t *testing.T) {
+func TestClient_GetDe(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_GetDe(c, t)
+}
+
+func cacher_CGetCSet(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 	expiration := time.Hour * 123343
@@ -222,6 +249,16 @@ func TestClient_CGetCSet(t *testing.T) {
 	}
 }
 
+func TestClient_CGetCSet(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+	c.Start()
+	defer c.Stop()
+
+	cacher_CGetCSet(c, t)
+}
+
 func lookupItem(items []Item, key []byte) *Item {
 	for i := 0; i < len(items); i++ {
 		if bytes.Equal(items[i].Key, key) {
@@ -231,7 +268,7 @@ func lookupItem(items []Item, key []byte) *Item {
 	return nil
 }
 
-func checkItems(c *Client, orig_items []Item, t *testing.T) {
+func checkItems(c Cacher, orig_items []Item, t *testing.T) {
 	keys := make([][]byte, 0, len(orig_items))
 	for _, item := range orig_items {
 		keys = append(keys, item.Key)
@@ -252,7 +289,7 @@ func checkItems(c *Client, orig_items []Item, t *testing.T) {
 	}
 }
 
-func checkCItems(c *Client, items []Citem, t *testing.T) {
+func checkCItems(c Cacher, items []Citem, t *testing.T) {
 	for i := 0; i < len(items); i++ {
 		item := items[i]
 		err := c.CGet(&item)
@@ -279,14 +316,7 @@ func checkCItems(c *Client, items []Citem, t *testing.T) {
 	}
 }
 
-func TestClient_GetMulti(t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-
-	c.Start()
-	defer c.Stop()
-
+func cacher_GetMulti(c Cacher, t *testing.T) {
 	itemsCount := 1000
 	items := make([]Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
@@ -301,14 +331,17 @@ func TestClient_GetMulti(t *testing.T) {
 	checkItems(c, items, t)
 }
 
-func TestClient_SetNowait(t *testing.T) {
+func TestClient_GetMulti(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_GetMulti(c, t)
+}
+
+func cacher_SetNowait(c Cacher, t *testing.T) {
 	itemsCount := 1000
 	items := make([]Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
@@ -321,14 +354,17 @@ func TestClient_SetNowait(t *testing.T) {
 	checkItems(c, items, t)
 }
 
-func TestClient_CSetNowait(t *testing.T) {
+func TestClient_SetNowait(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_SetNowait(c, t)
+}
+
+func cacher_CSetNowait(c Cacher, t *testing.T) {
 	itemsCount := 1000
 	items := make([]Citem, itemsCount)
 	for i := 0; i < itemsCount; i++ {
@@ -343,14 +379,17 @@ func TestClient_CSetNowait(t *testing.T) {
 	checkCItems(c, items, t)
 }
 
-func TestClient_Delete(t *testing.T) {
+func TestClient_CSetNowait(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_CSetNowait(c, t)
+}
+
+func cacher_Delete(c Cacher, t *testing.T) {
 	itemsCount := 100
 	var item Item
 	for i := 0; i < itemsCount; i++ {
@@ -371,14 +410,17 @@ func TestClient_Delete(t *testing.T) {
 	}
 }
 
-func TestClient_DeleteNowait(t *testing.T) {
+func TestClient_Delete(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_Delete(c, t)
+}
+
+func cacher_DeleteNowait(c Cacher, t *testing.T) {
 	itemsCount := 100
 	var item Item
 	for i := 0; i < itemsCount; i++ {
@@ -395,19 +437,22 @@ func TestClient_DeleteNowait(t *testing.T) {
 	for i := 0; i < itemsCount; i++ {
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		if err := c.Get(&item); err != ErrCacheMiss {
-			t.Fatalf("error when obtaining deleted item: [%s]", err)
+			t.Fatalf("error when obtaining deleted item for key=[%s]: [%s]", item.Key, err)
 		}
 	}
 }
 
-func TestClient_FlushAll(t *testing.T) {
+func TestClient_DeleteNowait(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_DeleteNowait(c, t)
+}
+
+func cacher_FlushAll(c Cacher, t *testing.T) {
 	itemsCount := 100
 	var item Item
 	for i := 0; i < itemsCount; i++ {
@@ -427,14 +472,17 @@ func TestClient_FlushAll(t *testing.T) {
 	}
 }
 
-func TestClient_FlushAllDelayed(t *testing.T) {
+func TestClient_FlushAll(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
+	cacher_FlushAll(c, t)
+}
+
+func cacher_FlushAllDelayed(c Cacher, t *testing.T) {
 	itemsCount := 100
 	var item Item
 	for i := 0; i < itemsCount; i++ {
@@ -471,7 +519,17 @@ func TestClient_FlushAllDelayed(t *testing.T) {
 	}
 }
 
-func checkMalformedKey(c *Client, key string, t *testing.T) {
+func TestClient_FlushAllDelayed(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+	c.Start()
+	defer c.Stop()
+
+	cacher_FlushAllDelayed(c, t)
+}
+
+func checkMalformedKey(c Cacher, key string, t *testing.T) {
 	item := Item{
 		Key: []byte(key),
 	}
@@ -499,14 +557,230 @@ func checkMalformedKey(c *Client, key string, t *testing.T) {
 	}
 }
 
+func cacher_MalformedKey(c Cacher, t *testing.T) {
+	checkMalformedKey(c, "malformed key with spaces", t)
+	checkMalformedKey(c, "malformed\nkey\nwith\nnewlines", t)
+}
+
 func TestClient_MalformedKey(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-
 	c.Start()
 	defer c.Stop()
 
-	checkMalformedKey(c, "malformed key with spaces", t)
-	checkMalformedKey(c, "malformed\nkey\nwith\nnewlines", t)
+	cacher_MalformedKey(c, t)
+}
+
+func TestDistributedClient_NoServers(t *testing.T) {
+	c := DistributedClient{}
+	c.Start()
+	defer c.Stop()
+
+	item := Item{
+		Key:   []byte("key"),
+		Value: []byte("value"),
+	}
+	citem := Citem{
+		Key:         item.Key,
+		Value:       item.Value,
+		Etag:        12345,
+		Expiration:  time.Second,
+		ValidateTtl: time.Second,
+	}
+	if err := c.Get(&item); err != ErrNoServers {
+		t.Fatalf("Get() should return ErrNoServers, but returned [%s]", err)
+	}
+	if _, err := c.GetMulti([][]byte{item.Key}); err != ErrNoServers {
+		t.Fatalf("GetMulti() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.GetDe(&item, time.Second); err != ErrNoServers {
+		t.Fatalf("GetDe() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.CGet(&citem); err != ErrNoServers {
+		t.Fatalf("CGet() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.Set(&item); err != ErrNoServers {
+		t.Fatalf("Set() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.CSet(&citem); err != ErrNoServers {
+		t.Fatalf("CSet() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.Delete(item.Key); err != ErrNoServers {
+		t.Fatalf("Delete() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.FlushAll(); err != ErrNoServers {
+		t.Fatalf("FlushAll() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.FlushAllDelayed(time.Second); err != ErrNoServers {
+		t.Fatalf("FlushAllDelayed() should return ErrNoServers, but returned [%s]", err)
+	}
+}
+
+func closeCaches(caches []*ybc.Cache) {
+	for _, cache := range caches {
+		cache.Close()
+	}
+}
+
+func stopServers(servers []*Server) {
+	for _, server := range servers {
+		server.Stop()
+	}
+}
+
+func addServersToClient(c *DistributedClient, ss []*Server) {
+	for _, s := range ss {
+		c.AddServer(s.ListenAddr)
+	}
+}
+
+func TestDistibutedClient_StartStop(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+
+	cacher_StartStop(c)
+}
+
+func TestDistibutedClient_AddDeleteServer(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+
+	addServersToClient(c, ss)
+	for _, s := range ss {
+		c.DeleteServer(s.ListenAddr)
+	}
+}
+
+func TestDistributedClient_StartStop_Multi(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+
+	cacher_StartStop_Multi(c)
+}
+
+func TestDistributedClient_GetSet(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_GetSet(c, t)
+}
+
+func TestDistributedClient_GetDe(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_GetDe(c, t)
+}
+
+func TestDistributedClient_CGetCSet(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_CGetCSet(c, t)
+}
+
+func TestDistributedClient_GetMulti(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_GetMulti(c, t)
+}
+
+func TestDistributedClient_SetNowait(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_SetNowait(c, t)
+}
+
+func TestDistributedClient_CSetNowait(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_CSetNowait(c, t)
+}
+
+func TestDistributedClient_Delete(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_Delete(c, t)
+}
+
+func TestDistributedClient_DeleteNowait(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_DeleteNowait(c, t)
+}
+
+func TestDistributedClient_FlushAll(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_FlushAll(c, t)
+}
+
+func TestDistributedClient_FlushAllDelayed(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_FlushAllDelayed(c, t)
+}
+
+func TestDistributedClient_MalformedKey(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	c.Start()
+	defer c.Stop()
+	addServersToClient(c, ss)
+
+	cacher_MalformedKey(c, t)
 }
