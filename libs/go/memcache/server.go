@@ -26,8 +26,8 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scratchBuf *[]byte) bool {
 	var flags uint32
-	if err := binary.Read(item, binary.LittleEndian, &flags); err != nil {
-		log.Printf("Cannot read flags from item with key=[%s]: [%s]", key, err)
+
+	if err := binaryRead(item, &flags, "flags"); err != nil {
 		return false
 	}
 
@@ -140,8 +140,7 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 	}()
 
 	etagOld := *etag
-	if err = binary.Read(item, binary.LittleEndian, etag); err != nil {
-		log.Printf("Cannot read etag from item with key=[%s]: [%s]", key, err)
+	if err = binaryRead(item, etag, "etag"); err != nil {
 		return
 	}
 	if etagOld == *etag {
@@ -149,8 +148,7 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 		item = nil
 		return
 	}
-	if err = binary.Read(item, binary.LittleEndian, &validateTtl); err != nil {
-		log.Printf("Cannot read validateTtl from item with key=[%s]: [%s]", key, err)
+	if err = binaryRead(item, &validateTtl, "validateTtl"); err != nil {
 		return
 	}
 	return
@@ -256,16 +254,7 @@ func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dura
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
-	defer func() {
-		if err != nil {
-			txn.Rollback()
-		}
-	}()
-
-	if err = binary.Write(txn, binary.LittleEndian, &flags); err != nil {
-		log.Printf("Error when writing flags=[%d] into SetTxn: [%s]", flags, err)
-		return nil
-	}
+	binaryWrite(txn, &flags, "flags")
 	return txn
 }
 
@@ -327,20 +316,8 @@ func cSetToCache(cache ybc.Cacher, key []byte, expiration time.Duration, size in
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
-	defer func() {
-		if err != nil {
-			txn.Rollback()
-		}
-	}()
-
-	if err = binary.Write(txn, binary.LittleEndian, &etag); err != nil {
-		log.Printf("Error when writing etag=[%d] into SetTxn: [%s]", etag, err)
-		return nil
-	}
-	if err = binary.Write(txn, binary.LittleEndian, &validateTtl); err != nil {
-		log.Printf("Error when writing validateTtl=[%d] into SetTxn: [%s]", validateTtl, err)
-		return nil
-	}
+	binaryWrite(txn, &etag, "etag")
+	binaryWrite(txn, &validateTtl, "validateTtl")
 	return txn
 }
 

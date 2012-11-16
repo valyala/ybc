@@ -5,6 +5,7 @@ package memcache
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"io"
 	"log"
 	"strconv"
@@ -330,4 +331,18 @@ func writeMilliseconds(w *bufio.Writer, duration time.Duration, scratchBuf *[]by
 		t = maxMilliseconds
 	}
 	return writeUint32(w, uint32(t), scratchBuf)
+}
+
+func binaryRead(r io.Reader, data interface{}, name string) error {
+	if err := binary.Read(r, binary.LittleEndian, data); err != nil {
+		log.Printf("Error in binary.Read() for [%s]: [%s]", name, err)
+		return err
+	}
+	return nil
+}
+
+func binaryWrite(w io.Writer, data interface{}, name string) {
+	if err := binary.Write(w, binary.LittleEndian, data); err != nil {
+		log.Fatalf("Error in binary.Write() for [%s]: [%s]", name, err)
+	}
 }
