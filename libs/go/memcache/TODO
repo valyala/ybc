@@ -1,3 +1,4 @@
 * Implement a client supporting local caching with efficient cache items'
   re-validation based on Client.Cset() and Client.Cget().
+* Provide API compatible with https://github.com/bradfitz/gomemcache .
 * Add more efficient binary communication protocol.
