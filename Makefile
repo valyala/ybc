@@ -131,6 +131,12 @@ go-memcached:
 go-memcached-bench:
 	$(GOCC) build -o memcached-bench -a -tags release ./apps/go/memcached-bench
 
+go-update:
+	$(GOCC) get -u -a github.com/valyala/ybc/bindings/go/ybc
+	$(GOCC) get -u -a github.com/valyala/ybc/libs/go/memcache
+	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached
+	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached-bench
+
 clean:
 	rm -f ybc-32-release.o
 	rm -f ybc-64-release.o
