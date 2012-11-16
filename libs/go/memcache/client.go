@@ -506,7 +506,7 @@ type Citem struct {
 	// Etag should uniquely identify the given item.
 	Etag uint64
 
-	// Validation time. After this period of time the item cannot
+	// Validation time. After this period of time the item shouldn't
 	// be returned to the caller without re-validation via Client.Cget().
 	ValidateTtl time.Duration
 
