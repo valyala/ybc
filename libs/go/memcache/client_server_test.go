@@ -202,7 +202,7 @@ func TestClient_GetDe(t *testing.T) {
 	cacher_GetDe(c, t)
 }
 
-func cacher_CGetCSet(c Cacher, t *testing.T) {
+func cacher_CgetCset(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 	expiration := time.Hour * 123343
@@ -217,46 +217,46 @@ func cacher_CGetCSet(c Cacher, t *testing.T) {
 		ValidateTtl: validateTtl,
 	}
 
-	if err := c.CGet(&item); err != ErrCacheMiss {
-		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrCacheMiss", err)
+	if err := c.Cget(&item); err != ErrCacheMiss {
+		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrCacheMiss", err)
 	}
 
-	if err := c.CSet(&item); err != nil {
-		t.Fatalf("Error in Client.CSet(): [%s]", err)
+	if err := c.Cset(&item); err != nil {
+		t.Fatalf("Error in Client.Cset(): [%s]", err)
 	}
 
-	if err := c.CGet(&item); err != ErrNotModified {
-		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
+	if err := c.Cget(&item); err != ErrNotModified {
+		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrNotModified", err)
 	}
 
 	item.Value = nil
 	item.Etag = 3234898
 	item.Expiration = expiration + 10000*time.Second
-	if err := c.CGet(&item); err != nil {
-		t.Fatalf("Unexpected error returned from Client.CGet(): [%s]", err)
+	if err := c.Cget(&item); err != nil {
+		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]", err)
 	}
 	if item.Etag != etag {
-		t.Fatalf("Unexpected etag=[%d] returned from Client.CGet(). Expected [%d]", item.Etag, etag)
+		t.Fatalf("Unexpected etag=[%d] returned from Client.Cget(). Expected [%d]", item.Etag, etag)
 	}
 	if item.ValidateTtl != validateTtl {
-		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.CGet(). Expected [%d]", item.ValidateTtl, validateTtl)
+		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.Cget(). Expected [%d]", item.ValidateTtl, validateTtl)
 	}
 	if !bytes.Equal(item.Value, value) {
-		t.Fatalf("Unexpected value=[%s] returned from Client.CGet(). Expected [%d]", item.Value, value)
+		t.Fatalf("Unexpected value=[%s] returned from Client.Cget(). Expected [%d]", item.Value, value)
 	}
 	if item.Expiration > expiration {
-		t.Fatalf("Unexpected expiration=[%d] returned from Client.CGet(). Expected not more than [%d]", item.Expiration, expiration)
+		t.Fatalf("Unexpected expiration=[%d] returned from Client.Cget(). Expected not more than [%d]", item.Expiration, expiration)
 	}
 }
 
-func TestClient_CGetCSet(t *testing.T) {
+func TestClient_CgetCset(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
 	c.Start()
 	defer c.Stop()
 
-	cacher_CGetCSet(c, t)
+	cacher_CgetCset(c, t)
 }
 
 func lookupItem(items []Item, key []byte) *Item {
@@ -292,17 +292,17 @@ func checkItems(c Cacher, orig_items []Item, t *testing.T) {
 func checkCItems(c Cacher, items []Citem, t *testing.T) {
 	for i := 0; i < len(items); i++ {
 		item := items[i]
-		err := c.CGet(&item)
+		err := c.Cget(&item)
 		if err == ErrCacheMiss {
 			continue
 		}
 		if err != ErrNotModified {
-			t.Fatalf("Unexpected error returned from Client.CGet(): [%s]. Expected ErrNotModified", err)
+			t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrNotModified", err)
 		}
 
 		item.Etag++
-		if err := c.CGet(&item); err != nil {
-			t.Fatalf("Error when calling Client.CGet(): [%s]", err)
+		if err := c.Cget(&item); err != nil {
+			t.Fatalf("Error when calling Client.Cget(): [%s]", err)
 		}
 		if item.Etag != items[i].Etag {
 			t.Fatalf("Unexpected etag=%d returned. Expected %d", item.Etag, items[i].Etag)
@@ -364,7 +364,7 @@ func TestClient_SetNowait(t *testing.T) {
 	cacher_SetNowait(c, t)
 }
 
-func cacher_CSetNowait(c Cacher, t *testing.T) {
+func cacher_CsetNowait(c Cacher, t *testing.T) {
 	itemsCount := 1000
 	items := make([]Citem, itemsCount)
 	for i := 0; i < itemsCount; i++ {
@@ -373,20 +373,20 @@ func cacher_CSetNowait(c Cacher, t *testing.T) {
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
 		item.Etag = uint64(i)
 		item.ValidateTtl = time.Second * time.Duration(i)
-		c.CSetNowait(item)
+		c.CsetNowait(item)
 	}
 
 	checkCItems(c, items, t)
 }
 
-func TestClient_CSetNowait(t *testing.T) {
+func TestClient_CsetNowait(t *testing.T) {
 	c, s, cache := newClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
 	c.Start()
 	defer c.Stop()
 
-	cacher_CSetNowait(c, t)
+	cacher_CsetNowait(c, t)
 }
 
 func cacher_Delete(c Cacher, t *testing.T) {
@@ -549,10 +549,10 @@ func checkMalformedKey(c Cacher, key string, t *testing.T) {
 	citem := Citem{
 		Key: item.Key,
 	}
-	if err := c.CGet(&citem); err != ErrMalformedKey {
+	if err := c.Cget(&citem); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
-	if err := c.CSet(&citem); err != ErrMalformedKey {
+	if err := c.Cset(&citem); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
 }
@@ -597,14 +597,14 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	if err := c.GetDe(&item, time.Second); err != ErrNoServers {
 		t.Fatalf("GetDe() should return ErrNoServers, but returned [%s]", err)
 	}
-	if err := c.CGet(&citem); err != ErrNoServers {
-		t.Fatalf("CGet() should return ErrNoServers, but returned [%s]", err)
+	if err := c.Cget(&citem); err != ErrNoServers {
+		t.Fatalf("Cget() should return ErrNoServers, but returned [%s]", err)
 	}
 	if err := c.Set(&item); err != ErrNoServers {
 		t.Fatalf("Set() should return ErrNoServers, but returned [%s]", err)
 	}
-	if err := c.CSet(&citem); err != ErrNoServers {
-		t.Fatalf("CSet() should return ErrNoServers, but returned [%s]", err)
+	if err := c.Cset(&citem); err != ErrNoServers {
+		t.Fatalf("Cset() should return ErrNoServers, but returned [%s]", err)
 	}
 	if err := c.Delete(item.Key); err != ErrNoServers {
 		t.Fatalf("Delete() should return ErrNoServers, but returned [%s]", err)
@@ -686,7 +686,7 @@ func TestDistributedClient_GetDe(t *testing.T) {
 	cacher_GetDe(c, t)
 }
 
-func TestDistributedClient_CGetCSet(t *testing.T) {
+func TestDistributedClient_CgetCset(t *testing.T) {
 	c, ss, caches := newDistributedClientServersCaches(t)
 	defer closeCaches(caches)
 	defer stopServers(ss)
@@ -694,7 +694,7 @@ func TestDistributedClient_CGetCSet(t *testing.T) {
 	defer c.Stop()
 	addServersToClient(c, ss)
 
-	cacher_CGetCSet(c, t)
+	cacher_CgetCset(c, t)
 }
 
 func TestDistributedClient_GetMulti(t *testing.T) {
@@ -719,7 +719,7 @@ func TestDistributedClient_SetNowait(t *testing.T) {
 	cacher_SetNowait(c, t)
 }
 
-func TestDistributedClient_CSetNowait(t *testing.T) {
+func TestDistributedClient_CsetNowait(t *testing.T) {
 	c, ss, caches := newDistributedClientServersCaches(t)
 	defer closeCaches(caches)
 	defer stopServers(ss)
@@ -727,7 +727,7 @@ func TestDistributedClient_CSetNowait(t *testing.T) {
 	defer c.Stop()
 	addServersToClient(c, ss)
 
-	cacher_CSetNowait(c, t)
+	cacher_CsetNowait(c, t)
 }
 
 func TestDistributedClient_Delete(t *testing.T) {

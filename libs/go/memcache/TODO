@@ -1,3 +1,3 @@
 * Implement a client supporting local caching with efficient cache items'
-  re-validation based on Client.CSet() and Client.CGet().
+  re-validation based on Client.Cset() and Client.Cget().
 * Add more efficient binary communication protocol.

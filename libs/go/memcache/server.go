@@ -115,7 +115,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	return writeGetResponse(c.Writer, key, item, false, scratchBuf) && writeEndCrLf(c.Writer)
 }
 
-func writeCGetResponse(w *bufio.Writer, etag uint64, validateTtl time.Duration, item *ybc.Item, scratchBuf *[]byte) bool {
+func writeCgetResponse(w *bufio.Writer, etag uint64, validateTtl time.Duration, item *ybc.Item, scratchBuf *[]byte) bool {
 	size := item.Available()
 	expiration := item.Ttl()
 	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeStr(w, strWs) &&
@@ -158,7 +158,7 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 	return
 }
 
-func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	n := -1
 
 	key := nextToken(line, &n, "key")
@@ -182,7 +182,7 @@ func processCGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	}
 	defer item.Close()
 
-	return writeCGetResponse(c.Writer, etag, validateTtl, item, scratchBuf)
+	return writeCgetResponse(c.Writer, etag, validateTtl, item, scratchBuf)
 }
 
 func expectNoreply(line []byte, n *int) bool {
@@ -286,7 +286,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	return readValueAndWriteResponse(c, txn, size, noreply)
 }
 
-func parseCSetCmd(line []byte) (key []byte, expiration time.Duration, size int, etag uint64, validateTtl time.Duration, noreply bool, ok bool) {
+func parseCsetCmd(line []byte) (key []byte, expiration time.Duration, size int, etag uint64, validateTtl time.Duration, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -347,8 +347,8 @@ func cSetToCache(cache ybc.Cacher, key []byte, expiration time.Duration, size in
 	return txn
 }
 
-func processCSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, expiration, size, etag, validateTtl, noreply, ok := parseCSetCmd(line)
+func processCsetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	key, expiration, size, etag, validateTtl, noreply, ok := parseCsetCmd(line)
 	if !ok {
 		return false
 	}
@@ -468,14 +468,14 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	if bytes.HasPrefix(line, strGetDe) {
 		return processGetDeCmd(c, cache, line[len(strGetDe):], scratchBuf)
 	}
-	if bytes.HasPrefix(line, strCGet) {
-		return processCGetCmd(c, cache, line[len(strCGet):], scratchBuf)
+	if bytes.HasPrefix(line, strCget) {
+		return processCgetCmd(c, cache, line[len(strCget):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strSet) {
 		return processSetCmd(c, cache, line[len(strSet):], scratchBuf)
 	}
-	if bytes.HasPrefix(line, strCSet) {
-		return processCSetCmd(c, cache, line[len(strCSet):], scratchBuf)
+	if bytes.HasPrefix(line, strCset) {
+		return processCsetCmd(c, cache, line[len(strCset):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strDelete) {
 		return processDeleteCmd(c, cache, line[len(strDelete):], scratchBuf)

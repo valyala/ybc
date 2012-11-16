@@ -205,12 +205,12 @@ func (c *DistributedClient) Get(item *Item) error {
 	return client.Get(item)
 }
 
-func (c *DistributedClient) CGet(item *Citem) error {
+func (c *DistributedClient) Cget(item *Citem) error {
 	client, err := c.client(item.Key)
 	if err != nil {
 		return err
 	}
-	return client.CGet(item)
+	return client.Cget(item)
 }
 
 func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error {
@@ -229,12 +229,12 @@ func (c *DistributedClient) Set(item *Item) error {
 	return client.Set(item)
 }
 
-func (c *DistributedClient) CSet(item *Citem) error {
+func (c *DistributedClient) Cset(item *Citem) error {
 	client, err := c.client(item.Key)
 	if err != nil {
 		return err
 	}
-	return client.CSet(item)
+	return client.Cset(item)
 }
 
 func (c *DistributedClient) SetNowait(item *Item) {
@@ -244,10 +244,10 @@ func (c *DistributedClient) SetNowait(item *Item) {
 	}
 }
 
-func (c *DistributedClient) CSetNowait(item *Citem) {
+func (c *DistributedClient) CsetNowait(item *Citem) {
 	client, err := c.client(item.Key)
 	if err == nil {
-		client.CSetNowait(item)
+		client.CsetNowait(item)
 	}
 }
 

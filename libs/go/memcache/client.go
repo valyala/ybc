@@ -490,8 +490,8 @@ func (c *Client) Get(item *Item) error {
 	return nil
 }
 
-// The item for 'conditional set/get' requests - Client.CGet(), Client.CSet(),
-// Client.CSetNowait().
+// The item for 'conditional set/get' requests - Client.Cget(), Client.Cset(),
+// Client.CsetNowait().
 type Citem struct {
 	Key   []byte
 	Value []byte
@@ -500,7 +500,7 @@ type Citem struct {
 	Etag uint64
 
 	// Validation time. After this period of time the item cannot
-	// be returned to the caller without re-validation via Client.CGet().
+	// be returned to the caller without re-validation via Client.Cget().
 	ValidateTtl time.Duration
 
 	// Expiration time for the item.
@@ -508,19 +508,19 @@ type Citem struct {
 	Expiration time.Duration
 }
 
-type taskCGet struct {
+type taskCget struct {
 	item        *Citem
 	found       bool
 	notModified bool
 	taskSync
 }
 
-func (t *taskCGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strCGet) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
+func (t *taskCget) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return (writeStr(w, strCget) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
 		writeUint64(w, t.item.Etag, scratchBuf) && writeCrLf(w))
 }
 
-func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !readLine(r, scratchBuf) {
 		return false
 	}
@@ -573,7 +573,7 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // by the original memcache server.
 //
 // Conditional get requests must be performed only on items stored in the cache
-// via Client.CSet(). The method returns garbage for items stored via other
+// via Client.Cset(). The method returns garbage for items stored via other
 // mechanisms.
 //
 // Fills item.Value, item.Expiration, item.Etag and item.ValidateTtl only
@@ -584,15 +584,15 @@ func (t *taskCGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // Returns ErrNotModified if the corresponding item on the server has
 // the same etag.
 //
-// Client.CSet() and Client.CGet() are intended for reducing network bandwidth
+// Client.Cset() and Client.Cget() are intended for reducing network bandwidth
 // consumption in multi-level caches. They are modelled after HTTP cache
 // validation approach with entyty tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
-func (c *Client) CGet(item *Citem) error {
+func (c *Client) Cget(item *Citem) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
-	t := taskCGet{
+	t := taskCget{
 		item: item,
 	}
 	t.Init()
@@ -717,14 +717,14 @@ func (c *Client) Set(item *Item) error {
 	return nil
 }
 
-type taskCSet struct {
+type taskCset struct {
 	item *Citem
 	taskSync
 }
 
-func writeCSetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
+func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	if !writeStr(w, strCSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
+	if !writeStr(w, strCset) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
 		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, size, scratchBuf) || !writeStr(w, strWs) ||
 		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
@@ -739,11 +739,11 @@ func writeCSetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]
 	return writeCrLf(w) && writeStr(w, item.Value) && writeCrLf(w)
 }
 
-func (t *taskCSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCSetRequest(w, t.item, false, scratchBuf)
+func (t *taskCset) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCsetRequest(w, t.item, false, scratchBuf)
 }
 
-func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+func (t *taskCset) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return readSetResponse(r)
 }
 
@@ -752,19 +752,19 @@ func (t *taskCSet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // This is an extension to memcache protocol, so it isn't supported
 // by the original memcache server.
 //
-// Items stored via this method must be obtained only via Client.CGet() call!
+// Items stored via this method must be obtained only via Client.Cget() call!
 // Calls to other methods such as Client.Get() will return garbage
 // for item's key.
 //
-// Client.CSet() and Client.CGet() are intended for reducing network bandwidth
+// Client.Cset() and Client.Cget() are intended for reducing network bandwidth
 // consumption in multi-level caches. They are modelled after HTTP cache
 // validation approach with entyty tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
-func (c *Client) CSet(item *Citem) error {
+func (c *Client) Cset(item *Citem) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
-	t := taskCSet{
+	t := taskCset{
 		item: item,
 	}
 	t.Init()
@@ -809,24 +809,24 @@ func (c *Client) SetNowait(item *Item) {
 	c.do(&t)
 }
 
-type taskCSetNowait struct {
+type taskCsetNowait struct {
 	item Citem
 	taskNowait
 }
 
-func (t *taskCSetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCSetRequest(w, &t.item, true, scratchBuf)
+func (t *taskCsetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCsetRequest(w, &t.item, true, scratchBuf)
 }
 
-// The same as Client.CSet(), but doesn't wait for operation completion.
+// The same as Client.Cset(), but doesn't wait for operation completion.
 //
 // Do not modify slices pointed by item.Key and item.Value after passing
 // to this function - it actually becomes an owner of these slices.
-func (c *Client) CSetNowait(item *Citem) {
+func (c *Client) CsetNowait(item *Citem) {
 	if !validateKey(item.Key) {
 		return
 	}
-	t := taskCSetNowait{
+	t := taskCsetNowait{
 		item: *item,
 	}
 	c.do(&t)

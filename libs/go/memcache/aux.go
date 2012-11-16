@@ -28,8 +28,8 @@ const (
 
 var (
 	strCrLf        = []byte("\r\n")
-	strCGet        = []byte("cget ")
-	strCSet        = []byte("cset ")
+	strCget        = []byte("cget ")
+	strCset        = []byte("cset ")
 	strDelete      = []byte("delete ")
 	strDeleted     = []byte("DELETED")
 	strEnd         = []byte("END")

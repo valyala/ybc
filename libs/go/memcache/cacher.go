@@ -11,11 +11,11 @@ type Cacher interface {
 	Get(item *Item) error
 	GetMulti(keys [][]byte) (items []Item, err error)
 	GetDe(item *Item, graceDuration time.Duration) error
-	CGet(item *Citem) error
+	Cget(item *Citem) error
 	Set(item *Item) error
 	SetNowait(item *Item)
-	CSet(item *Citem) error
-	CSetNowait(item *Citem)
+	Cset(item *Citem) error
+	CsetNowait(item *Citem)
 	Delete(key []byte) error
 	DeleteNowait(key []byte)
 	FlushAll() error
