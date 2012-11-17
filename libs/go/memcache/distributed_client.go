@@ -12,7 +12,7 @@ const (
 )
 
 var (
-	ErrNoServers = errors.New("memcache: no servers registered in DistributedClient")
+	ErrNoServers = errors.New("memcache.DistributedClient: there are no registered servers")
 )
 
 // Memcache client, which can shard requests to multiple servers
