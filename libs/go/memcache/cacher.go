@@ -4,20 +4,10 @@ import (
 	"time"
 )
 
-// Client and DistributedClient implement this interface.
-type Ccacher interface {
-	Cget(item *Citem) error
-	Cset(item *Citem) error
-	CsetNowait(item *Citem)
-}
-
 // Client, DistributedClient and CachingClient implement this interface.
 type Memcacher interface {
-	Start()
-	Stop()
 	Get(item *Item) error
 	GetMulti(items []Item) error
-	GetDe(item *Item, graceDuration time.Duration) error
 	Set(item *Item) error
 	SetNowait(item *Item)
 	Delete(key []byte) error
@@ -29,7 +19,25 @@ type Memcacher interface {
 }
 
 // Client and DistributedClient implement this interface.
-type Cacher interface {
+type MemcacherDe interface {
 	Memcacher
+
+	GetDe(item *Item, graceDuration time.Duration) error
+}
+
+// Client and DistributedClient implement this interface.
+type Ccacher interface {
+	MemcacherDe
+
+	Cget(item *Citem) error
+	Cset(item *Citem) error
+	CsetNowait(item *Citem)
+}
+
+// Client and DistributedClient implement this interface.
+type Cacher interface {
 	Ccacher
+
+	Start()
+	Stop()
 }
