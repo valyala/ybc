@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	connectAddr             = flag.String("connectAddr", ":11211", "Memcached address to test")
-	connectionsCount        = flag.Int("connectionsCount", 4, "The number of TCP connections to memcached server")
+	serverAddr              = flag.String("serverAddr", ":11211", "Address of memcache server to test")
+	connectionsCount        = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	key                     = flag.String("key", "key", "The key to query in memcache")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests")
@@ -104,7 +104,7 @@ func main() {
 
 	runtime.GOMAXPROCS(*goMaxProcs)
 	client := memcache.Client{
-		ConnectAddr:             *connectAddr,
+		ServerAddr:              *serverAddr,
 		ConnectionsCount:        *connectionsCount,
 		MaxPendingRequestsCount: *maxPendingRequestsCount,
 		ReadBufferSize:          *readBufferSize,
@@ -116,7 +116,7 @@ func main() {
 	defer client.Stop()
 
 	fmt.Printf("Config:\n")
-	fmt.Printf("connectAddr=[%s]\n", *connectAddr)
+	fmt.Printf("serverAddr=[%s]\n", *serverAddr)
 	fmt.Printf("connectionsCount=[%d]\n", *connectionsCount)
 	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
 	fmt.Printf("key=[%s]\n", *key)

@@ -34,7 +34,7 @@ const (
 type Client struct {
 	// TCP address of memcached server to connect to.
 	// The address should be in the form addr:port.
-	ConnectAddr string
+	ServerAddr string
 
 	// The number of simultaneous TCP connections to establish
 	// to memcached server.
@@ -138,9 +138,9 @@ func responsesReceiver(r *bufio.Reader, responses <-chan tasker, c net.Conn, don
 }
 
 func handleAddr(c *Client) {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", c.ConnectAddr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", c.ServerAddr)
 	if err != nil {
-		log.Printf("Cannot resolve tcp address=[%s]: [%s]", c.ConnectAddr, err)
+		log.Printf("Cannot resolve ServerAddr=[%s]: [%s]", c.ServerAddr, err)
 		return
 	}
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
@@ -233,6 +233,8 @@ func (c *Client) do(t tasker) bool {
 }
 
 // Starts the given client.
+//
+// No longer needed clients must be stopped via Client.Stop() call.
 func (c *Client) Start() {
 	if c.requests != nil || c.done != nil {
 		panic("Did you forgot calling Client.Stop() before calling Client.Start()?")
@@ -241,7 +243,7 @@ func (c *Client) Start() {
 	go c.run()
 }
 
-// Stops the given client.
+// Stops the given client, which has been started via Client.Start() call.
 func (c *Client) Stop() {
 	close(c.requests)
 	c.done.Wait()

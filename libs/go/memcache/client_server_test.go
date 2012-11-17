@@ -77,25 +77,11 @@ func TestServer_Wait(t *testing.T) {
 
 func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache) {
 	c = &Client{
-		ConnectAddr:      testAddr,
+		ServerAddr:       testAddr,
 		ConnectionsCount: 1, // tests require single connection!
 	}
 	s, cache = newServerCache(t)
 	s.Start()
-	return
-}
-
-func newDistributedClientServersCaches(t *testing.T) (c *DistributedClient, ss []*Server, caches []*ybc.Cache) {
-	c = &DistributedClient{
-		ConnectionsCount: 1, // tests require single connection!
-	}
-	for i := 0; i < 4; i++ {
-		serverAddr := fmt.Sprintf("localhost:%d", 12345+i)
-		s, cache := newServerCacheWithAddr(serverAddr, t)
-		s.Start()
-		ss = append(ss, s)
-		caches = append(caches, cache)
-	}
 	return
 }
 
@@ -212,10 +198,10 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 	validateTtl := time.Millisecond * 98765432
 	item := Citem{
 		Item: Item{
-			Key:         key,
-			Value:       value,
-			Expiration:  expiration,
-			Flags:       flags,
+			Key:        key,
+			Value:      value,
+			Expiration: expiration,
+			Flags:      flags,
 		},
 		Etag:        etag,
 		ValidateTtl: validateTtl,
@@ -330,7 +316,7 @@ func TestClient_GetMulti_EmptyItems(t *testing.T) {
 }
 
 func cacher_GetMulti(c Cacher, t *testing.T) {
-	itemsCount := 1000
+	itemsCount := 100
 	items := make([]Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &items[i]
@@ -349,7 +335,7 @@ func TestClient_GetMulti(t *testing.T) {
 }
 
 func cacher_SetNowait(c Cacher, t *testing.T) {
-	itemsCount := 1000
+	itemsCount := 100
 	items := make([]Item, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &items[i]
@@ -366,7 +352,7 @@ func TestClient_SetNowait(t *testing.T) {
 }
 
 func cacher_CsetNowait(c Cacher, t *testing.T) {
-	itemsCount := 1000
+	itemsCount := 100
 	items := make([]Citem, itemsCount)
 	for i := 0; i < itemsCount; i++ {
 		item := &items[i]
@@ -584,7 +570,7 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 	etag := uint64(1234)
 	validateTtl := time.Second
 	citem := Citem{
-		Item: item,
+		Item:        item,
 		Etag:        etag,
 		ValidateTtl: validateTtl,
 	}
@@ -622,12 +608,12 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	defer c.Stop()
 
 	item := Item{
-		Key:   []byte("key"),
-		Value: []byte("value"),
+		Key:        []byte("key"),
+		Value:      []byte("value"),
 		Expiration: time.Second,
 	}
 	citem := Citem{
-		Item: item,
+		Item:        item,
 		Etag:        12345,
 		ValidateTtl: time.Second,
 	}
@@ -660,6 +646,20 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	}
 }
 
+func newDistributedClientServersCaches(t *testing.T) (c *DistributedClient, ss []*Server, caches []*ybc.Cache) {
+	c = &DistributedClient{
+		ConnectionsCount: 1, // tests require single connection!
+	}
+	for i := 0; i < 4; i++ {
+		serverAddr := fmt.Sprintf("localhost:%d", 12345+i)
+		s, cache := newServerCacheWithAddr(serverAddr, t)
+		s.Start()
+		ss = append(ss, s)
+		caches = append(caches, cache)
+	}
+	return
+}
+
 func closeCaches(caches []*ybc.Cache) {
 	for _, cache := range caches {
 		cache.Close()
@@ -672,18 +672,48 @@ func stopServers(servers []*Server) {
 	}
 }
 
-func addServersToClient(c *DistributedClient, ss []*Server) {
-	for _, s := range ss {
-		c.AddServer(s.ListenAddr)
-	}
-}
-
 func TestDistibutedClient_StartStop(t *testing.T) {
 	c, ss, caches := newDistributedClientServersCaches(t)
 	defer closeCaches(caches)
 	defer stopServers(ss)
 
 	cacher_StartStop(c)
+}
+
+func TestDistributedClient_StartStaticStop_Multi(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+
+	serverAddrs := make([]string, len(ss))
+	for i, s := range ss {
+		serverAddrs[i] = s.ListenAddr
+	}
+	for i := 0; i < 10; i++ {
+		c.StartStatic(serverAddrs)
+		c.Stop()
+	}
+}
+
+func expectPanic(t *testing.T, f func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("unexpected empty panic message")
+		}
+	}()
+	f()
+	t.Fatal("the function must panic!")
+}
+
+func TestDistributedClient_StaticAddRemoveServer(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+
+	serverAddr := ss[0].ListenAddr
+	expectPanic(t, func() { c.AddServer(serverAddr) })
+	expectPanic(t, func() { c.DeleteServer(serverAddr) })
 }
 
 func TestDistibutedClient_AddDeleteServer(t *testing.T) {
@@ -693,7 +723,9 @@ func TestDistibutedClient_AddDeleteServer(t *testing.T) {
 	c.Start()
 	defer c.Stop()
 
-	addServersToClient(c, ss)
+	for _, s := range ss {
+		c.AddServer(s.ListenAddr)
+	}
 	for _, s := range ss {
 		c.DeleteServer(s.ListenAddr)
 	}
@@ -713,63 +745,93 @@ func distributedClient_RunTest(testFunc cacherTestFunc, t *testing.T) {
 	defer stopServers(ss)
 	c.Start()
 	defer c.Stop()
-	addServersToClient(c, ss)
+	for _, s := range ss {
+		c.AddServer(s.ListenAddr)
+	}
+
+	testFunc(c, t)
+}
+
+func distributedClientStatic_RunTest(testFunc cacherTestFunc, t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	serverAddrs := make([]string, len(ss))
+	for i, s := range ss {
+		serverAddrs[i] = s.ListenAddr
+	}
+	c.StartStatic(serverAddrs)
+	defer c.Stop()
 
 	testFunc(c, t)
 }
 
 func TestDistributedClient_GetSet(t *testing.T) {
 	distributedClient_RunTest(cacher_GetSet, t)
+	distributedClientStatic_RunTest(cacher_GetSet, t)
 }
 
 func TestDistributedClient_GetDe(t *testing.T) {
 	distributedClient_RunTest(cacher_GetDe, t)
+	distributedClientStatic_RunTest(cacher_GetDe, t)
 }
 
 func TestDistributedClient_CgetCset(t *testing.T) {
 	distributedClient_RunTest(cacher_CgetCset, t)
+	distributedClientStatic_RunTest(cacher_CgetCset, t)
 }
 
 func TestDistributedClient_GetMulti_EmptyItems(t *testing.T) {
 	distributedClient_RunTest(cacher_GetMulti_EmptyItems, t)
+	distributedClientStatic_RunTest(cacher_GetMulti_EmptyItems, t)
 }
 
 func TestDistributedClient_GetMulti(t *testing.T) {
 	distributedClient_RunTest(cacher_GetMulti, t)
+	distributedClientStatic_RunTest(cacher_GetMulti, t)
 }
 
 func TestDistributedClient_SetNowait(t *testing.T) {
 	distributedClient_RunTest(cacher_SetNowait, t)
+	distributedClientStatic_RunTest(cacher_SetNowait, t)
 }
 
 func TestDistributedClient_CsetNowait(t *testing.T) {
 	distributedClient_RunTest(cacher_CsetNowait, t)
+	distributedClientStatic_RunTest(cacher_CsetNowait, t)
 }
 
 func TestDistributedClient_Delete(t *testing.T) {
 	distributedClient_RunTest(cacher_Delete, t)
+	distributedClientStatic_RunTest(cacher_Delete, t)
 }
 
 func TestDistributedClient_DeleteNowait(t *testing.T) {
 	distributedClient_RunTest(cacher_DeleteNowait, t)
+	distributedClientStatic_RunTest(cacher_DeleteNowait, t)
 }
 
 func TestDistributedClient_FlushAll(t *testing.T) {
 	distributedClient_RunTest(cacher_FlushAll, t)
+	distributedClientStatic_RunTest(cacher_FlushAll, t)
 }
 
 func TestDistributedClient_FlushAllDelayed(t *testing.T) {
 	distributedClient_RunTest(cacher_FlushAllDelayed, t)
+	distributedClientStatic_RunTest(cacher_FlushAllDelayed, t)
 }
 
 func TestDistributedClient_MalformedKey(t *testing.T) {
 	distributedClient_RunTest(cacher_MalformedKey, t)
+	distributedClientStatic_RunTest(cacher_MalformedKey, t)
 }
 
 func TestDistributedClient_NilValue(t *testing.T) {
 	distributedClient_RunTest(cacher_NilValue, t)
+	distributedClientStatic_RunTest(cacher_NilValue, t)
 }
 
 func TestDistributedClient_EmptyValue(t *testing.T) {
 	distributedClient_RunTest(cacher_EmptyValue, t)
+	distributedClientStatic_RunTest(cacher_EmptyValue, t)
 }

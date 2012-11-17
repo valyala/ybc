@@ -568,6 +568,8 @@ func (s *Server) run() {
 }
 
 // Starts the given server.
+//
+// No longer needed servers must be stopped via Server.Stop() call.
 func (s *Server) Start() {
 	if s.listenSocket != nil || s.done != nil {
 		panic("Did you forgot calling Server.Stop() before calling Server.Start()?")
@@ -582,13 +584,14 @@ func (s *Server) Wait() error {
 	return s.err
 }
 
-// Start the server and waits until it is stopped.
+// Start the server and waits until it is stopped via Server.Stop() call.
 func (s *Server) Serve() error {
 	s.Start()
 	return s.Wait()
 }
 
-// Stops the server.
+// Stops the server, which has been started via either Server.Start()
+// or Server.Serve() calls.
 func (s *Server) Stop() {
 	s.listenSocket.Close()
 	s.Wait()
