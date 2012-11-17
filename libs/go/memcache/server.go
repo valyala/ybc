@@ -495,23 +495,33 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 // Memcache server.
 type Server struct {
 	// The underlying cache storage.
+	// Required parameter.
+	//
+	// The cache must be initialized before passing it here.
+	//
+	// Currently ybc.Cache and ybc.Cluster may be passed here.
 	Cache ybc.Cacher
 
 	// TCP address to listen to. Must be in the form addr:port.
+	// Required parameter.
 	ListenAddr string
 
 	// The size of buffer used for reading requests from clients
 	// per each connection.
+	// Optional parameter.
 	ReadBufferSize int
 
 	// The size of buffer used for writing responses to clients
 	// per each connection.
+	// Optional parameter.
 	WriteBufferSize int
 
 	// The size in bytes of OS-supplied read buffer per TCP connection.
+	// Optional parameter.
 	OSReadBufferSize int
 
 	// The size in bytes of OS-supplied write buffer per TCP connection.
+	// Optional parameter.
 	OSWriteBufferSize int
 
 	listenSocket *net.TCPListener

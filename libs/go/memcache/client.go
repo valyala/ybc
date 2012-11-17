@@ -34,11 +34,14 @@ const (
 // The client works with a single memcached server.
 type Client struct {
 	// TCP address of memcached server to connect to.
+	// Required parameter.
+	//
 	// The address should be in the form addr:port.
 	ServerAddr string
 
 	// The number of simultaneous TCP connections to establish
 	// to memcached server.
+	// Optional parameter.
 	//
 	// The Client is able to squeeze out impossible from a single
 	// connection by pipelining a ton of requests on it.
@@ -55,20 +58,25 @@ type Client struct {
 
 	// The maximum number of pending requests awaiting to be processed
 	// by memcached server.
+	// Optional parameter.
 	MaxPendingRequestsCount int
 
 	// The size in bytes of buffer used by the Client for reading responses
 	// received from memcached per connection.
+	// Optional parameter.
 	ReadBufferSize int
 
 	// The size in bytes of buffer used by the Client for writing requests
 	// to be sent to memcached per connection.
+	// Optional parameter.
 	WriteBufferSize int
 
 	// The size in bytes of OS-supplied read buffer per TCP connection.
+	// Optional parameter.
 	OSReadBufferSize int
 
 	// The size in bytes of OS-supplied write buffer per TCP connection.
+	// Optional parameter.
 	OSWriteBufferSize int
 
 	requests chan tasker
@@ -77,14 +85,24 @@ type Client struct {
 
 // Memcache item.
 type Item struct {
+	// Item's key.
+	// Required parameter.
 	Key   []byte
+
+	// Item's value.
+	//
+	// The Value is required in set()-type requests and isn't required in
+	// get()-type requests.
 	Value []byte
 
 	// Expiration time for the item.
 	// Zero means the item has no expiration time.
+	//
+	// The Expiration is used only in set()-type requests.
 	Expiration time.Duration
 
-	// An opaque value, which is passed to/from memcache
+	// An opaque value, which is passed to/from memcache.
+	// Optional parameter.
 	Flags uint32
 }
 
