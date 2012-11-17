@@ -15,7 +15,7 @@ func init() {
 
 // Memcache client with in-process data caching.
 //
-// It can save network bandidth between the client and memcache servers.
+// It can save network bandwidth between the client and memcache servers.
 //
 // The client uses approach similar to HTTP cache validation with entity tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
