@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	ErrCacheMiss            = errors.New("memcache: cache miss")
-	ErrClientNotStarted     = errors.New("memcache: the client isn't started or already stopped")
-	ErrCommunicationFailure = errors.New("memcache: communication failure")
-	ErrMalformedKey         = errors.New("memcache: malformed key")
-	ErrNilValue             = errors.New("memcache: nil value")
-	ErrNotModified          = errors.New("memcache: item not modified")
+	ErrCacheMiss            = errors.New("memcache.Client: cache miss")
+	ErrClientNotStarted     = errors.New("memcache.Client: the client isn't started or already stopped")
+	ErrCommunicationFailure = errors.New("memcache.Client: communication failure")
+	ErrMalformedKey         = errors.New("memcache.Client: malformed key")
+	ErrNilValue             = errors.New("memcache.Client: nil value")
+	ErrNotModified          = errors.New("memcache.Client: item not modified")
 )
 
 const (
@@ -525,9 +525,10 @@ type Citem struct {
 	// Etag should uniquely identify the given item.
 	Etag uint64
 
-	// Validation time. After this period of time the item shouldn't
-	// be returned to the caller without re-validation via Client.Cget().
-	ValidateTtl time.Duration
+	// Validation time in milliseconds. After this period of time the item
+	// shouldn't be returned to the caller without re-validation
+	// via Client.Cget().
+	ValidateTtl uint32
 }
 
 type taskCget struct {
@@ -578,7 +579,7 @@ func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if t.item.Etag, ok = parseEtagToken(line, &n); !ok {
 		return false
 	}
-	if t.item.ValidateTtl, ok = parseMillisecondsToken(line, &n, "validateTtl"); !ok {
+	if t.item.ValidateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
 		return false
 	}
 	if !expectEof(line, n) {
@@ -751,7 +752,7 @@ func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]
 		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
 		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
-		!writeMilliseconds(w, item.ValidateTtl, scratchBuf) {
+		!writeUint32(w, item.ValidateTtl, scratchBuf) {
 		return false
 	}
 	if noreply {

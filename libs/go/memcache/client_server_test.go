@@ -217,7 +217,7 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 	flags := uint32(892379)
 
 	etag := uint64(1234567890)
-	validateTtl := time.Millisecond * 98765432
+	validateTtl := uint32(98765432)
 	item := Citem{
 		Item: Item{
 			Key:        key,
@@ -382,7 +382,7 @@ func cacher_CsetNowait(c Cacher, t *testing.T) {
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
 		item.Flags = uint32(i)
 		item.Etag = uint64(i + 1)
-		item.ValidateTtl = time.Second * time.Duration(i+2)
+		item.ValidateTtl = uint32(i + 2)
 		c.CsetNowait(item)
 	}
 
@@ -590,7 +590,7 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 	}
 
 	etag := uint64(1234)
-	validateTtl := time.Second
+	validateTtl := uint32(1000)
 	citem := Citem{
 		Item:        item,
 		Etag:        etag,
@@ -702,7 +702,7 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	citem := Citem{
 		Item:        item,
 		Etag:        12345,
-		ValidateTtl: time.Second,
+		ValidateTtl: 1328,
 	}
 	if err := c.Get(&item); err != ErrNoServers {
 		t.Fatalf("Get() should return ErrNoServers, but returned [%s]", err)
