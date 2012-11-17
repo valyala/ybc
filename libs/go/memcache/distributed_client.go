@@ -70,7 +70,7 @@ func (c *DistributedClient) init(isDynamic bool) {
 	defer c.lock.Unlock()
 
 	if c.clientsMap != nil {
-		panic("Did you forgot calling DistributedClient.Stop()?")
+		panic("Did you forgot calling DistributedClient.Stop() before calling DistributedClient.Start()?")
 	}
 	c.isDynamic = isDynamic
 	c.clientsMap = make(map[string]*Client)
@@ -145,6 +145,9 @@ func (c *DistributedClient) Stop() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	if c.clientsMap == nil {
+		panic("Did you forgot calling DistributedClient.Start() before calling DistributedClient.Stop()?")
+	}
 	for _, client := range c.clientsList {
 		client.Stop()
 	}
@@ -159,7 +162,7 @@ func lookupClientIdx(clients []*Client, client *Client) int {
 			return i
 		}
 	}
-	panic("Tere is no the given client in the clients list")
+	panic("DistributedClient: tere is no the given client in the clients list")
 }
 
 func (c *DistributedClient) deregisterClient(serverAddr string) *Client {
@@ -187,7 +190,7 @@ func (c *DistributedClient) deregisterClient(serverAddr string) *Client {
 // via DistributedClient.DeleteServer() call.
 func (c *DistributedClient) AddServer(serverAddr string) {
 	if !c.isDynamic {
-		panic("DistributedClient.AddServer() cannot be used in static client!")
+		panic("DistributedClient.AddServer() cannot be called from static client!")
 	}
 	c.addServer(serverAddr)
 }
@@ -197,7 +200,7 @@ func (c *DistributedClient) AddServer(serverAddr string) {
 // serverAddr must be in the form 'host:port'
 func (c *DistributedClient) DeleteServer(serverAddr string) {
 	if !c.isDynamic {
-		panic("DistributedClient.DeleteServer() cannot be used in static client!")
+		panic("DistributedClient.DeleteServer() cannot be called from static client!")
 	}
 	client := c.deregisterClient(serverAddr)
 	if client != nil {
@@ -214,11 +217,16 @@ func (c *DistributedClient) clientNolock(key []byte) *Client {
 	return c.clientsList[clientIdx]
 }
 
-func (c *DistributedClient) clientsCount() int {
+func (c *DistributedClient) clientsCount() (n int, err error) {
 	if c.clientsMap == nil {
-		panic("Did you fogot calling DistributedClient.Start()?")
+		err = ErrClientNotStarted
+		return
 	}
-	return len(c.clientsList)
+	n = len(c.clientsList)
+	if n == 0 {
+		err = ErrNoServers
+	}
+	return
 }
 
 func (c *DistributedClient) client(key []byte) (client *Client, err error) {
@@ -226,8 +234,7 @@ func (c *DistributedClient) client(key []byte) (client *Client, err error) {
 		c.lock.Lock()
 		defer c.lock.Unlock()
 	}
-	if c.clientsCount() == 0 {
-		err = ErrNoServers
+	if _, err = c.clientsCount(); err != nil {
 		return
 	}
 	client = c.clientNolock(key)
@@ -239,9 +246,8 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 		c.lock.Lock()
 		defer c.lock.Unlock()
 	}
-	clientsCount := c.clientsCount()
-	if clientsCount == 0 {
-		err = ErrNoServers
+	clientsCount, err := c.clientsCount()
+	if err != nil {
 		return
 	}
 
@@ -259,6 +265,18 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 	return
 }
 
+func filterClientError(err error) error {
+	// Hide ErrClientNotStarted error obtained from the underlying Client,
+	// Since this error may be returned only in one very obscure case -
+	// when the given Client has been deleted from the DistributedClient
+	// and stopped just after it has been returned to the caller, but before
+	// the caller called Client's function.
+	if err == ErrClientNotStarted {
+		return nil
+	}
+	return err
+}
+
 // See Client.GetMulti().
 func (c *DistributedClient) GetMulti(items []Item) error {
 	itemsPerClient, clients, err := c.itemsPerClient(items)
@@ -266,7 +284,7 @@ func (c *DistributedClient) GetMulti(items []Item) error {
 		return err
 	}
 	for clientIdx, clientItems := range itemsPerClient {
-		if err = clients[clientIdx].GetMulti(clientItems); err != nil {
+		if err = filterClientError(clients[clientIdx].GetMulti(clientItems)); err != nil {
 			return err
 		}
 	}
@@ -279,7 +297,7 @@ func (c *DistributedClient) Get(item *Item) error {
 	if err != nil {
 		return err
 	}
-	return client.Get(item)
+	return filterClientError(client.Get(item))
 }
 
 // See Client.Cget().
@@ -288,7 +306,7 @@ func (c *DistributedClient) Cget(item *Citem) error {
 	if err != nil {
 		return err
 	}
-	return client.Cget(item)
+	return filterClientError(client.Cget(item))
 }
 
 // See Client.GetDe().
@@ -297,7 +315,7 @@ func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error
 	if err != nil {
 		return err
 	}
-	return client.GetDe(item, graceDuration)
+	return filterClientError(client.GetDe(item, graceDuration))
 }
 
 // See Client.Set().
@@ -306,7 +324,7 @@ func (c *DistributedClient) Set(item *Item) error {
 	if err != nil {
 		return err
 	}
-	return client.Set(item)
+	return filterClientError(client.Set(item))
 }
 
 // See Client.Cset().
@@ -315,7 +333,7 @@ func (c *DistributedClient) Cset(item *Citem) error {
 	if err != nil {
 		return err
 	}
-	return client.Cset(item)
+	return filterClientError(client.Cset(item))
 }
 
 // See Client.SetNowait().
@@ -340,7 +358,7 @@ func (c *DistributedClient) Delete(key []byte) error {
 	if err != nil {
 		return err
 	}
-	return client.Delete(key)
+	return filterClientError(client.Delete(key))
 }
 
 // See Client.DeleteNowait().
@@ -356,9 +374,8 @@ func (c *DistributedClient) allClients() (clients []*Client, err error) {
 		c.lock.Lock()
 		defer c.lock.Unlock()
 	}
-	clientsCount := c.clientsCount()
-	if clientsCount == 0 {
-		err = ErrNoServers
+	clientsCount, err := c.clientsCount()
+	if err != nil {
 		return
 	}
 	if c.isDynamic {
@@ -377,7 +394,7 @@ func (c *DistributedClient) FlushAllDelayed(expiration time.Duration) error {
 		return err
 	}
 	for _, client := range clients {
-		if err := client.FlushAllDelayed(expiration); err != nil {
+		if err := filterClientError(client.FlushAllDelayed(expiration)); err != nil {
 			return err
 		}
 	}
@@ -391,7 +408,7 @@ func (c *DistributedClient) FlushAll() error {
 		return err
 	}
 	for _, client := range clients {
-		if err := client.FlushAll(); err != nil {
+		if err := filterClientError(client.FlushAll()); err != nil {
 			return err
 		}
 	}

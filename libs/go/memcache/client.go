@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrCacheMiss            = errors.New("memcache: cache miss")
+	ErrClientNotStarted     = errors.New("memcache: the client isn't started or already stopped")
 	ErrCommunicationFailure = errors.New("memcache: communication failure")
 	ErrMalformedKey         = errors.New("memcache: malformed key")
 	ErrNilValue             = errors.New("memcache: nil value")
@@ -88,6 +89,7 @@ type Item struct {
 }
 
 type tasker interface {
+	Init()
 	WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool
 	ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool
 	Done(ok bool)
@@ -224,20 +226,38 @@ func (c *Client) run() {
 	}
 }
 
-func (c *Client) do(t tasker) bool {
-	if c.requests == nil {
-		panic("Did you forgot calling Client.Start()?")
+func handleClosedRequests(err *error) {
+	if r := recover(); r != nil {
+		*err = ErrClientNotStarted
 	}
+}
+
+func (c *Client) pushTask(t tasker) (err error) {
+	defer handleClosedRequests(&err)
 	c.requests <- t
-	return t.Wait()
+	return
+}
+
+func (c *Client) do(t tasker) (err error) {
+	if c.requests == nil {
+		return ErrClientNotStarted
+	}
+	t.Init()
+	if err = c.pushTask(t); err != nil {
+		return
+	}
+	if !t.Wait() {
+		err = ErrCommunicationFailure
+	}
+	return
 }
 
 // Starts the given client.
 //
 // No longer needed clients must be stopped via Client.Stop() call.
 func (c *Client) Start() {
-	if c.requests != nil || c.done != nil {
-		panic("Did you forgot calling Client.Stop() before calling Client.Start()?")
+	if c.done != nil {
+		panic("Did you call Client.Stop() before calling Client.Start()?")
 	}
 	c.init()
 	go c.run()
@@ -245,9 +265,11 @@ func (c *Client) Start() {
 
 // Stops the given client, which has been started via Client.Start() call.
 func (c *Client) Stop() {
+	if c.done == nil {
+		panic("Did you call Client.Start() before calling Client.Stop()?")
+	}
 	close(c.requests)
 	c.done.Wait()
-	c.requests = nil
 	c.done = nil
 }
 
@@ -433,11 +455,7 @@ func (c *Client) GetMulti(items []Item) error {
 	t := taskGetMulti{
 		items: items,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
-	}
-	return nil
+	return c.do(&t)
 }
 
 type taskGet struct {
@@ -490,9 +508,8 @@ func (c *Client) Get(item *Item) error {
 	t := taskGet{
 		item: item,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
+	if err := c.do(&t); err != nil {
+		return err
 	}
 	if !t.found {
 		return ErrCacheMiss
@@ -603,9 +620,8 @@ func (c *Client) Cget(item *Citem) error {
 	t := taskCget{
 		item: item,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
+	if err := c.do(&t); err != nil {
+		return err
 	}
 	if t.notModified {
 		return ErrNotModified
@@ -661,9 +677,8 @@ func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
 			item:          item,
 			graceDuration: graceDuration,
 		}
-		t.Init()
-		if !c.do(&t) {
-			return ErrCommunicationFailure
+		if err := c.do(&t); err != nil {
+			return err
 		}
 		if t.wouldBlock {
 			time.Sleep(time.Millisecond * time.Duration(100))
@@ -721,11 +736,7 @@ func (c *Client) Set(item *Item) error {
 	t := taskSet{
 		item: item,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
-	}
-	return nil
+	return c.do(&t)
 }
 
 type taskCset struct {
@@ -782,14 +793,12 @@ func (c *Client) Cset(item *Citem) error {
 	t := taskCset{
 		item: item,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
-	}
-	return nil
+	return c.do(&t)
 }
 
 type taskNowait struct{}
+
+func (t *taskNowait) Init() {}
 
 func (t *taskNowait) Done(ok bool) {}
 
@@ -897,9 +906,8 @@ func (c *Client) Delete(key []byte) error {
 	t := taskDelete{
 		key: key,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
+	if err := c.do(&t); err != nil {
+		return err
 	}
 	if !t.itemDeleted {
 		return ErrCacheMiss
@@ -948,11 +956,7 @@ func (c *Client) FlushAllDelayed(expiration time.Duration) error {
 	t := taskFlushAllDelayed{
 		expiration: expiration,
 	}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
-	}
-	return nil
+	return c.do(&t)
 }
 
 type taskFlushAll struct {
@@ -970,11 +974,7 @@ func (t *taskFlushAll) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // Flushes all the items on the server.
 func (c *Client) FlushAll() error {
 	t := taskFlushAll{}
-	t.Init()
-	if !c.do(&t) {
-		return ErrCommunicationFailure
-	}
-	return nil
+	return c.do(&t)
 }
 
 type taskFlushAllDelayedNowait struct {

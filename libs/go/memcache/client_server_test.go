@@ -113,6 +113,28 @@ func TestClient_StartStop_Multi(t *testing.T) {
 	cacher_StartStop_Multi(c)
 }
 
+func expectPanic(t *testing.T, f func()) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("unexpected empty panic message for the function [%s]", f)
+		}
+	}()
+	f()
+	t.Fatalf("the function [%s] must panic!", f)
+}
+
+func cacher_StopWithoutStart(c Cacher, t *testing.T) {
+	expectPanic(t, func() { c.Stop() })
+}
+
+func TestClient_StopWithoutStart(t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+
+	cacher_StopWithoutStart(c, t)
+}
+
 func cacher_GetSet(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
@@ -602,6 +624,71 @@ func TestClient_EmptyValue(t *testing.T) {
 	client_RunTest(cacher_EmptyValue, t)
 }
 
+func cacher_NotStartedNoStop(c Cacher, t *testing.T) {
+	item := Item{
+		Key:   []byte("key"),
+		Value: []byte("value"),
+	}
+	citem := Citem{
+		Item: item,
+	}
+
+	if err := c.Get(&item); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.Get(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.GetMulti([]Item{item}); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.GetMulti(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.GetDe(&item, time.Second); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.GetDe(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.Cget(&citem); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.Cget(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.Set(&item); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.Set(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.Cset(&citem); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.Cset(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.Delete(item.Key); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.Delete(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.FlushAll(); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.FlushAll(): [%s]. Expected ErrClientNotStarted", err)
+	}
+	if err := c.FlushAllDelayed(time.Second); err != ErrClientNotStarted {
+		t.Fatalf("Unexpected error received in Cacher.FlushAllDelayed(): [%s]. Expected ErrClientNotStarted", err)
+	}
+}
+
+func cacher_NotStarted(c Cacher, t *testing.T) {
+	c.Stop()
+	defer c.Start()
+	cacher_NotStartedNoStop(c, t)
+}
+
+func TestClient_NotStarted(t *testing.T) {
+	client_RunTest(cacher_NotStarted, t)
+
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+	cacher_NotStartedNoStop(c, t)
+}
+
+func cacher_DoubleStartDoubleStop(c Cacher, t *testing.T) {
+	expectPanic(t, func() { c.Start() })
+
+	c.Stop()
+	defer c.Start()
+	expectPanic(t, func() { c.Stop() })
+}
+
+func TestClient_DoubleStartDoubleStop(t *testing.T) {
+	client_RunTest(cacher_DoubleStartDoubleStop, t)
+}
+
 func TestDistributedClient_NoServers(t *testing.T) {
 	c := DistributedClient{}
 	c.Start()
@@ -695,17 +782,6 @@ func TestDistributedClient_StartStaticStop_Multi(t *testing.T) {
 	}
 }
 
-func expectPanic(t *testing.T, f func()) {
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("unexpected empty panic message")
-		}
-	}()
-	f()
-	t.Fatal("the function must panic!")
-}
-
 func TestDistributedClient_StaticAddRemoveServer(t *testing.T) {
 	c, ss, caches := newDistributedClientServersCaches(t)
 	defer closeCaches(caches)
@@ -737,6 +813,14 @@ func TestDistributedClient_StartStop_Multi(t *testing.T) {
 	defer stopServers(ss)
 
 	cacher_StartStop_Multi(c)
+}
+
+func TestDistributedClient_StopWithoutStart(t *testing.T) {
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+
+	cacher_StopWithoutStart(c, t)
 }
 
 func distributedClient_RunTest(testFunc cacherTestFunc, t *testing.T) {
@@ -834,4 +918,19 @@ func TestDistributedClient_NilValue(t *testing.T) {
 func TestDistributedClient_EmptyValue(t *testing.T) {
 	distributedClient_RunTest(cacher_EmptyValue, t)
 	distributedClientStatic_RunTest(cacher_EmptyValue, t)
+}
+
+func TestDistributedClient_NotStarted(t *testing.T) {
+	distributedClient_RunTest(cacher_NotStarted, t)
+	distributedClientStatic_RunTest(cacher_NotStarted, t)
+
+	c, ss, caches := newDistributedClientServersCaches(t)
+	defer closeCaches(caches)
+	defer stopServers(ss)
+	cacher_NotStartedNoStop(c, t)
+}
+
+func TestDistributedClient_DoubleStartDoubleStop(t *testing.T) {
+	distributedClient_RunTest(cacher_DoubleStartDoubleStop, t)
+	distributedClientStatic_RunTest(cacher_DoubleStartDoubleStop, t)
 }
