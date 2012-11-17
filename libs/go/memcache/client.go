@@ -612,7 +612,7 @@ func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 //
 // Client.Cset() and Client.Cget() are intended for reducing network bandwidth
 // consumption in multi-level caches. They are modelled after HTTP cache
-// validation approach with entyty tags -
+// validation approach with entity tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
 func (c *Client) Cget(item *Citem) error {
 	if !validateKey(item.Key) {
@@ -782,7 +782,7 @@ func (t *taskCset) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 //
 // Client.Cset() and Client.Cget() are intended for reducing network bandwidth
 // consumption in multi-level caches. They are modelled after HTTP cache
-// validation approach with entyty tags -
+// validation approach with entity tags -
 // see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
 func (c *Client) Cset(item *Citem) error {
 	if !validateKey(item.Key) {
