@@ -493,6 +493,17 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 }
 
 // Memcache server.
+//
+// Usage:
+//
+//   s := Server{
+//       Cache: cache,
+//       ListenAddr: ":11211",
+//   }
+//   if err := s.Serve(); err != nil {
+//       handleError(err)
+//   }
+//
 type Server struct {
 	// The underlying cache storage.
 	// Required parameter.

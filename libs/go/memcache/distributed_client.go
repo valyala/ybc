@@ -23,6 +23,24 @@ var (
 // call.
 //
 // The client is goroutine-safe.
+//
+// Usage:
+//
+//   c := DistributedClient{}
+//   c.StartStatic([]string{"host1:11211", "host2:11211", "host3:11211"})
+//   defer c.Stop()
+//
+//   item := Item{
+//       Key:   []byte("key"),
+//       Value: []byte("value"),
+//   }
+//   if err := c.Set(&item); err != nil {
+//       handleError(err)
+//   }
+//   if err := c.Get(&item); err != nil {
+//       handleError(err)
+//   }
+//
 type DistributedClient struct {
 	// The number of simultaneous TCP connections to establish
 	// to each memcached server.

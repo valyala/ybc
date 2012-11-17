@@ -31,7 +31,28 @@ const (
 // The client is goroutine-safe. It is designed to work fast when hundreds
 // concurrent goroutines are calling simultaneously its' methods.
 //
-// The client works with a single memcached server.
+// The client works with a single memcached server. Use DistributedClient
+// if you want working with multiple servers.
+//
+// Usage:
+//
+//   c := Client{
+//       ServerAddr: ":11211",
+//   }
+//   c.Start()
+//   defer c.Stop()
+//
+//   item := Item{
+//       Key:   []byte("key"),
+//       Value: []byte("value"),
+//   }
+//   if err := c.Set(&item); err != nil {
+//       handleError(err)
+//   }
+//   if err := c.Get(&item); err != nil {
+//       handleError(err)
+//   }
+//
 type Client struct {
 	// TCP address of memcached server to connect to.
 	// Required parameter.
@@ -87,7 +108,7 @@ type Client struct {
 type Item struct {
 	// Item's key.
 	// Required parameter.
-	Key   []byte
+	Key []byte
 
 	// Item's value.
 	//
