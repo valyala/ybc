@@ -206,14 +206,18 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 	expiration := time.Hour * 123343
+	flags := uint32(892379)
 
 	etag := uint64(1234567890)
 	validateTtl := time.Millisecond * 98765432
 	item := Citem{
-		Key:         key,
-		Value:       value,
+		Item: Item{
+			Key:         key,
+			Value:       value,
+			Expiration:  expiration,
+			Flags:       flags,
+		},
 		Etag:        etag,
-		Expiration:  expiration,
 		ValidateTtl: validateTtl,
 	}
 
@@ -230,10 +234,14 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 	}
 
 	item.Value = nil
-	item.Etag = 3234898
-	item.Expiration = expiration + 10000*time.Second
+	item.Expiration = expiration + time.Hour
+	item.Flags = 0
+	item.Etag = 0
 	if err := c.Cget(&item); err != nil {
 		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]", err)
+	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected flags=[%d] returned from Client.Cget(). Expected [%s]", item.Flags, flags)
 	}
 	if item.Etag != etag {
 		t.Fatalf("Unexpected etag=[%d] returned from Client.Cget(). Expected [%d]", item.Etag, etag)
@@ -290,9 +298,14 @@ func checkCItems(c Cacher, items []Citem, t *testing.T) {
 			t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrNotModified", err)
 		}
 
+		item.Flags = 0
 		item.Etag++
+		item.ValidateTtl = 0
 		if err := c.Cget(&item); err != nil {
 			t.Fatalf("Error when calling Client.Cget(): [%s]", err)
+		}
+		if item.Flags != items[i].Flags {
+			t.Fatalf("Unexpected flags=%d returned. Expected %d", item.Flags, items[i].Flags)
 		}
 		if item.Etag != items[i].Etag {
 			t.Fatalf("Unexpected etag=%d returned. Expected %d", item.Etag, items[i].Etag)
@@ -359,8 +372,9 @@ func cacher_CsetNowait(c Cacher, t *testing.T) {
 		item := &items[i]
 		item.Key = []byte(fmt.Sprintf("key_%d", i))
 		item.Value = []byte(fmt.Sprintf("value_%d", i))
-		item.Etag = uint64(i)
-		item.ValidateTtl = time.Second * time.Duration(i)
+		item.Flags = uint32(i)
+		item.Etag = uint64(i + 1)
+		item.ValidateTtl = time.Second * time.Duration(i+2)
 		c.CsetNowait(item)
 	}
 
@@ -505,7 +519,7 @@ func checkMalformedKey(c Cacher, key []byte, t *testing.T) {
 	}
 
 	citem := Citem{
-		Key: item.Key,
+		Item: item,
 	}
 	if err := c.Cget(&citem); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
@@ -535,7 +549,7 @@ func cacher_NilValue(c Cacher, t *testing.T) {
 	}
 
 	citem := Citem{
-		Key: item.Key,
+		Item: item,
 	}
 	if err := c.Cset(&citem); err != ErrNilValue {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrNilValue", err)
@@ -547,9 +561,11 @@ func TestClient_NilValue(t *testing.T) {
 }
 
 func cacher_EmptyValue(c Cacher, t *testing.T) {
+	flags := uint32(89832)
 	item := Item{
 		Key:   []byte("test"),
 		Value: []byte{},
+		Flags: flags,
 	}
 	if err := c.Set(&item); err != nil {
 		t.Fatalf("Cannot set item with empty value: [%s]", err)
@@ -561,12 +577,14 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 	if item.Value == nil || len(item.Value) != 0 {
 		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", item.Value)
 	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected Flags obtained=[%s]. Expected [%d]", item.Flags, flags)
+	}
 
 	etag := uint64(1234)
 	validateTtl := time.Second
 	citem := Citem{
-		Key:         item.Key,
-		Value:       item.Value,
+		Item: item,
 		Etag:        etag,
 		ValidateTtl: validateTtl,
 	}
@@ -574,6 +592,7 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 		t.Fatalf("Cannot set item with empty value: [%s]", err)
 	}
 	citem.Value = nil
+	citem.Flags = 0
 	citem.Etag = 0
 	citem.ValidateTtl = 0
 	if err := c.Cget(&citem); err != nil {
@@ -581,6 +600,9 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 	}
 	if citem.Value == nil || len(citem.Value) != 0 {
 		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", citem.Value)
+	}
+	if citem.Flags != flags {
+		t.Fatalf("Unexpected flags obtained=[%d]. Expected [%d]", citem.Flags, flags)
 	}
 	if citem.Etag != etag {
 		t.Fatalf("Unexpected etag obtained=[%d]. Expected [%d]", citem.Etag, etag)
@@ -602,12 +624,11 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	item := Item{
 		Key:   []byte("key"),
 		Value: []byte("value"),
+		Expiration: time.Second,
 	}
 	citem := Citem{
-		Key:         item.Key,
-		Value:       item.Value,
+		Item: item,
 		Etag:        12345,
-		Expiration:  time.Second,
 		ValidateTtl: time.Second,
 	}
 	if err := c.Get(&item); err != ErrNoServers {

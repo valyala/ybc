@@ -291,7 +291,7 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readValueResponse(line []byte) (key []byte, flags uint32, size int, ok bool) {
+func readValueHeader(line []byte) (key []byte, flags uint32, size int, ok bool) {
 	ok = false
 
 	if !bytes.HasPrefix(line, strValue) {
@@ -337,7 +337,7 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 
 func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, value []byte, ok bool) {
 	var size int
-	key, flags, size, ok = readValueResponse(line)
+	key, flags, size, ok = readValueHeader(line)
 	if !ok {
 		return
 	}
@@ -501,8 +501,7 @@ func (c *Client) Get(item *Item) error {
 // The item for 'conditional set/get' requests - Client.Cget(), Client.Cset(),
 // Client.CsetNowait().
 type Citem struct {
-	Key   []byte
-	Value []byte
+	Item
 
 	// Etag should uniquely identify the given item.
 	Etag uint64
@@ -510,10 +509,6 @@ type Citem struct {
 	// Validation time. After this period of time the item shouldn't
 	// be returned to the caller without re-validation via Client.Cget().
 	ValidateTtl time.Duration
-
-	// Expiration time for the item.
-	// Zero means the item has no expiration time.
-	Expiration time.Duration
 }
 
 type taskCget struct {
@@ -555,6 +550,9 @@ func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	if !ok {
 		return false
 	}
+	if t.item.Flags, ok = parseFlagsToken(line, &n); !ok {
+		return false
+	}
 	if t.item.Expiration, ok = parseExpirationToken(line, &n); !ok {
 		return false
 	}
@@ -584,9 +582,9 @@ func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // via Client.Cset(). The method returns garbage for items stored via other
 // mechanisms.
 //
-// Fills item.Value, item.Expiration, item.Etag and item.ValidateTtl only
-// on cache hit and only if the given etag doesn't match the etag on the server,
-// i.e. if the server contains new value under the given key.
+// Fills item.Value, item.Expiration, item.Flags, item.Etag and item.ValidateTtl
+// only on cache hit and only if the given etag doesn't match the etag on
+// the server, i.e. if the server contains new value for the given key.
 //
 // Returns ErrCacheMiss on cache miss.
 // Returns ErrNotModified if the corresponding item on the server has
@@ -736,8 +734,9 @@ type taskCset struct {
 func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
 	if !writeStr(w, strCset) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeInt(w, size, scratchBuf) || !writeStr(w, strWs) ||
+		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
+		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
 		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
 		!writeMilliseconds(w, item.ValidateTtl, scratchBuf) {
 		return false
