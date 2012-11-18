@@ -31,17 +31,17 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scr
 	}
 
 	size := item.Available()
-	if !writeStr(w, strValue) || !writeStr(w, key) || !writeStr(w, strWs) ||
-		!writeUint32(w, flags, scratchBuf) || !writeStr(w, strWs) ||
+	if !writeStr(w, strValue) || !writeStr(w, key) || !writeWs(w) ||
+		!writeUint32(w, flags, scratchBuf) || !writeWs(w) ||
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
 	if cas {
-		if !writeStr(w, strWs) || !writeStr(w, strZero) {
+		if !writeWs(w) || !writeZero(w) {
 			return false
 		}
 	}
-	return writeStr(w, strCrLf) && writeItem(w, item, size)
+	return writeCrLf(w) && writeItem(w, item, size)
 }
 
 func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, cas bool, scratchBuf *[]byte) bool {
@@ -125,11 +125,11 @@ func writeCgetResponse(w *bufio.Writer, etag uint64, item *ybc.Item, scratchBuf 
 
 	size := item.Available()
 	expiration := item.Ttl()
-	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeStr(w, strWs) &&
-		writeUint32(w, flags, scratchBuf) && writeStr(w, strWs) &&
-		writeExpiration(w, expiration, scratchBuf) && writeStr(w, strWs) &&
-		writeUint64(w, etag, scratchBuf) && writeStr(w, strWs) &&
-		writeUint32(w, validateTtl, scratchBuf) && writeStr(w, strCrLf) &&
+	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeWs(w) &&
+		writeUint32(w, flags, scratchBuf) && writeWs(w) &&
+		writeExpiration(w, expiration, scratchBuf) && writeWs(w) &&
+		writeUint64(w, etag, scratchBuf) && writeWs(w) &&
+		writeUint32(w, validateTtl, scratchBuf) && writeCrLf(w) &&
 		writeItem(w, item, size)
 }
 
@@ -173,13 +173,13 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 
 	item, err := cGetFromCache(cache, key, &etag)
 	if err == ybc.ErrCacheMiss {
-		return writeStr(c.Writer, strNotFound) && writeStr(c.Writer, strCrLf)
+		return writeStr(c.Writer, strNotFound) && writeCrLf(c.Writer)
 	}
 	if err != nil {
 		return false
 	}
 	if item == nil {
-		return writeStr(c.Writer, strNotModified) && writeStr(c.Writer, strCrLf)
+		return writeStr(c.Writer, strNotModified) && writeCrLf(c.Writer)
 	}
 	defer item.Close()
 
@@ -243,7 +243,7 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 		log.Printf("Unexpected payload size=[%d]. Expected [%d]", n, size)
 		return false
 	}
-	if !matchStr(c.Reader, strCrLf) {
+	if !matchCrLf(c.Reader) {
 		return false
 	}
 	if noreply {

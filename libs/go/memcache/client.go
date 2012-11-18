@@ -394,7 +394,7 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 		ok = false
 		return
 	}
-	ok = matchStr(r, strCrLf)
+	ok = matchCrLf(r)
 	return
 }
 
@@ -441,7 +441,7 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 		}
 	}
 	for i := 1; i < itemsCount; i++ {
-		if writeStr(w, strWs) && !writeStr(w, t.items[i].Key) {
+		if writeWs(w) && !writeStr(w, t.items[i].Key) {
 			return false
 		}
 	}
@@ -521,7 +521,7 @@ func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, e
 	if ok = matchStr(r, strEnd); !ok {
 		return
 	}
-	if ok = matchStr(r, strCrLf); !ok {
+	if ok = matchCrLf(r); !ok {
 		return
 	}
 	if ok = bytes.Equal(keyOriginal, item.Key); !ok {
@@ -583,7 +583,7 @@ type taskCget struct {
 }
 
 func (t *taskCget) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strCget) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
+	return (writeStr(w, strCget) && writeStr(w, t.item.Key) && writeWs(w) &&
 		writeUint64(w, t.item.Etag, scratchBuf) && writeCrLf(w))
 }
 
@@ -686,7 +686,7 @@ type taskGetDe struct {
 }
 
 func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeStr(w, strWs) &&
+	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
 		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w))
 }
 
@@ -744,9 +744,9 @@ type taskSet struct {
 
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
-		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
+	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeWs(w) ||
+		!writeUint32(w, item.Flags, scratchBuf) || !writeWs(w) ||
+		!writeExpiration(w, item.Expiration, scratchBuf) || !writeWs(w) ||
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
@@ -759,7 +759,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]by
 }
 
 func readSetResponse(r *bufio.Reader) bool {
-	return matchStr(r, strStored) && matchStr(r, strCrLf)
+	return matchStr(r, strStored) && matchCrLf(r)
 }
 
 func (t *taskSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
@@ -791,11 +791,11 @@ type taskCset struct {
 
 func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	if !writeStr(w, strCset) || !writeStr(w, item.Key) || !writeStr(w, strWs) ||
-		!writeInt(w, size, scratchBuf) || !writeStr(w, strWs) ||
-		!writeUint32(w, item.Flags, scratchBuf) || !writeStr(w, strWs) ||
-		!writeExpiration(w, item.Expiration, scratchBuf) || !writeStr(w, strWs) ||
-		!writeUint64(w, item.Etag, scratchBuf) || !writeStr(w, strWs) ||
+	if !writeStr(w, strCset) || !writeStr(w, item.Key) || !writeWs(w) ||
+		!writeInt(w, size, scratchBuf) || !writeWs(w) ||
+		!writeUint32(w, item.Flags, scratchBuf) || !writeWs(w) ||
+		!writeExpiration(w, item.Expiration, scratchBuf) || !writeWs(w) ||
+		!writeUint64(w, item.Etag, scratchBuf) || !writeWs(w) ||
 		!writeUint32(w, item.ValidateTtl, scratchBuf) {
 		return false
 	}
@@ -989,7 +989,7 @@ type taskFlushAllDelayed struct {
 }
 
 func (t *taskFlushAllDelayed) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeStr(w, strCrLf)
+	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeCrLf(w)
 }
 
 func (t *taskFlushAllDelayed) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -1009,7 +1009,7 @@ type taskFlushAll struct {
 }
 
 func (t *taskFlushAll) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeStr(w, strCrLf)
+	return writeStr(w, strFlushAll) && writeCrLf(w)
 }
 
 func (t *taskFlushAll) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -1028,8 +1028,8 @@ type taskFlushAllDelayedNowait struct {
 }
 
 func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeStr(w, strWs) &&
-		writeStr(w, strNoreply) && writeStr(w, strCrLf)
+	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeWs(w) &&
+		writeStr(w, strNoreply) && writeCrLf(w)
 }
 
 // The same as Client.FlushAllDelayed(), but doesn't wait for operation
@@ -1046,7 +1046,7 @@ type taskFlushAllNowait struct {
 }
 
 func (t *taskFlushAllNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeStr(w, strNoreply) && writeStr(w, strCrLf)
+	return writeStr(w, strFlushAll) && writeStr(w, strNoreply) && writeCrLf(w)
 }
 
 // The same as Client.FlushAll(), but doesn't wait for operation completion.

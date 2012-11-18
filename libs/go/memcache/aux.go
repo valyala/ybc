@@ -30,7 +30,6 @@ const (
 )
 
 var (
-	strCrLf        = []byte("\r\n")
 	strCget        = []byte("cget ")
 	strCset        = []byte("cset ")
 	strDelete      = []byte("delete ")
@@ -48,8 +47,6 @@ var (
 	strStored      = []byte("STORED")
 	strValue       = []byte("VALUE ")
 	strWouldBlock  = []byte("WB")
-	strWs          = []byte(" ")
-	strZero        = []byte("0")
 )
 
 func validateKey(key []byte) bool {
@@ -96,6 +93,10 @@ func matchStr(r *bufio.Reader, s []byte) bool {
 		}
 	}
 	return true
+}
+
+func matchCrLf(r *bufio.Reader) bool {
+	return matchByte(r, '\r') && matchByte(r, '\n')
 }
 
 func readBytesUntil(r *bufio.Reader, endCh byte, lineBuf *[]byte) bool {
@@ -270,6 +271,22 @@ func parseMillisecondsToken(line []byte, n *int, tokenName string) (duration tim
 	return
 }
 
+func writeByte(w *bufio.Writer, c byte) bool {
+	if err := w.WriteByte(c); err != nil {
+		log.Printf("Cannot write byte [%d] to output stream: [%s]", c, err)
+		return false
+	}
+	return true
+}
+
+func writeWs(w *bufio.Writer) bool {
+	return writeByte(w, ' ')
+}
+
+func writeZero(w *bufio.Writer) bool {
+	return writeByte(w, '0')
+}
+
 func writeStr(w *bufio.Writer, s []byte) bool {
 	if _, err := w.Write(s); err != nil {
 		log.Printf("Cannot write [%s] to output stream: [%s]", s, err)
@@ -299,11 +316,11 @@ func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
 }
 
 func writeCrLf(w *bufio.Writer) bool {
-	return writeStr(w, strCrLf)
+	return writeByte(w, '\r') && writeByte(w, '\n')
 }
 
 func writeNoreply(w *bufio.Writer) bool {
-	return writeStr(w, strWs) && writeStr(w, strNoreply)
+	return writeWs(w) && writeStr(w, strNoreply)
 }
 
 func writeExpiration(w *bufio.Writer, expiration time.Duration, scratchBuf *[]byte) bool {
