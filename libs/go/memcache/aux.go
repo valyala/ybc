@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
 	"log"
 	"strconv"
@@ -385,4 +386,8 @@ func binaryWrite(w io.Writer, data interface{}, name string) {
 	if err := binary.Write(w, binary.LittleEndian, data); err != nil {
 		log.Fatalf("Error in binary.Write() for [%s]: [%s]", name, err)
 	}
+}
+
+func cacheClearFunc(cache ybc.Cacher) func() {
+	return func() { cache.Clear() }
 }

@@ -479,10 +479,6 @@ func parseFlushAllCmd(line []byte) (expiration time.Duration, noreply bool, ok b
 	return
 }
 
-func cacheClearFunc(cache ybc.Cacher) func() {
-	return func() { cache.Clear() }
-}
-
 func processFlushAllCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, flushAllTimer **time.Timer) bool {
 	expiration, noreply, ok := parseFlushAllCmd(line)
 	if !ok {
@@ -682,6 +678,9 @@ func (s *Server) Serve() error {
 
 // Stops the server, which has been started via either Server.Start()
 // or Server.Serve() calls.
+//
+// Don't forget closing the Server.Cache, since the server doesn't close it
+// automatically.
 func (s *Server) Stop() {
 	s.listenSocket.Close()
 	s.Wait()

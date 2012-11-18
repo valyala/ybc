@@ -130,14 +130,14 @@ func cacheCitem(cache ybc.Cacher, citem *Citem) {
 	cacheItem(cache, &citem.Item, citem.Etag, citem.ValidateTtl)
 }
 
-func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
+func getAndCacheRemoteItemInternal(client Ccacher, cache ybc.Cacher, item *Item, getFunc func(*Citem) error) error {
 	citem := Citem{
 		Item: Item{
 			Key: item.Key,
 		},
 		Etag: deniedEtag,
 	}
-	if err := client.Cget(&citem); err != nil {
+	if err := getFunc(&citem); err != nil {
 		if err == ErrNotModified {
 			log.Fatalf("Unexpected result returned. Server said the item with deniedEtag=%d under the key=[%s] isn't modified", deniedEtag, citem.Key)
 		}
@@ -147,6 +147,20 @@ func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
 	item.Value = citem.Value
 	item.Flags = citem.Flags
 	return nil
+}
+
+func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
+	cGetFunc := func(citem *Citem) error {
+		return client.Cget(citem)
+	}
+	return getAndCacheRemoteItemInternal(client, cache, item, cGetFunc)
+}
+
+func getDeAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item, graceDuration time.Duration) error {
+	cGetDeFunc := func(citem *Citem) error {
+		return client.CgetDe(citem, graceDuration)
+	}
+	return getAndCacheRemoteItemInternal(client, cache, item, cGetDeFunc)
 }
 
 func setItemValue(it *ybc.Item, item *Item) error {
@@ -164,6 +178,9 @@ func setItemValue(it *ybc.Item, item *Item) error {
 
 func updateLocalItem(cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32) {
 	size := it.Available()
+	offset := it.Size() - size
+	defer it.Seek(int64(offset), 0)
+
 	txn := writeItemMetadata(cache, item.Key, size, it.Ttl(), etag, validateTtl, item.Flags)
 	if txn == nil {
 		return
@@ -177,16 +194,17 @@ func updateLocalItem(cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, va
 	if n != int64(size) {
 		log.Fatalf("Unexpected number of bytes copied in SetTxn.ReadFrom(size=%d): %d", size, n)
 	}
+
 }
 
-func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32) error {
+func revalidateAndSetItemValueInternal(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32, getFunc func(*Citem) error) error {
 	citem := Citem{
 		Item: Item{
 			Key: item.Key,
 		},
 		Etag: etag,
 	}
-	if err := client.Cget(&citem); err != nil {
+	if err := getFunc(&citem); err != nil {
 		if err == ErrNotModified {
 			if validateTtl > 0 {
 				updateLocalItem(cache, it, item, etag, validateTtl)
@@ -201,6 +219,20 @@ func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, i
 	cacheCitem(cache, &citem)
 	item.Value = citem.Value
 	return nil
+}
+
+func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32) error {
+	cGetFunc := func(citem *Citem) error {
+		return client.Cget(citem)
+	}
+	return revalidateAndSetItemValueInternal(client, cache, it, item, etag, validateTtl, cGetFunc)
+}
+
+func revalidateDeAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32, graceDuration time.Duration) error {
+	cGetDeFunc := func(citem *Citem) error {
+		return client.CgetDe(citem, graceDuration)
+	}
+	return revalidateAndSetItemValueInternal(client, cache, it, item, etag, validateTtl, cGetDeFunc)
 }
 
 // See Client.Get()
@@ -226,6 +258,41 @@ func (c *CachingClient) Get(item *Item) error {
 	return setItemValue(it, item)
 }
 
+// See Client.GetMulti()
+func (c *CachingClient) GetMulti(items []Item) error {
+	// TODO(valyala): implement Client.CgetMulti().
+	itemsCount := len(items)
+	for i := 0; i < itemsCount; i++ {
+		if err := c.Get(&items[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// See Client.GetDe()
+func (c *CachingClient) GetDe(item *Item, graceDuration time.Duration) error {
+	it, err := c.Cache.GetDeItem(item.Key, graceDuration)
+	if err == ybc.ErrCacheMiss {
+		return getDeAndCacheRemoteItem(c.Client, c.Cache, item, graceDuration)
+	}
+	if err != nil {
+		log.Fatalf("Unexpected error returned from Cache.GetDeItem() for key=[%s]: [%s]", item.Key, err)
+	}
+	defer it.Close()
+
+	etag, validateTtl, flags, validateExpiration, ok := readItemMetadata(it)
+	if !ok {
+		return getDeAndCacheRemoteItem(c.Client, c.Cache, item, graceDuration)
+	}
+	item.Flags = flags
+
+	if time.Now().After(validateExpiration) {
+		return revalidateDeAndSetItemValue(c.Client, c.Cache, it, item, etag, validateTtl, graceDuration)
+	}
+	return setItemValue(it, item)
+}
+
 // The same as CachingClient.Set(), but sets interval for periodic item
 // revalidation on the server.
 //
@@ -238,16 +305,25 @@ func (c *CachingClient) Get(item *Item) error {
 // bandiwdth between the client and memcache servers is saved if the average
 // item size exceeds ~100 bytes.
 func (c *CachingClient) SetWithValidateTtl(item *Item, validateTtl time.Duration) error {
+	c.Cache.Delete(item.Key)
 	citem := Citem{
 		Item:        *item,
 		Etag:        getEtag(),
 		ValidateTtl: uint32(validateTtl / time.Millisecond),
 	}
-	if err := c.Client.Cset(&citem); err != nil {
-		return err
+	return c.Client.Cset(&citem)
+}
+
+// The same as CachingClient.SetWithValidateTtl(), but doesn't wait
+// for completion of the operation.
+func (c *CachingClient) SetWithValidateTtlNowait(item *Item, validateTtl time.Duration) {
+	c.Cache.Delete(item.Key)
+	citem := Citem{
+		Item:        *item,
+		Etag:        getEtag(),
+		ValidateTtl: uint32(validateTtl / time.Millisecond),
 	}
-	cacheCitem(c.Cache, &citem)
-	return nil
+	c.Client.CsetNowait(&citem)
 }
 
 // See Client.Set()
@@ -255,8 +331,43 @@ func (c *CachingClient) Set(item *Item) error {
 	return c.SetWithValidateTtl(item, 0)
 }
 
+// See Client.SetNowait()
+func (c *CachingClient) SetNowait(item *Item) {
+	c.SetWithValidateTtlNowait(item, 0)
+}
+
 // See Client.Delete()
 func (c *CachingClient) Delete(key []byte) error {
 	c.Cache.Delete(key)
 	return c.Client.Delete(key)
+}
+
+// See Client.DeleteNowait()
+func (c *CachingClient) DeleteNowait(key []byte) {
+	c.Cache.Delete(key)
+	c.Client.DeleteNowait(key)
+}
+
+// See Client.FlushAll()
+func (c *CachingClient) FlushAll() error {
+	c.Cache.Clear()
+	return c.Client.FlushAll()
+}
+
+// See Client.FlushAllNowait()
+func (c *CachingClient) FlushAllNowait() {
+	c.Cache.Clear()
+	c.Client.FlushAllNowait()
+}
+
+// See Client.FlushAllDelayed()
+func (c *CachingClient) FlushAllDelayed(expiration time.Duration) error {
+	time.AfterFunc(expiration, cacheClearFunc(c.Cache))
+	return c.Client.FlushAllDelayed(expiration)
+}
+
+// See Client.FlushAllDelayedNowait()
+func (c *CachingClient) FlushAllDelayedNowait(expiration time.Duration) {
+	time.AfterFunc(expiration, cacheClearFunc(c.Cache))
+	c.Client.FlushAllDelayedNowait(expiration)
 }
