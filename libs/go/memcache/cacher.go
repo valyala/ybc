@@ -30,6 +30,7 @@ type Ccacher interface {
 	MemcacherDe
 
 	Cget(item *Citem) error
+	CgetDe(item *Citem, graceDuration time.Duration) error
 	Cset(item *Citem) error
 	CsetNowait(item *Citem)
 }

@@ -170,8 +170,74 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if !ok {
 		return false
 	}
+	if !expectEof(line, n) {
+		return false
+	}
 
 	item, err := cGetFromCache(cache, key, &etag)
+	if err == ybc.ErrCacheMiss {
+		return writeStr(c.Writer, strNotFound) && writeCrLf(c.Writer)
+	}
+	if err != nil {
+		return false
+	}
+	if item == nil {
+		return writeStr(c.Writer, strNotModified) && writeCrLf(c.Writer)
+	}
+	defer item.Close()
+
+	return writeCgetResponse(c.Writer, etag, item, scratchBuf)
+}
+
+func cGetDeFromCache(cache ybc.Cacher, key []byte, etag *uint64, graceDuration time.Duration) (item *ybc.Item, err error) {
+	item, err = cache.GetDeAsyncItem(key, graceDuration)
+	if err == ybc.ErrCacheMiss || err == ybc.ErrWouldBlock {
+		return
+	}
+	if err != nil {
+		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", key, err)
+	}
+	defer func() {
+		if err != nil {
+			item.Close()
+		}
+	}()
+
+	etagOld := *etag
+	if err = binaryRead(item, etag, "etag"); err != nil {
+		return
+	}
+	if etagOld == *etag {
+		item.Close()
+		item = nil
+		return
+	}
+	return
+}
+
+func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	n := -1
+
+	key := nextToken(line, &n, "key")
+	if key == nil {
+		return false
+	}
+	etag, ok := parseEtagToken(line, &n)
+	if !ok {
+		return false
+	}
+	graceDuration, ok := parseMillisecondsToken(line, &n, "graceDuration")
+	if !ok {
+		return false
+	}
+	if !expectEof(line, n) {
+		return false
+	}
+
+	item, err := cGetDeFromCache(cache, key, &etag, graceDuration)
+	if err == ybc.ErrWouldBlock {
+		return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
+	}
 	if err == ybc.ErrCacheMiss {
 		return writeStr(c.Writer, strNotFound) && writeCrLf(c.Writer)
 	}
@@ -453,6 +519,9 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	}
 	if bytes.HasPrefix(line, strCget) {
 		return processCgetCmd(c, cache, line[len(strCget):], scratchBuf)
+	}
+	if bytes.HasPrefix(line, strCgetDe) {
+		return processCgetDeCmd(c, cache, line[len(strCgetDe):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strSet) {
 		return processSetCmd(c, cache, line[len(strSet):], scratchBuf)

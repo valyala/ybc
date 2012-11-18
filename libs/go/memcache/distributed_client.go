@@ -336,6 +336,15 @@ func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error
 	return filterClientError(client.GetDe(item, graceDuration))
 }
 
+// See Client.CgetDe()
+func (c *DistributedClient) CgetDe(item *Citem, graceDuration time.Duration) error {
+	client, err := c.client(item.Key)
+	if err != nil {
+		return err
+	}
+	return filterClientError(client.CgetDe(item, graceDuration))
+}
+
 // See Client.Set().
 func (c *DistributedClient) Set(item *Item) error {
 	client, err := c.client(item.Key)

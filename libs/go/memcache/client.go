@@ -587,24 +587,23 @@ func (t *taskCget) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 		writeUint64(w, t.item.Etag, scratchBuf) && writeCrLf(w))
 }
 
-func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	if !readLine(r, scratchBuf) {
-		return false
-	}
-	line := *scratchBuf
+func readCgetItem(r *bufio.Reader, line []byte, item *Citem) (found, notModified, ok bool) {
+	ok = false
 	if bytes.Equal(line, strNotFound) {
-		t.found = false
-		t.notModified = false
-		return true
+		found = false
+		notModified = false
+		ok = true
+		return
 	}
 	if bytes.Equal(line, strNotModified) {
-		t.found = true
-		t.notModified = true
-		return true
+		found = true
+		notModified = true
+		ok = true
+		return
 	}
 	if !bytes.HasPrefix(line, strValue) {
 		log.Printf("Unexpected line read=[%s]. It should start with [%s]", line, strValue)
-		return false
+		return
 	}
 	line = line[len(strValue):]
 
@@ -612,29 +611,41 @@ func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 	size, ok := parseSizeToken(line, &n)
 	if !ok {
-		return false
+		return
 	}
-	if t.item.Flags, ok = parseFlagsToken(line, &n); !ok {
-		return false
+	if item.Flags, ok = parseFlagsToken(line, &n); !ok {
+		return
 	}
-	if t.item.Expiration, ok = parseExpirationToken(line, &n); !ok {
-		return false
+	if item.Expiration, ok = parseExpirationToken(line, &n); !ok {
+		return
 	}
-	if t.item.Etag, ok = parseEtagToken(line, &n); !ok {
-		return false
+	if item.Etag, ok = parseEtagToken(line, &n); !ok {
+		return
 	}
-	if t.item.ValidateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
-		return false
+	if item.ValidateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
+		return
 	}
 	if !expectEof(line, n) {
+		return
+	}
+	if item.Value, ok = readValue(r, size); !ok {
+		return
+	}
+	found = true
+	notModified = false
+	ok = true
+	return
+}
+
+func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
 		return false
 	}
-	if t.item.Value, ok = readValue(r, size); !ok {
-		return false
-	}
-	t.found = true
-	t.notModified = false
-	return true
+	line := *scratchBuf
+
+	var ok bool
+	t.found, t.notModified, ok = readCgetItem(r, line, t.item)
+	return ok
 }
 
 // Performs conditional get request for the given item.Key and item.Etag.
@@ -675,6 +686,67 @@ func (c *Client) Cget(item *Citem) error {
 		return ErrCacheMiss
 	}
 	return nil
+}
+
+type taskCgetDe struct {
+	item          *Citem
+	graceDuration time.Duration
+	found         bool
+	wouldBlock    bool
+	notModified   bool
+	taskSync
+}
+
+func (t *taskCgetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return (writeStr(w, strCgetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
+		writeUint64(w, t.item.Etag, scratchBuf) && writeWs(w) &&
+		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w))
+}
+
+func (t *taskCgetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
+		return false
+	}
+	line := *scratchBuf
+	if bytes.Equal(line, strWouldBlock) {
+		t.found = false
+		t.wouldBlock = true
+		t.notModified = false
+		return true
+	}
+	t.wouldBlock = false
+
+	var ok bool
+	t.found, t.notModified, ok = readCgetItem(r, line, t.item)
+	return ok
+}
+
+// Combines functionality of Client.Cget() and Client.GetDe().
+func (c *Client) CgetDe(item *Citem, graceDuration time.Duration) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
+	for {
+		t := taskCgetDe{
+			item:          item,
+			graceDuration: graceDuration,
+		}
+		if err := c.do(&t); err != nil {
+			return err
+		}
+		if t.wouldBlock {
+			time.Sleep(time.Millisecond * time.Duration(100))
+			continue
+		}
+		if t.notModified {
+			return ErrNotModified
+		}
+		if !t.found {
+			return ErrCacheMiss
+		}
+		return nil
+	}
+	panic("unreachable")
 }
 
 type taskGetDe struct {

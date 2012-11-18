@@ -31,6 +31,7 @@ const (
 
 var (
 	strCget        = []byte("cget ")
+	strCgetDe      = []byte("cgetde ")
 	strCset        = []byte("cset ")
 	strDelete      = []byte("delete ")
 	strDeleted     = []byte("DELETED")

@@ -188,21 +188,27 @@ func cacher_GetDe(c Cacher, t *testing.T) {
 	grace := 100 * time.Millisecond
 	for i := 0; i < 3; i++ {
 		if err := c.GetDe(&item, grace); err != ErrCacheMiss {
-			t.Fatalf("Unexpected err=[%s] for client.GetDe(%s, %d)", err, item.Key, grace)
+			t.Fatalf("Unexpected err=[%s] for client.GetDe(key=%s, grace=%s)", err, item.Key, grace)
 		}
 	}
 
 	item.Value = []byte("value")
+	item.Flags = 123
 	if err := c.Set(&item); err != nil {
 		t.Fatalf("Cannot set value=[%s] for key=[%s]: [%s]", item.Value, item.Key, err)
 	}
 	oldValue := item.Value
+	oldFlags := item.Flags
 	item.Value = nil
+	item.Flags = 0
 	if err := c.GetDe(&item, grace); err != nil {
 		t.Fatalf("Cannot obtain value fro key=[%s]: [%s]", item.Key, err)
 	}
 	if !bytes.Equal(oldValue, item.Value) {
 		t.Fatalf("Unexpected value obtained: [%s]. Expected [%s]", item.Value, oldValue)
+	}
+	if oldFlags != item.Flags {
+		t.Fatalf("Unexpected flags obtained: [%d]. Expected [%d]", item.Flags, oldFlags)
 	}
 }
 
@@ -267,6 +273,57 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 
 func TestClient_CgetCset(t *testing.T) {
 	client_RunTest(cacher_CgetCset, t)
+}
+
+func cacher_CgetDe(c Cacher, t *testing.T) {
+	item := Citem{
+		Item: Item{
+			Key: []byte("key"),
+		},
+	}
+	grace := 100 * time.Millisecond
+	for i := 0; i < 3; i++ {
+		if err := c.CgetDe(&item, grace); err != ErrCacheMiss {
+			t.Fatalf("Unexpected err=[%s] for client.CgetDe(key=[%s], grace=[%s])", err, item.Key, grace)
+		}
+	}
+
+	value := []byte("value")
+	flags := uint32(123)
+	etag := uint64(8989)
+	validateTtl := uint32(87989)
+
+	item.Value = value
+	item.Flags = flags
+	item.Etag = etag
+	item.ValidateTtl = validateTtl
+	if err := c.Cset(&item); err != nil {
+		t.Fatalf("Cannot set value=[%s] for key=[%s]: [%s]", item.Value, item.Key, err)
+	}
+	if err := c.CgetDe(&item, grace); err != ErrNotModified {
+		t.Fatalf("Unexpected err=[%s] for client.CgetDe(key=[%s], grace=[%s]). Expected ErrNotModified", err, item.Key, grace)
+	}
+
+	item.Value = nil
+	item.Flags = 0
+	item.Etag = 0
+	item.ValidateTtl = 0
+	if err := c.CgetDe(&item, grace); err != nil {
+		t.Fatalf("Error in client.CgetDe(key=[%s], grace=[%s]): [%s]", item.Key, grace, err)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("Unexpected value obtained: [%s]. Expected [%s]", item.Value, value)
+	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected flags obtained: [%d]. Expected [%d]", item.Flags, flags)
+	}
+	if item.Etag != etag {
+		t.Fatalf("Unexpected etag obtianed: [%d]. Expected [%d]", item.Etag, etag)
+	}
+}
+
+func TestClient_CgetDe(t *testing.T) {
+	client_RunTest(cacher_CgetDe, t)
 }
 
 func lookupItem(items []Item, key []byte) *Item {
@@ -863,6 +920,11 @@ func TestDistributedClient_GetDe(t *testing.T) {
 func TestDistributedClient_CgetCset(t *testing.T) {
 	distributedClient_RunTest(cacher_CgetCset, t)
 	distributedClientStatic_RunTest(cacher_CgetCset, t)
+}
+
+func TestDistributedClient_CgetDe(t *testing.T) {
+	distributedClient_RunTest(cacher_CgetDe, t)
+	distributedClientStatic_RunTest(cacher_CgetDe, t)
 }
 
 func TestDistributedClient_GetMulti_EmptyItems(t *testing.T) {
