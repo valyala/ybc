@@ -158,36 +158,58 @@ func nextToken(line []byte, n *int, entity string) []byte {
 }
 
 func parseUint64(s []byte) (n uint64, ok bool) {
-	n, err := strconv.ParseUint(string(s), 10, 64)
-	if err != nil {
-		log.Printf("Cannot convert n=[%s] to 64-bit integer: [%s]", s, err)
-		ok = false
-		return
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			log.Printf("Cannot convert s=[%] to integer", s)
+			ok = false
+			return
+		}
+		n *= 10
+		n += uint64(c - '0')
 	}
-	ok = true
-	return
-}
-
-func parseUint32(s []byte) (n uint32, ok bool) {
-	nn, err := strconv.ParseUint(string(s), 10, 32)
-	if err != nil {
-		log.Printf("Cannot convert n=[%s] to 32-bit integer: [%s]", s, err)
-		ok = false
-		return
-	}
-	n = uint32(nn)
 	ok = true
 	return
 }
 
 func parseInt(s []byte) (n int, ok bool) {
-	n, err := strconv.Atoi(string(s))
-	if err != nil {
-		log.Printf("Cannot convert n=[%s] to integer: [%s]", s, err)
+	negative := false
+	var n64 uint64
+	switch s[0] {
+	case '-':
+		negative = true
+		n64, ok = parseUint64(s[1:])
+	case '+':
+		n64, ok = parseUint64(s[1:])
+	default:
+		n64, ok = parseUint64(s)
+	}
+
+	if !ok {
+		return
+	}
+	if n64 >= (uint64(1) << 31) {
+		log.Printf("Too big number for int=%d", n64)
 		ok = false
 		return
 	}
-	ok = true
+	n = int(n64)
+	if negative {
+		n = -n
+	}
+	return
+}
+
+func parseUint32(s []byte) (n uint32, ok bool) {
+	n64, ok := parseUint64(s)
+	if !ok {
+		return
+	}
+	if n64 >= (uint64(1) << 32) {
+		log.Printf("Too big number for uint32=%d", n64)
+		ok = false
+		return
+	}
+	n = uint32(n64)
 	return
 }
 
