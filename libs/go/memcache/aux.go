@@ -1,5 +1,3 @@
-// Package memcache provides fast client and server implementations
-// of memcache.
 package memcache
 
 import (
