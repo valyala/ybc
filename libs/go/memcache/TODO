@@ -1,4 +1,8 @@
-* Implement a client supporting local caching with efficient cache items'
-  re-validation based on Client.Cset() and Client.Cget().
 * Provide API compatible with https://github.com/bradfitz/gomemcache .
-* Add more efficient binary communication protocol.
+* Implement more efficient binary RPC protocol with the following features:
+    * More compact on-the-wire representation.
+    * Less CPU-hungry RPCs' serialization/deserialization.
+    * Out-of-order responses.
+    * Ability to interleave data streams from multiple requests/responses.
+    * Requests' and responses' streaming with per-request and per-response
+      flow control.
