@@ -451,10 +451,15 @@ func (t *taskGetMulti) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 func updateItemByKey(items []Item, item *Item) bool {
 	itemsCount := len(items)
 	updatedItemsCount := 0
+
+	// This loop may be quite slow for big itemsCount.
+	// TODO(valyala): think how to improve it without incurring additional
+	// overhead for small itemsCount.
 	for i := 0; i < itemsCount; i++ {
-		if bytes.Equal(items[i].Key, item.Key) {
-			items[i].Value = item.Value
-			items[i].Flags = item.Flags
+		it := &items[i]
+		if bytes.Equal(it.Key, item.Key) {
+			it.Value = item.Value
+			it.Flags = item.Flags
 			updatedItemsCount++
 		}
 	}
