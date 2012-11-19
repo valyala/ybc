@@ -619,7 +619,7 @@ func concurrentGetDeWithValidateTtl(workersCount int, b *testing.B) {
 			}
 		}
 	}
-	concurrentOpsForClient(setupFunc, getDeWorker, workersCount, b)
+	concurrentOpsForCachingClient(setupFunc, getDeWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_1Workers(b *testing.B) {
