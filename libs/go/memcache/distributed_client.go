@@ -202,7 +202,8 @@ func (c *DistributedClient) deregisterClient(serverAddr string) *Client {
 // serverAddr must be in the form 'host:port'.
 //
 // This function may be called only if the client has been started
-// via DistributedClient.Start() call, not via DistributedClient.StartStatic() call!
+// via DistributedClient.Start() call,
+// not via DistributedClient.StartStatic() call!
 //
 // Added servers may be removed at any time
 // via DistributedClient.DeleteServer() call.
@@ -216,6 +217,10 @@ func (c *DistributedClient) AddServer(serverAddr string) {
 // Dynamically removes the given server from the client.
 //
 // serverAddr must be in the form 'host:port'
+//
+// This function may be called only if the client has been started
+// via DistributedClient.Start() call,
+// not via DistributedClient.StartStatic() call!
 func (c *DistributedClient) DeleteServer(serverAddr string) {
 	if !c.isDynamic {
 		panic("DistributedClient.DeleteServer() cannot be called from static client!")
