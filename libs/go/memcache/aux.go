@@ -103,20 +103,28 @@ func readBytesUntil(r *bufio.Reader, endCh byte, lineBuf *[]byte) bool {
 	line := *lineBuf
 	line = line[0:0]
 	for {
-		c, err := r.ReadByte()
-		if err != nil {
-			if err == io.EOF && len(line) == 0 {
-				break
-			}
-			log.Printf("Error when reading bytes until endCh=[%d]: [%s]", endCh, err)
-			return false
-		}
-		if c == endCh {
+		s, err := r.ReadSlice(endCh)
+		if err == nil {
+			line = append(line, s...)
 			break
 		}
-		line = append(line, c)
+		if err == bufio.ErrBufferFull {
+			line = append(line, s...)
+			c, err := r.ReadByte()
+			if err != nil {
+				log.Printf("Error when reading next byte from buffer: [%s]", err)
+			}
+			line = append(line, c)
+			continue
+		}
+		if err == io.EOF && len(line) == 0 {
+			*lineBuf = line
+			return true
+		}
+		log.Printf("Error when reading bytes until endCh=[%d]: [%s]", endCh, err)
+		return false
 	}
-	*lineBuf = line
+	*lineBuf = line[:len(line)-1]
 	return true
 }
 
