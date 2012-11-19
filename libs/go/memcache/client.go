@@ -202,11 +202,11 @@ func handleAddr(c *Client) {
 	w := bufio.NewWriterSize(conn, c.WriteBufferSize)
 
 	responses := make(chan tasker, c.MaxPendingRequestsCount)
-	sendRecvDone := &sync.WaitGroup{}
+	var sendRecvDone sync.WaitGroup
 	defer sendRecvDone.Wait()
 	sendRecvDone.Add(2)
-	go requestsSender(w, c.requests, responses, conn, sendRecvDone)
-	go responsesReceiver(r, responses, conn, sendRecvDone)
+	go requestsSender(w, c.requests, responses, conn, &sendRecvDone)
+	go responsesReceiver(r, responses, conn, &sendRecvDone)
 }
 
 func addrHandler(c *Client, done *sync.WaitGroup) {
@@ -257,11 +257,11 @@ func (c *Client) init() {
 func (c *Client) run() {
 	defer c.done.Done()
 
-	connsDone := &sync.WaitGroup{}
+	var connsDone sync.WaitGroup
 	defer connsDone.Wait()
 	for i := 0; i < c.ConnectionsCount; i++ {
 		connsDone.Add(1)
-		go addrHandler(c, connsDone)
+		go addrHandler(c, &connsDone)
 	}
 }
 
@@ -314,14 +314,13 @@ func (c *Client) Stop() {
 
 var doneChansPool = make(chan (chan bool), 1024)
 
-func acquireDoneChan() chan bool {
+func acquireDoneChan() (done chan bool) {
 	select {
-	case done := <-doneChansPool:
-		return done
+	case done = <-doneChansPool:
 	default:
-		return make(chan bool, 1)
+		done = make(chan bool, 1)
 	}
-	panic("unreachable")
+	return
 }
 
 func releaseDoneChan(done chan bool) {
@@ -343,10 +342,10 @@ func (t *taskSync) Done(ok bool) {
 	t.done <- ok
 }
 
-func (t *taskSync) Wait() bool {
-	ok := <-t.done
+func (t *taskSync) Wait() (ok bool) {
+	ok = <-t.done
 	releaseDoneChan(t.done)
-	return ok
+	return
 }
 
 type taskGetMulti struct {
@@ -488,17 +487,17 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 // Sets Item.Value and Item.Flags for each returned item.
 // Doesn't modify Item.Value and Item.Flags for items missing on the server.
 func (c *Client) GetMulti(items []Item) error {
-	if len(items) == 0 {
+	itemsCount := len(items)
+	if itemsCount == 0 {
 		return nil
 	}
-	for _, item := range items {
-		if !validateKey(item.Key) {
+	for i := 0; i < itemsCount; i++ {
+		if !validateKey(items[i].Key) {
 			return ErrMalformedKey
 		}
 	}
-	t := taskGetMulti{
-		items: items,
-	}
+	var t taskGetMulti
+	t.items = items
 	return c.do(&t)
 }
 
@@ -549,9 +548,8 @@ func (c *Client) Get(item *Item) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
-	t := taskGet{
-		item: item,
-	}
+	var t taskGet
+	t.item = item
 	if err := c.do(&t); err != nil {
 		return err
 	}
@@ -673,9 +671,8 @@ func (c *Client) Cget(item *Citem) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
-	t := taskCget{
-		item: item,
-	}
+	var t taskCget
+	t.item = item
 	if err := c.do(&t); err != nil {
 		return err
 	}
@@ -726,11 +723,10 @@ func (c *Client) CgetDe(item *Citem, graceDuration time.Duration) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
+	var t taskCgetDe
 	for {
-		t := taskCgetDe{
-			item:          item,
-			graceDuration: graceDuration,
-		}
+		t.item = item
+		t.graceDuration = graceDuration
 		if err := c.do(&t); err != nil {
 			return err
 		}
@@ -789,11 +785,10 @@ func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
+	var t taskGetDe
 	for {
-		t := taskGetDe{
-			item:          item,
-			graceDuration: graceDuration,
-		}
+		t.item = item
+		t.graceDuration = graceDuration
 		if err := c.do(&t); err != nil {
 			return err
 		}
@@ -850,9 +845,8 @@ func (c *Client) Set(item *Item) error {
 	if item.Value == nil {
 		return ErrNilValue
 	}
-	t := taskSet{
-		item: item,
-	}
+	var t taskSet
+	t.item = item
 	return c.do(&t)
 }
 
@@ -907,9 +901,8 @@ func (c *Client) Cset(item *Citem) error {
 	if item.Value == nil {
 		return ErrNilValue
 	}
-	t := taskCset{
-		item: item,
-	}
+	var t taskCset
+	t.item = item
 	return c.do(&t)
 }
 
@@ -944,9 +937,8 @@ func (c *Client) SetNowait(item *Item) {
 	if !validateKey(item.Key) || item.Value == nil {
 		return
 	}
-	t := taskSetNowait{
-		item: *item,
-	}
+	var t taskSetNowait
+	t.item = *item
 	c.do(&t)
 }
 
@@ -967,9 +959,8 @@ func (c *Client) CsetNowait(item *Citem) {
 	if !validateKey(item.Key) || item.Value == nil {
 		return
 	}
-	t := taskCsetNowait{
-		item: *item,
-	}
+	var t taskCsetNowait
+	t.item = *item
 	c.do(&t)
 }
 
@@ -1020,9 +1011,8 @@ func (c *Client) Delete(key []byte) error {
 	if !validateKey(key) {
 		return ErrMalformedKey
 	}
-	t := taskDelete{
-		key: key,
-	}
+	var t taskDelete
+	t.key = key
 	if err := c.do(&t); err != nil {
 		return err
 	}
@@ -1049,9 +1039,8 @@ func (c *Client) DeleteNowait(key []byte) {
 	if !validateKey(key) {
 		return
 	}
-	t := taskDeleteNowait{
-		key: key,
-	}
+	var t taskDeleteNowait
+	t.key = key
 	c.do(&t)
 }
 
@@ -1070,9 +1059,8 @@ func (t *taskFlushAllDelayed) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) 
 
 // Flushes all the items on the server after the given expiration delay.
 func (c *Client) FlushAllDelayed(expiration time.Duration) error {
-	t := taskFlushAllDelayed{
-		expiration: expiration,
-	}
+	var t taskFlushAllDelayed
+	t.expiration = expiration
 	return c.do(&t)
 }
 
@@ -1090,7 +1078,7 @@ func (t *taskFlushAll) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Flushes all the items on the server.
 func (c *Client) FlushAll() error {
-	t := taskFlushAll{}
+	var t taskFlushAll
 	return c.do(&t)
 }
 
@@ -1107,9 +1095,8 @@ func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]
 // The same as Client.FlushAllDelayed(), but doesn't wait for operation
 // completion.
 func (c *Client) FlushAllDelayedNowait(expiration time.Duration) {
-	t := taskFlushAllDelayedNowait{
-		expiration: expiration,
-	}
+	var t taskFlushAllDelayedNowait
+	t.expiration = expiration
 	c.do(&t)
 }
 
@@ -1123,6 +1110,6 @@ func (t *taskFlushAllNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) b
 
 // The same as Client.FlushAll(), but doesn't wait for operation completion.
 func (c *Client) FlushAllNowait() {
-	t := taskFlushAllNowait{}
+	var t taskFlushAllNowait
 	c.do(&t)
 }

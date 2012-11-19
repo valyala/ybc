@@ -266,13 +266,13 @@ func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int,
 	if setupFunc != nil {
 		setupFunc(c)
 	}
-	wg := &sync.WaitGroup{}
+	var wg sync.WaitGroup
 	defer wg.Wait()
 	ch := make(chan int, b.N)
 	defer close(ch)
 	for i := 0; i < workersCount; i++ {
 		wg.Add(1)
-		go workerFunc(c, ch, wg, i, b)
+		go workerFunc(c, ch, &wg, i, b)
 	}
 
 	for i := 0; i < b.N; i++ {
@@ -282,10 +282,10 @@ func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int,
 
 func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := Item{
-		Key:   []byte(fmt.Sprintf("key_%d", i)),
-		Value: []byte(fmt.Sprintf("value_%d", i)),
-	}
+	var item Item
+	item.Key = []byte(fmt.Sprintf("key_%d", i))
+	item.Value = []byte(fmt.Sprintf("value_%d", i))
+
 	for _ = range ch {
 		if err := c.Set(&item); err != nil {
 			b.Fatalf("Error when calling channel.Set(): [%s]", err)
@@ -331,9 +331,8 @@ func BenchmarkClientServer_ConcurrentSet_128Workers(b *testing.B) {
 
 func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := Item{
-		Key: []byte(fmt.Sprintf("key_%d", i)),
-	}
+	var item Item
+	item.Key = []byte(fmt.Sprintf("key_%d", i))
 	for _ = range ch {
 		if err := c.Get(&item); err != nil {
 			b.Fatalf("Error when calling channel.Get(): [%s]", err)
@@ -343,11 +342,10 @@ func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B
 
 func concurrentGet(workersCount int, b *testing.B) {
 	setupFunc := func(c *Client) {
+		var item Item
 		for i := 0; i < workersCount; i++ {
-			item := Item{
-				Key:   []byte(fmt.Sprintf("key_%d", i)),
-				Value: []byte(fmt.Sprintf("value_%d", i)),
-			}
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
 			if err := c.Set(&item); err != nil {
 				b.Fatalf("Error when calling channel.Set(): [%s]", err)
 			}
@@ -390,9 +388,8 @@ func BenchmarkClientServer_ConcurrentGet_128Workers(b *testing.B) {
 
 func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := Item{
-		Key: []byte(fmt.Sprintf("key_%d", i)),
-	}
+	var item Item
+	item.Key = []byte(fmt.Sprintf("key_%d", i))
 	grace := 100 * time.Millisecond
 	for _ = range ch {
 		if err := c.GetDe(&item, grace); err != nil {
@@ -403,11 +400,10 @@ func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing
 
 func concurrentGetDe(workersCount int, b *testing.B) {
 	setupFunc := func(c *Client) {
+		var item Item
 		for i := 0; i < workersCount; i++ {
-			item := Item{
-				Key:   []byte(fmt.Sprintf("key_%d", i)),
-				Value: []byte(fmt.Sprintf("value_%d", i)),
-			}
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
 			if err := c.Set(&item); err != nil {
 				b.Fatalf("Error when calling channel.Set(): [%s]", err)
 			}
@@ -458,10 +454,9 @@ func randFill(b []byte) {
 
 func getSetWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
-	item := Item{
-		Key:   make([]byte, 16),
-		Value: make([]byte, 16),
-	}
+	var item Item
+	item.Key = make([]byte, 16)
+	item.Value = make([]byte, 16)
 	randFill(item.Value)
 
 	for _ = range ch {
