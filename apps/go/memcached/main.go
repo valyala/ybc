@@ -3,12 +3,15 @@
 // Thanks to YBC, the server has the following features missing
 // in the original memcached:
 //   * Cache content survives server restarts if it is backed by files.
-//   * Cache size can exceed available RAM size by multiple orders of magnitude.
+//   * Cache size may exceed available RAM size by multiple orders of magnitude.
 //     The server should remain fast until the total size of frequently accessed
 //     items exceeds RAM size. It may remain relatively fast even if frequently
 //     accessed items don't fit RAM if cache files are located on fast SSDs.
 //   * The maximum value size is limited by 2Gb.
 //   * There is no 250 byte limit on key size.
+//   * Out-of-the box support for 'dogpile effect' handling - see Client.GetDe()
+//     memcache extension at github.com/valyala/ybc/libs/go/memcache
+//     for details.
 package main
 
 import (
