@@ -31,6 +31,7 @@ const (
 var (
 	strCget        = []byte("cget ")
 	strCgetDe      = []byte("cgetde ")
+	strCrLf        = []byte("\r\n")
 	strCset        = []byte("cset ")
 	strDelete      = []byte("delete ")
 	strDeleted     = []byte("DELETED")
@@ -47,6 +48,7 @@ var (
 	strStored      = []byte("STORED")
 	strValue       = []byte("VALUE ")
 	strWouldBlock  = []byte("WB")
+	strWsZeroCrLf  = []byte(" 0\r\n")
 )
 
 func validateKey(key []byte) bool {
@@ -313,10 +315,6 @@ func writeWs(w *bufio.Writer) bool {
 	return writeByte(w, ' ')
 }
 
-func writeZero(w *bufio.Writer) bool {
-	return writeByte(w, '0')
-}
-
 func writeStr(w *bufio.Writer, s []byte) bool {
 	if _, err := w.Write(s); err != nil {
 		log.Printf("Cannot write [%s] to output stream: [%s]", s, err)
@@ -346,7 +344,7 @@ func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
 }
 
 func writeCrLf(w *bufio.Writer) bool {
-	return writeByte(w, '\r') && writeByte(w, '\n')
+	return writeStr(w, strCrLf)
 }
 
 func writeNoreply(w *bufio.Writer) bool {

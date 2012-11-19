@@ -36,12 +36,11 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scr
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
+	s := strCrLf
 	if cas {
-		if !writeWs(w) || !writeZero(w) {
-			return false
-		}
+		s = strWsZeroCrLf
 	}
-	return writeCrLf(w) && writeItem(w, item, size)
+	return writeStr(w, s) && writeItem(w, item, size)
 }
 
 func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, cas bool, scratchBuf *[]byte) bool {
