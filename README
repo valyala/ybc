@@ -7,11 +7,11 @@ This library implements fast in-process blob cache with persistence support.
 
 YBC features.
 
-* Huge amounts of data can be cached. Cache size may be much larger than
-  the available RAM size.
-  + Very large cache values are supported (up to 2^64 bytes). Think of media
+* Huge amounts of data can be cached. Cache size may exceed available RAM size
+  by multiple orders of magnitude.
+  * Very large cache values are supported (up to 2^64 bytes). Think of media
     files such as videos, audios and images.
-  + Very large cache size is supported (up to 2^64 items and up to 2^64 bytes).
+  * Very large cache size is supported (up to 2^64 items and up to 2^64 bytes).
     In practice cache size is limited by free space on backing store,
     not by available RAM.
 
