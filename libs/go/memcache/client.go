@@ -818,7 +818,7 @@ func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]by
 		return false
 	}
 	if noreply {
-		if !writeNoreply(w) {
+		if !writeStr(w, strWsNoreply) {
 			return false
 		}
 	}
@@ -866,7 +866,7 @@ func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]
 		return false
 	}
 	if noreply {
-		if !writeNoreply(w) {
+		if !writeStr(w, strWsNoreply) {
 			return false
 		}
 	}
@@ -975,7 +975,7 @@ func writeDeleteRequest(w *bufio.Writer, key []byte, noreply bool) bool {
 		return false
 	}
 	if noreply {
-		if !writeNoreply(w) {
+		if !writeStr(w, strWsNoreply) {
 			return false
 		}
 	}
@@ -1088,8 +1088,8 @@ type taskFlushAllDelayedNowait struct {
 }
 
 func (t *taskFlushAllDelayedNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) && writeWs(w) &&
-		writeStr(w, strNoreply) && writeCrLf(w)
+	return writeStr(w, strFlushAll) && writeExpiration(w, t.expiration, scratchBuf) &&
+		writeStr(w, strWsNoreply) && writeCrLf(w)
 }
 
 // The same as Client.FlushAllDelayed(), but doesn't wait for operation

@@ -48,6 +48,7 @@ var (
 	strStored      = []byte("STORED")
 	strValue       = []byte("VALUE ")
 	strWouldBlock  = []byte("WB")
+	strWsNoreply   = []byte(" noreply")
 	strWsZeroCrLf  = []byte(" 0\r\n")
 )
 
@@ -345,10 +346,6 @@ func writeInt(w *bufio.Writer, n int, scratchBuf *[]byte) bool {
 
 func writeCrLf(w *bufio.Writer) bool {
 	return writeStr(w, strCrLf)
-}
-
-func writeNoreply(w *bufio.Writer) bool {
-	return writeWs(w) && writeStr(w, strNoreply)
 }
 
 func writeExpiration(w *bufio.Writer, expiration time.Duration, scratchBuf *[]byte) bool {
