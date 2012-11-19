@@ -30,8 +30,8 @@ func TestCachingClient_SetGetDelete(t *testing.T) {
 	c, s, cache := newCachingClientServerCache(t)
 	defer cache.Close()
 	defer s.Stop()
-	defer c.Client.(Cacher).Stop()
 	defer c.Cache.Close()
+	defer c.Client.(Cacher).Stop()
 
 	key := []byte("key")
 	value := []byte("value")

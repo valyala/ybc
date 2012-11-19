@@ -18,7 +18,7 @@ type Memcacher interface {
 	FlushAllDelayedNowait(expiration time.Duration)
 }
 
-// Client and DistributedClient implement this interface.
+// Client, DistributedClient and CachingClient implement this interface.
 type MemcacherDe interface {
 	Memcacher
 

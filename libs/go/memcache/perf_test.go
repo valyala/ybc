@@ -47,6 +47,26 @@ func newBenchClientServerCache(b *testing.B) (c *Client, s *Server, cache *ybc.C
 	return newBenchClientServerCache_Ext(0, 0, 0, b)
 }
 
+func newBenchCachingClientServerCache(b *testing.B) (cc *CachingClient, s *Server, cache *ybc.Cache) {
+	c, s, cache := newBenchClientServerCache(b)
+
+	config := ybc.Config{
+		MaxItemsCount: 1000 * 1000,
+		DataFileSize:  10 * 1000 * 1000,
+	}
+
+	localCache, err := config.OpenCache(true)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	cc = &CachingClient{
+		Client: c,
+		Cache:  localCache,
+	}
+	return
+}
+
 func BenchmarkClientServer_Set(b *testing.B) {
 	c, s, cache := newBenchClientServerCache(b)
 	defer cache.Close()
@@ -253,16 +273,11 @@ func BenchmarkClientServer_SetNowait_1KPendingRequests(b *testing.B) {
 	setNowait(0, 0, 1024, b)
 }
 
-type WorkerFunc func(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
+type WorkerFunc func(c MemcacherDe, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B)
 
-type SetupFunc func(c *Client)
+type SetupFunc func(c MemcacherDe)
 
-func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int, b *testing.B) {
-	c, s, cache := newBenchClientServerCache(b)
-	defer cache.Close()
-	defer s.Stop()
-	defer c.Stop()
-
+func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int, c MemcacherDe, b *testing.B) {
 	if setupFunc != nil {
 		setupFunc(c)
 	}
@@ -280,7 +295,26 @@ func concurrentOps(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int,
 	}
 }
 
-func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+func concurrentOpsForCachingClient(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int, b *testing.B) {
+	c, s, cache := newBenchCachingClientServerCache(b)
+	defer cache.Close()
+	defer s.Stop()
+	defer c.Cache.Close()
+	defer c.Client.(Cacher).Stop()
+
+	concurrentOps(setupFunc, workerFunc, workersCount, c, b)
+}
+
+func concurrentOpsForClient(setupFunc SetupFunc, workerFunc WorkerFunc, workersCount int, b *testing.B) {
+	c, s, cache := newBenchClientServerCache(b)
+	defer cache.Close()
+	defer s.Stop()
+	defer c.Stop()
+
+	concurrentOps(setupFunc, workerFunc, workersCount, c, b)
+}
+
+func setWorker(c MemcacherDe, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	var item Item
 	item.Key = []byte(fmt.Sprintf("key_%d", i))
@@ -294,7 +328,7 @@ func setWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B
 }
 
 func concurrentSet(workersCount int, b *testing.B) {
-	concurrentOps(nil, setWorker, workersCount, b)
+	concurrentOpsForClient(nil, setWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentSet_1Workers(b *testing.B) {
@@ -329,7 +363,43 @@ func BenchmarkClientServer_ConcurrentSet_128Workers(b *testing.B) {
 	concurrentSet(128, b)
 }
 
-func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+func concurrentSetForCachingClient(workersCount int, b *testing.B) {
+	concurrentOpsForCachingClient(nil, setWorker, workersCount, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_1Workers(b *testing.B) {
+	concurrentSetForCachingClient(1, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_2Workers(b *testing.B) {
+	concurrentSetForCachingClient(2, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_4Workers(b *testing.B) {
+	concurrentSetForCachingClient(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_8Workers(b *testing.B) {
+	concurrentSetForCachingClient(8, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_16Workers(b *testing.B) {
+	concurrentSetForCachingClient(16, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_32Workers(b *testing.B) {
+	concurrentSetForCachingClient(32, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_64Workers(b *testing.B) {
+	concurrentSetForCachingClient(64, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentSet_128Workers(b *testing.B) {
+	concurrentSetForCachingClient(128, b)
+}
+
+func getWorker(c MemcacherDe, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	var item Item
 	item.Key = []byte(fmt.Sprintf("key_%d", i))
@@ -341,7 +411,7 @@ func getWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B
 }
 
 func concurrentGet(workersCount int, b *testing.B) {
-	setupFunc := func(c *Client) {
+	setupFunc := func(c MemcacherDe) {
 		var item Item
 		for i := 0; i < workersCount; i++ {
 			item.Key = []byte(fmt.Sprintf("key_%d", i))
@@ -351,7 +421,7 @@ func concurrentGet(workersCount int, b *testing.B) {
 			}
 		}
 	}
-	concurrentOps(setupFunc, getWorker, workersCount, b)
+	concurrentOpsForClient(setupFunc, getWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGet_1Workers(b *testing.B) {
@@ -386,7 +456,100 @@ func BenchmarkClientServer_ConcurrentGet_128Workers(b *testing.B) {
 	concurrentGet(128, b)
 }
 
-func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+func concurrentGetForCachingClient(workersCount int, b *testing.B) {
+	setupFunc := func(c MemcacherDe) {
+		var item Item
+		for i := 0; i < workersCount; i++ {
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
+			if err := c.Set(&item); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOpsForCachingClient(setupFunc, getWorker, workersCount, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_1Workers(b *testing.B) {
+	concurrentGetForCachingClient(1, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_2Workers(b *testing.B) {
+	concurrentGetForCachingClient(2, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_4Workers(b *testing.B) {
+	concurrentGetForCachingClient(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_8Workers(b *testing.B) {
+	concurrentGetForCachingClient(8, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_16Workers(b *testing.B) {
+	concurrentGetForCachingClient(16, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_32Workers(b *testing.B) {
+	concurrentGetForCachingClient(32, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_64Workers(b *testing.B) {
+	concurrentGetForCachingClient(64, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGet_128Workers(b *testing.B) {
+	concurrentGetForCachingClient(128, b)
+}
+
+func concurrentGetForCachingClientWithValidateTtl(workersCount int, b *testing.B) {
+	setupFunc := func(c MemcacherDe) {
+		var item Item
+		validateTtl := time.Minute
+		for i := 0; i < workersCount; i++ {
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
+			if err := c.(*CachingClient).SetWithValidateTtl(&item, validateTtl); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOpsForCachingClient(setupFunc, getWorker, workersCount, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_1Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(1, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_2Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_4Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_8Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(8, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_16Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(16, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_32Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(32, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_64Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(64, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetWithValidateTtl_128Workers(b *testing.B) {
+	concurrentGetForCachingClientWithValidateTtl(128, b)
+}
+
+func getDeWorker(c MemcacherDe, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	var item Item
 	item.Key = []byte(fmt.Sprintf("key_%d", i))
@@ -399,7 +562,7 @@ func getDeWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing
 }
 
 func concurrentGetDe(workersCount int, b *testing.B) {
-	setupFunc := func(c *Client) {
+	setupFunc := func(c MemcacherDe) {
 		var item Item
 		for i := 0; i < workersCount; i++ {
 			item.Key = []byte(fmt.Sprintf("key_%d", i))
@@ -409,7 +572,7 @@ func concurrentGetDe(workersCount int, b *testing.B) {
 			}
 		}
 	}
-	concurrentOps(setupFunc, getDeWorker, workersCount, b)
+	concurrentOpsForClient(setupFunc, getDeWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGetDe_1Workers(b *testing.B) {
@@ -444,6 +607,99 @@ func BenchmarkClientServer_ConcurrentGetDe_128Workers(b *testing.B) {
 	concurrentGetDe(128, b)
 }
 
+func concurrentGetDeWithValidateTtl(workersCount int, b *testing.B) {
+	setupFunc := func(c MemcacherDe) {
+		var item Item
+		validateTtl := time.Minute
+		for i := 0; i < workersCount; i++ {
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
+			if err := c.(*CachingClient).SetWithValidateTtl(&item, validateTtl); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOpsForClient(setupFunc, getDeWorker, workersCount, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_1Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(1, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_2Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(2, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_4Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(4, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_8Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(8, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_16Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(16, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_32Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(32, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_64Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(64, b)
+}
+
+func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_128Workers(b *testing.B) {
+	concurrentGetDeWithValidateTtl(128, b)
+}
+
+func concurrentGetDeForCachingClient(workersCount int, b *testing.B) {
+	setupFunc := func(c MemcacherDe) {
+		var item Item
+		for i := 0; i < workersCount; i++ {
+			item.Key = []byte(fmt.Sprintf("key_%d", i))
+			item.Value = []byte(fmt.Sprintf("value_%d", i))
+			if err := c.Set(&item); err != nil {
+				b.Fatalf("Error when calling channel.Set(): [%s]", err)
+			}
+		}
+	}
+	concurrentOpsForCachingClient(setupFunc, getDeWorker, workersCount, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_1Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(1, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_2Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(2, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_4Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_8Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(8, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_16Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(16, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_32Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(32, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_64Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(64, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetDe_128Workers(b *testing.B) {
+	concurrentGetDeForCachingClient(128, b)
+}
+
 var keyChars = []byte("0123456789qwertyuiopasdfghjklzxcvbnm")
 
 func randFill(b []byte) {
@@ -452,7 +708,7 @@ func randFill(b []byte) {
 	}
 }
 
-func getSetWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
+func getSetWorker(c MemcacherDe, ch <-chan int, wg *sync.WaitGroup, i int, b *testing.B) {
 	defer wg.Done()
 	var item Item
 	item.Key = make([]byte, 16)
@@ -476,7 +732,7 @@ func getSetWorker(c *Client, ch <-chan int, wg *sync.WaitGroup, i int, b *testin
 }
 
 func concurrentGetSet(workersCount int, b *testing.B) {
-	concurrentOps(nil, getSetWorker, workersCount, b)
+	concurrentOpsForClient(nil, getSetWorker, workersCount, b)
 }
 
 func BenchmarkClientServer_ConcurrentGetSet_1Workers(b *testing.B) {
@@ -509,4 +765,40 @@ func BenchmarkClientServer_ConcurrentGetSet_64Workers(b *testing.B) {
 
 func BenchmarkClientServer_ConcurrentGetSet_128Workers(b *testing.B) {
 	concurrentGetSet(128, b)
+}
+
+func concurrentGetSetForCachingClient(workersCount int, b *testing.B) {
+	concurrentOpsForCachingClient(nil, getSetWorker, workersCount, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_1Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(1, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_2Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(2, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_4Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(4, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_8Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(8, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_16Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(16, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_32Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(32, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_64Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(64, b)
+}
+
+func BenchmarkCachingClientServer_ConcurrentGetSet_128Workers(b *testing.B) {
+	concurrentGetSetForCachingClient(128, b)
 }
