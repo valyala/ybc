@@ -560,6 +560,9 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 //
 // Usage:
 //
+//   cache := openCache()
+//   defer cache.Close()
+//
 //   s := Server{
 //       Cache: cache,
 //       ListenAddr: ":11211",
