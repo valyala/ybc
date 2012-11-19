@@ -31,9 +31,9 @@ var (
 
 func workerGetMiss(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	item := memcache.Item{
-		Key: []byte(*key),
-	}
+	var item memcache.Item
+	item.Key = []byte(*key)
+
 	for _ = range ch {
 		if err := client.Get(&item); err != memcache.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
@@ -43,12 +43,12 @@ func workerGetMiss(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 
 func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	item := memcache.Item{
-		Key:   []byte(*key),
-		Value: []byte(*value),
-	}
+	var item memcache.Item
+	item.Key = []byte(*key)
+	item.Value = []byte(*value)
 	valueOrig := item.Value
 	item.Value = nil
+
 	for _ = range ch {
 		if err := client.Get(&item); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
