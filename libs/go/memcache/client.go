@@ -14,7 +14,7 @@ import (
 
 var (
 	ErrCacheMiss            = errors.New("memcache.Client: cache miss")
-	ErrClientNotStarted     = errors.New("memcache.Client: the client isn't started or already stopped")
+	ErrClientNotRunning     = errors.New("memcache.Client: the client isn't running")
 	ErrCommunicationFailure = errors.New("memcache.Client: communication failure")
 	ErrMalformedKey         = errors.New("memcache.Client: malformed key")
 	ErrNilValue             = errors.New("memcache.Client: nil value")
@@ -267,7 +267,7 @@ func (c *Client) run() {
 
 func handleClosedRequests(err *error) {
 	if r := recover(); r != nil {
-		*err = ErrClientNotStarted
+		*err = ErrClientNotRunning
 	}
 }
 
@@ -279,7 +279,7 @@ func (c *Client) pushTask(t tasker) (err error) {
 
 func (c *Client) do(t tasker) (err error) {
 	if c.requests == nil {
-		return ErrClientNotStarted
+		return ErrClientNotRunning
 	}
 	t.Init()
 	if err = c.pushTask(t); err != nil {

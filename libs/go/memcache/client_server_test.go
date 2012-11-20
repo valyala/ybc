@@ -690,32 +690,32 @@ func cacher_NotStartedNoStop(c Cacher, t *testing.T) {
 		Item: item,
 	}
 
-	if err := c.Get(&item); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.Get(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.Get(&item); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Get(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.GetMulti([]Item{item}); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.GetMulti(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.GetMulti([]Item{item}); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.GetMulti(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.GetDe(&item, time.Second); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.GetDe(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.GetDe(&item, time.Second); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.GetDe(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Cget(&citem); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.Cget(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.Cget(&citem); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Cget(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Set(&item); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.Set(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.Set(&item); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Set(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Cset(&citem); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.Cset(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.Cset(&citem); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Cset(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Delete(item.Key); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.Delete(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.Delete(item.Key); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Delete(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.FlushAll(); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.FlushAll(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.FlushAll(); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.FlushAll(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.FlushAllDelayed(time.Second); err != ErrClientNotStarted {
-		t.Fatalf("Unexpected error received in Cacher.FlushAllDelayed(): [%s]. Expected ErrClientNotStarted", err)
+	if err := c.FlushAllDelayed(time.Second); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.FlushAllDelayed(): [%s]. Expected ErrClientNotRunning", err)
 	}
 }
 

@@ -242,7 +242,7 @@ func (c *DistributedClient) clientNolock(key []byte) *Client {
 
 func (c *DistributedClient) clientsCount() (n int, err error) {
 	if c.clientsMap == nil {
-		err = ErrClientNotStarted
+		err = ErrClientNotRunning
 		return
 	}
 	n = len(c.clientsList)
@@ -289,12 +289,12 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 }
 
 func filterClientError(err error) error {
-	// Hide ErrClientNotStarted error obtained from the underlying Client,
-	// Since this error may be returned only in one very obscure case -
+	// Hide ErrClientNotRunning error obtained from the underlying Client,
+	// since this error may be returned only in one very obscure case -
 	// when the given Client has been deleted from the DistributedClient
 	// and stopped just after it has been returned to the caller, but before
 	// the caller called Client's function.
-	if err == ErrClientNotStarted {
+	if err == ErrClientNotRunning {
 		return nil
 	}
 	return err
