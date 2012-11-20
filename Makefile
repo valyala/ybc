@@ -126,10 +126,10 @@ go-perftests-memcache:
 go-perftests: go-perftests-bindings go-perftests-memcache
 
 go-memcached:
-	$(GOCC) build -o memcached -a -tags release ./apps/go/memcached
+	$(GOCC) build -o go-memcached -a -tags release ./apps/go/memcached
 
 go-memcached-bench:
-	$(GOCC) build -o memcached-bench -a -tags release ./apps/go/memcached-bench
+	$(GOCC) build -o go-memcached-bench -a -tags release ./apps/go/memcached-bench
 
 go-update:
 	$(GOCC) get -u -a github.com/valyala/ybc/bindings/go/ybc
@@ -154,5 +154,5 @@ clean:
 	rm -f tests/performance-64-release
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
-	rm -f memcached
-	rm -f memcached-bench
+	rm -f go-memcached
+	rm -f go-memcached-bench
