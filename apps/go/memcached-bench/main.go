@@ -9,12 +9,13 @@ import (
 	"log"
 	"math/rand"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	serverAddr              = flag.String("serverAddr", ":11211", "Address of memcache server to test")
+	serverAddrs             = flag.String("serverAddrs", ":11211", "Comma-delimited addresses of memcache servers to test")
 	connectionsCount        = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	key                     = flag.String("key", "key", "The key to query in memcache")
@@ -29,7 +30,7 @@ var (
 	writeBufferSize         = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes")
 )
 
-func workerGetMiss(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetMiss(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	var item memcache.Item
 	item.Key = []byte(*key)
@@ -41,7 +42,7 @@ func workerGetMiss(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	}
 }
 
-func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetHit(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	var item memcache.Item
 	item.Key = []byte(*key)
@@ -59,7 +60,7 @@ func workerGetHit(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	}
 }
 
-func workerSet(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+func workerSet(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	var item memcache.Item
 	for i := range ch {
@@ -71,7 +72,7 @@ func workerSet(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
 	}
 }
 
-func workerGetSetRand(client *memcache.Client, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetSetRand(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	var item memcache.Item
 	itemsCount := *requestsCount / *workersCount
@@ -103,20 +104,36 @@ func main() {
 	flag.Parse()
 
 	runtime.GOMAXPROCS(*goMaxProcs)
-	client := memcache.Client{
-		ServerAddr:              *serverAddr,
-		ConnectionsCount:        *connectionsCount,
-		MaxPendingRequestsCount: *maxPendingRequestsCount,
-		ReadBufferSize:          *readBufferSize,
-		WriteBufferSize:         *writeBufferSize,
-		OSReadBufferSize:        *osReadBufferSize,
-		OSWriteBufferSize:       *osWriteBufferSize,
+
+	serverAddrs_ := strings.Split(*serverAddrs, ",")
+	var client memcache.Cacher
+	if len(serverAddrs_) < 2 {
+		client = &memcache.Client{
+			ServerAddr:              *serverAddrs,
+			ConnectionsCount:        *connectionsCount,
+			MaxPendingRequestsCount: *maxPendingRequestsCount,
+			ReadBufferSize:          *readBufferSize,
+			WriteBufferSize:         *writeBufferSize,
+			OSReadBufferSize:        *osReadBufferSize,
+			OSWriteBufferSize:       *osWriteBufferSize,
+		}
+		client.Start()
+	} else {
+		c := &memcache.DistributedClient{
+			ConnectionsCount:        *connectionsCount,
+			MaxPendingRequestsCount: *maxPendingRequestsCount,
+			ReadBufferSize:          *readBufferSize,
+			WriteBufferSize:         *writeBufferSize,
+			OSReadBufferSize:        *osReadBufferSize,
+			OSWriteBufferSize:       *osWriteBufferSize,
+		}
+		c.StartStatic(serverAddrs_)
+		client = c
 	}
-	client.Start()
 	defer client.Stop()
 
 	fmt.Printf("Config:\n")
-	fmt.Printf("serverAddr=[%s]\n", *serverAddr)
+	fmt.Printf("serverAddrs=[%s]\n", *serverAddrs)
 	fmt.Printf("connectionsCount=[%d]\n", *connectionsCount)
 	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
 	fmt.Printf("key=[%s]\n", *key)
@@ -175,6 +192,6 @@ func main() {
 
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
-		go worker(&client, &wg, ch)
+		go worker(client, &wg, ch)
 	}
 }
