@@ -1,4 +1,6 @@
 // Benchmark for memcache servers.
+//
+// Supports simultaneous benchmarking of multiple servers.
 package main
 
 import (
