@@ -288,18 +288,6 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 	return
 }
 
-func filterClientError(err error) error {
-	// Hide ErrClientNotRunning error obtained from the underlying Client,
-	// since this error may be returned only in one very obscure case -
-	// when the given Client has been deleted from the DistributedClient
-	// and stopped just after it has been returned to the caller, but before
-	// the caller called Client's function.
-	if err == ErrClientNotRunning {
-		return nil
-	}
-	return err
-}
-
 // See Client.GetMulti().
 func (c *DistributedClient) GetMulti(items []Item) error {
 	itemsPerClient, clients, err := c.itemsPerClient(items)
@@ -307,7 +295,7 @@ func (c *DistributedClient) GetMulti(items []Item) error {
 		return err
 	}
 	for clientIdx, clientItems := range itemsPerClient {
-		if err = filterClientError(clients[clientIdx].GetMulti(clientItems)); err != nil {
+		if err = clients[clientIdx].GetMulti(clientItems); err != nil {
 			return err
 		}
 	}
@@ -320,7 +308,7 @@ func (c *DistributedClient) Get(item *Item) error {
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.Get(item))
+	return client.Get(item)
 }
 
 // See Client.Cget().
@@ -329,7 +317,7 @@ func (c *DistributedClient) Cget(item *Citem) error {
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.Cget(item))
+	return client.Cget(item)
 }
 
 // See Client.GetDe().
@@ -338,7 +326,7 @@ func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.GetDe(item, graceDuration))
+	return client.GetDe(item, graceDuration)
 }
 
 // See Client.CgetDe()
@@ -347,7 +335,7 @@ func (c *DistributedClient) CgetDe(item *Citem, graceDuration time.Duration) err
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.CgetDe(item, graceDuration))
+	return client.CgetDe(item, graceDuration)
 }
 
 // See Client.Set().
@@ -356,7 +344,7 @@ func (c *DistributedClient) Set(item *Item) error {
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.Set(item))
+	return client.Set(item)
 }
 
 // See Client.Cset().
@@ -365,7 +353,7 @@ func (c *DistributedClient) Cset(item *Citem) error {
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.Cset(item))
+	return client.Cset(item)
 }
 
 // See Client.SetNowait().
@@ -390,7 +378,7 @@ func (c *DistributedClient) Delete(key []byte) error {
 	if err != nil {
 		return err
 	}
-	return filterClientError(client.Delete(key))
+	return client.Delete(key)
 }
 
 // See Client.DeleteNowait().
@@ -426,7 +414,7 @@ func (c *DistributedClient) FlushAllDelayed(expiration time.Duration) error {
 		return err
 	}
 	for _, client := range clients {
-		if err := filterClientError(client.FlushAllDelayed(expiration)); err != nil {
+		if err := client.FlushAllDelayed(expiration); err != nil {
 			return err
 		}
 	}
@@ -440,7 +428,7 @@ func (c *DistributedClient) FlushAll() error {
 		return err
 	}
 	for _, client := range clients {
-		if err := filterClientError(client.FlushAll()); err != nil {
+		if err := client.FlushAll(); err != nil {
 			return err
 		}
 	}
