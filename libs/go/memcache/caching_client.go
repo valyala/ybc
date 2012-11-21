@@ -91,17 +91,9 @@ func writeItemMetadata(cache ybc.Cacher, key []byte, size int, ttl time.Duration
 
 func readItemMetadata(it *ybc.Item) (etag uint64, validateTtl uint32, flags uint32, validateExpiration time.Time, ok bool) {
 	var validateExpiration64 uint64
-	ok = false
-	if err := binaryRead(it, &etag, "etag"); err != nil {
-		return
-	}
-	if err := binaryRead(it, &validateTtl, "validateTtl"); err != nil {
-		return
-	}
-	if err := binaryRead(it, &flags, "flags"); err != nil {
-		return
-	}
-	if err := binaryRead(it, &validateExpiration64, "validateExpiration"); err != nil {
+	if !binaryRead(it, &etag, "etag") || !binaryRead(it, &validateTtl, "validateTtl") ||
+		!binaryRead(it, &flags, "flags") || !binaryRead(it, &validateExpiration64, "validateExpiration") {
+		ok = false
 		return
 	}
 	validateExpiration = time.Unix(0, int64(validateExpiration64))

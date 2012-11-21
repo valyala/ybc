@@ -375,12 +375,12 @@ func writeMilliseconds(w *bufio.Writer, duration time.Duration, scratchBuf *[]by
 	return writeUint32(w, uint32(t), scratchBuf)
 }
 
-func binaryRead(r io.Reader, data interface{}, name string) error {
+func binaryRead(r io.Reader, data interface{}, name string) bool {
 	if err := binary.Read(r, binary.LittleEndian, data); err != nil {
 		log.Printf("Error in binary.Read() for [%s]: [%s]", name, err)
-		return err
+		return false
 	}
-	return nil
+	return true
 }
 
 func binaryWrite(w io.Writer, data interface{}, name string) {

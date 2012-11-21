@@ -4,11 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"net"
 	"sync"
 	"time"
+)
+
+var (
+	errBinaryReadFailed = errors.New("memcache.Server: binary read failed")
 )
 
 func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
@@ -26,7 +31,7 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scratchBuf *[]byte) bool {
 	var flags uint32
-	if err := binaryRead(item, &flags, "flags"); err != nil {
+	if !binaryRead(item, &flags, "flags") {
 		return false
 	}
 
@@ -115,10 +120,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 
 func writeCgetResponse(w *bufio.Writer, etag uint64, item *ybc.Item, scratchBuf *[]byte) bool {
 	var validateTtl, flags uint32
-	if err := binaryRead(item, &validateTtl, "validateTtl"); err != nil {
-		return false
-	}
-	if err := binaryRead(item, &flags, "flags"); err != nil {
+	if !binaryRead(item, &validateTtl, "validateTtl") || !binaryRead(item, &flags, "flags") {
 		return false
 	}
 
@@ -147,7 +149,8 @@ func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, 
 	}()
 
 	etagOld := *etag
-	if err = binaryRead(item, etag, "etag"); err != nil {
+	if !binaryRead(item, etag, "etag") {
+		err = errBinaryReadFailed
 		return
 	}
 	if etagOld == *etag {
@@ -203,7 +206,8 @@ func cGetDeFromCache(cache ybc.Cacher, key []byte, etag *uint64, graceDuration t
 	}()
 
 	etagOld := *etag
-	if err = binaryRead(item, etag, "etag"); err != nil {
+	if !binaryRead(item, etag, "etag") {
+		err = errBinaryReadFailed
 		return
 	}
 	if etagOld == *etag {
