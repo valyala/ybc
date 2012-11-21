@@ -825,15 +825,17 @@ func writeNoreplyAndValue(w *bufio.Writer, noreply bool, value []byte) bool {
 	return writeStr(w, value) && writeCrLf(w)
 }
 
-func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
+func writeCommonSetParams(w *bufio.Writer, cmd []byte, item *ITem, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	if !writeStr(w, strSet) || !writeStr(w, item.Key) || !writeWs(w) ||
-		!writeUint32(w, item.Flags, scratchBuf) || !writeWs(w) ||
-		!writeExpiration(w, item.Expiration, scratchBuf) || !writeWs(w) ||
-		!writeInt(w, size, scratchBuf) {
-		return false
-	}
-	return writeNoreplyAndValue(w, noreply, item.Value)
+	return writeStr(w, strSet) && writeStr(w, item.Key) && writeWs(w) &&
+		writeUint32(w, item.Flags, scratchBuf) && writeWs(w) &&
+		writeExpiration(w, item.Expiration, scratchBuf) && writeWs(w) &&
+		writeInt(w, size, scratchBuf)
+}
+
+func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
+	return writeCommonSetParams(w, strSet, t.item, scratchBuf) &&
+            writeNoreplyAndValue(w, noreply, item.Value)
 }
 
 func readSetResponse(r *bufio.Reader) bool {
@@ -859,6 +861,33 @@ func (c *Client) Set(item *Item) error {
 	var t taskSet
 	t.item = item
 	return c.do(&t)
+}
+
+type taskCas struct {
+	item *Item
+	taskSync
+}
+
+func (t *taskCas) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCommonSetParams(w, strCas, t.item, scratchBuf) &&
+            writeUint64(w, t.item.Cas, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
+}
+
+// Stores the given item only if item.Cas matches cas for the given item
+// on the server.
+//
+// Returns ErrCacheMiss if the server has no item with such a key.
+// Returns ErrExists if item on the server has other cas value.
+func (c *Client) Cas(item *Item) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
+	if item.Value == nil {
+		return ErrNilValue
+	}
+	var t taskCas
+	t.item = item
+	return t.do(&t)
 }
 
 type taskCset struct {
