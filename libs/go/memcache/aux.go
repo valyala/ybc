@@ -49,7 +49,6 @@ var (
 	strValue       = []byte("VALUE ")
 	strWouldBlock  = []byte("WB")
 	strWsNoreply   = []byte(" noreply")
-	strWsZeroCrLf  = []byte(" 0\r\n")
 )
 
 func validateKey(key []byte) bool {

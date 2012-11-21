@@ -9,12 +9,23 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 var (
 	errBinaryReadFailed = errors.New("memcache.Server: binary read failed")
 )
+
+var casCounter uint64
+
+func init() {
+	casCounter = uint64(time.Now().UnixNano())
+}
+
+func getCas() uint64 {
+	return atomic.AddUint64(&casCounter, 1)
+}
 
 func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 	n, err := item.WriteTo(w)
@@ -35,17 +46,32 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCa
 		return false
 	}
 
+	var cas uint64
+	if shouldWriteCas {
+		if !binaryRead(item, &cas, "cas") {
+			return false
+		}
+	} else {
+		casSize := int64(binary.Size(&cas))
+		if _, err := item.Seek(casSize, 1); err != nil {
+			log.Fatalf("Unexpected error in Item.Seek(%d, 1): [%s]", casSize, err)
+		}
+	}
+
 	size := item.Available()
 	if !writeStr(w, strValue) || !writeStr(w, key) || !writeWs(w) ||
 		!writeUint32(w, flags, scratchBuf) || !writeWs(w) ||
 		!writeInt(w, size, scratchBuf) {
 		return false
 	}
-	s := strCrLf
+
 	if shouldWriteCas {
-		s = strWsZeroCrLf
+		if !writeWs(w) || !writeUint64(w, cas, scratchBuf) {
+			return false
+		}
 	}
-	return writeStr(w, s) && writeItem(w, item, size)
+
+	return writeStr(w, strCrLf) && writeItem(w, item, size)
 }
 
 func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shouldWriteCas bool, scratchBuf *[]byte) bool {
@@ -322,13 +348,15 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 }
 
 func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
-	size += binary.Size(&flags)
+	cas := getCas()
+	size += binary.Size(&flags) + binary.Size(&cas)
 	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
 	binaryWrite(txn, &flags, "flags")
+	binaryWrite(txn, &cas, "cas")
 	return txn
 }
 
