@@ -29,7 +29,7 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 	return writeCrLf(w)
 }
 
-func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scratchBuf *[]byte) bool {
+func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCas bool, scratchBuf *[]byte) bool {
 	var flags uint32
 	if !binaryRead(item, &flags, "flags") {
 		return false
@@ -42,13 +42,13 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, cas bool, scr
 		return false
 	}
 	s := strCrLf
-	if cas {
+	if shouldWriteCas {
 		s = strWsZeroCrLf
 	}
 	return writeStr(w, s) && writeItem(w, item, size)
 }
 
-func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, cas bool, scratchBuf *[]byte) bool {
+func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shouldWriteCas bool, scratchBuf *[]byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		if err == ybc.ErrCacheMiss {
@@ -58,14 +58,14 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, cas 
 	}
 	defer item.Close()
 
-	return writeGetResponse(w, key, item, cas, scratchBuf)
+	return writeGetResponse(w, key, item, shouldWriteCas, scratchBuf)
 }
 
 func writeEndCrLf(w *bufio.Writer) bool {
 	return writeStr(w, strEnd) && writeCrLf(w)
 }
 
-func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte, cas bool) bool {
+func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte, shouldWriteCas bool) bool {
 	last := -1
 	lineSize := len(line)
 	for last < lineSize {
@@ -80,7 +80,7 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 			continue
 		}
 		key := line[first:last]
-		if !getItemAndWriteResponse(c.Writer, cache, key, cas, scratchBuf) {
+		if !getItemAndWriteResponse(c.Writer, cache, key, shouldWriteCas, scratchBuf) {
 			return false
 		}
 	}
