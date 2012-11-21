@@ -41,11 +41,6 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 }
 
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCas bool, scratchBuf *[]byte) bool {
-	var flags uint32
-	if !binaryRead(item, &flags, "flags") {
-		return false
-	}
-
 	var cas uint64
 	if shouldWriteCas {
 		if !binaryRead(item, &cas, "cas") {
@@ -56,6 +51,11 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCa
 		if _, err := item.Seek(casSize, 1); err != nil {
 			log.Fatalf("Unexpected error in Item.Seek(%d, 1): [%s]", casSize, err)
 		}
+	}
+
+	var flags uint32
+	if !binaryRead(item, &flags, "flags") {
+		return false
 	}
 
 	size := item.Available()
@@ -88,7 +88,7 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shou
 }
 
 func writeEndCrLf(w *bufio.Writer) bool {
-	return writeStr(w, strEnd) && writeCrLf(w)
+	return writeStr(w, strEndCrLf)
 }
 
 func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte, shouldWriteCas bool) bool {
@@ -132,7 +132,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	item, err := cache.GetDeAsyncItem(key, graceDuration)
 	if err != nil {
 		if err == ybc.ErrWouldBlock {
-			return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
+			return writeStr(c.Writer, strWouldBlockCrLf)
 		}
 		if err == ybc.ErrCacheMiss {
 			return writeEndCrLf(c.Writer)
@@ -146,7 +146,7 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 
 func writeCgetResponse(w *bufio.Writer, etag uint64, item *ybc.Item, scratchBuf *[]byte) bool {
 	var validateTtl, flags uint32
-	if !binaryRead(item, &validateTtl, "validateTtl") || !binaryRead(item, &flags, "flags") {
+	if !binaryRead(item, &flags, "flags") || !binaryRead(item, &validateTtl, "validateTtl") {
 		return false
 	}
 
@@ -204,13 +204,13 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 
 	item, err := cGetFromCache(cache, key, &etag)
 	if err == ybc.ErrCacheMiss {
-		return writeStr(c.Writer, strNotFound) && writeCrLf(c.Writer)
+		return writeStr(c.Writer, strNotFoundCrLf)
 	}
 	if err != nil {
 		return false
 	}
 	if item == nil {
-		return writeStr(c.Writer, strNotModified) && writeCrLf(c.Writer)
+		return writeStr(c.Writer, strNotModifiedCrLf)
 	}
 	defer item.Close()
 
@@ -265,16 +265,16 @@ func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 
 	item, err := cGetDeFromCache(cache, key, &etag, graceDuration)
 	if err == ybc.ErrWouldBlock {
-		return writeStr(c.Writer, strWouldBlock) && writeCrLf(c.Writer)
+		return writeStr(c.Writer, strWouldBlockCrLf)
 	}
 	if err == ybc.ErrCacheMiss {
-		return writeStr(c.Writer, strNotFound) && writeCrLf(c.Writer)
+		return writeStr(c.Writer, strNotFoundCrLf)
 	}
 	if err != nil {
 		return false
 	}
 	if item == nil {
-		return writeStr(c.Writer, strNotModified) && writeCrLf(c.Writer)
+		return writeStr(c.Writer, strNotModifiedCrLf)
 	}
 	defer item.Close()
 
@@ -293,7 +293,7 @@ func expectNoreply(line []byte, n *int) bool {
 	return true
 }
 
-func parseSetCmd(line []byte) (key []byte, flags uint32, expiration time.Duration, size int, noreply bool, ok bool) {
+func parseSetCmd(line []byte, shouldParseCas bool) (key []byte, flags uint32, expiration time.Duration, size int, cas uint64, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -308,6 +308,11 @@ func parseSetCmd(line []byte) (key []byte, flags uint32, expiration time.Duratio
 	}
 	if size, ok = parseSizeToken(line, &n); !ok {
 		return
+	}
+	if shouldParseCas {
+		if cas, ok = parseUint64Token(line, &n, "cas"); !ok {
+			return
+		}
 	}
 
 	noreply = false
@@ -344,7 +349,7 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 	if noreply {
 		return true
 	}
-	return writeStr(c.Writer, strStored) && writeCrLf(c.Writer)
+	return writeStr(c.Writer, strStoredCrLf)
 }
 
 func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
@@ -355,17 +360,12 @@ func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dura
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
-	binaryWrite(txn, &flags, "flags")
 	binaryWrite(txn, &cas, "cas")
+	binaryWrite(txn, &flags, "flags")
 	return txn
 }
 
-func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, flags, expiration, size, noreply, ok := parseSetCmd(line)
-	if !ok {
-		return false
-	}
-
+func processSetCmdInternal(c *bufio.ReadWriter, cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int, noreply bool) bool {
 	txn := setToCache(cache, key, flags, expiration, size)
 	if txn == nil {
 		return false
@@ -373,6 +373,48 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	defer txn.Commit()
 
 	return readValueAndWriteResponse(c, txn, size, noreply)
+}
+
+func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	key, flags, expiration, size, _, noreply, ok := parseSetCmd(line, false)
+	if !ok {
+		return false
+	}
+	return processSetCmdInternal(c, cache, key, flags, expiration, size, noreply)
+}
+
+func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, ok bool) {
+	item, err := cache.GetItem(key)
+	if err != nil {
+		if err == ybc.ErrCacheMiss {
+			cacheMiss = true
+			return
+		}
+		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", key, err)
+	}
+	defer item.Close()
+
+	ok = binaryRead(item, &cas, "cas")
+	return
+}
+
+func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
+	key, flags, expiration, size, cas, noreply, ok := parseSetCmd(line, true)
+	if !ok {
+		return false
+	}
+
+	casOrig, cacheMiss, ok := getCasForCachedItem(cache, key)
+	if !ok {
+		return false
+	}
+	if cacheMiss {
+		return writeStr(c.Writer, strNotFoundCrLf)
+	}
+	if casOrig != cas {
+		return writeStr(c.Writer, strExistsCrLf)
+	}
+	return processSetCmdInternal(c, cache, key, flags, expiration, size, noreply)
 }
 
 func parseCsetCmd(line []byte) (key []byte, size int, flags uint32, expiration time.Duration, etag uint64, validateTtl uint32, noreply bool, ok bool) {
@@ -422,8 +464,8 @@ func cSetToCache(cache ybc.Cacher, key []byte, size int, flags uint32, expiratio
 		return nil
 	}
 	binaryWrite(txn, &etag, "etag")
-	binaryWrite(txn, &validateTtl, "validateTtl")
 	binaryWrite(txn, &flags, "flags")
+	binaryWrite(txn, &validateTtl, "validateTtl")
 	return txn
 }
 
@@ -466,11 +508,11 @@ func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 		return true
 	}
 
-	response := strDeleted
+	response := strDeletedCrLf
 	if !ok {
-		response = strNotFound
+		response = strNotFoundCrLf
 	}
-	return writeStr(c.Writer, response) && writeCrLf(c.Writer)
+	return writeStr(c.Writer, response)
 }
 
 func parseFlushAllCmd(line []byte) (expiration time.Duration, noreply bool, ok bool) {
@@ -482,7 +524,12 @@ func parseFlushAllCmd(line []byte) (expiration time.Duration, noreply bool, ok b
 
 	ok = false
 	noreply = false
-	n := -1
+	if line[0] != ' ' {
+		log.Printf("Unexpected character at the beginning of line=[%s]. Expected whitespace", line)
+		return
+	}
+
+	n := 0
 
 	s := nextToken(line, &n, "expiration_or_noreply")
 	if s == nil {
@@ -552,6 +599,9 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	}
 	if bytes.HasPrefix(line, strSet) {
 		return processSetCmd(c, cache, line[len(strSet):], scratchBuf)
+	}
+	if bytes.HasPrefix(line, strCas) {
+		return processCasCmd(c, cache, line[len(strCas):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strCset) {
 		return processCsetCmd(c, cache, line[len(strCset):], scratchBuf)
