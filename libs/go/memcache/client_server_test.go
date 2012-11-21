@@ -135,6 +135,18 @@ func TestClient_StopWithoutStart(t *testing.T) {
 	cacher_StopWithoutStart(c, t)
 }
 
+type cacherTestFunc func(c Cacher, t *testing.T)
+
+func client_RunTest(testFunc cacherTestFunc, t *testing.T) {
+	c, s, cache := newClientServerCache(t)
+	defer cache.Close()
+	defer s.Stop()
+	c.Start()
+	defer c.Stop()
+
+	testFunc(c, t)
+}
+
 func cacher_GetSet(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
@@ -165,20 +177,81 @@ func cacher_GetSet(c Cacher, t *testing.T) {
 	}
 }
 
-type cacherTestFunc func(c Cacher, t *testing.T)
-
-func client_RunTest(testFunc cacherTestFunc, t *testing.T) {
-	c, s, cache := newClientServerCache(t)
-	defer cache.Close()
-	defer s.Stop()
-	c.Start()
-	defer c.Stop()
-
-	testFunc(c, t)
-}
-
 func TestClient_GetSet(t *testing.T) {
 	client_RunTest(cacher_GetSet, t)
+}
+
+func cacher_Cas(c Cacher, t *testing.T) {
+	key := []byte("keyaa")
+	value := []byte("value_casss")
+	flags := uint32(189832)
+
+	item := Item{
+		Key:   key,
+		Value: value,
+		Flags: flags,
+	}
+	if err := c.Set(&item); err != nil {
+		t.Fatalf("error in Cacher.Set(): [%s]", err)
+	}
+
+	item.Value = nil
+	item.Flags = 0
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("error in Cacher.Get(): [%s]", err)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("Unexpected item.Value=[%s]. Expected [%s]", item.Value, value)
+	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected item.Flags=%d. Expected %d", item.Flags, flags)
+	}
+
+	newValue := []byte("new_value")
+	newFlags := uint32(98111)
+	cas := item.Cas
+
+	item.Value = newValue
+	item.Flags = newFlags
+	item.Cas = cas + 1
+	if err := c.Cas(&item); err != ErrCasMismatch {
+		t.Fatalf("unexpected error returned from Cacher.Cas(): [%s]. Expected ErrCasMismatch", err)
+	}
+
+	item.Value = nil
+	item.Flags = 0
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("error in Cacher.Get(): [%s]", err)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("Unexpected item.Value=[%s]. Expected [%s]", item.Value, value)
+	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected item.Flags=%d. Expected %d", item.Flags, flags)
+	}
+
+	item.Value = newValue
+	item.Flags = newFlags
+	item.Cas = cas
+	if err := c.Cas(&item); err != nil {
+		t.Fatalf("unexpected error returned from Cacher.Cas(): [%s]", err)
+	}
+
+	item.Value = nil
+	item.Flags = 0
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("error in Cacher.Get(): [%s]", err)
+	}
+	if !bytes.Equal(item.Value, newValue) {
+		t.Fatalf("Unexpected item.Value=[%s]. Expected [%s]", item.Value, newValue)
+	}
+	if item.Flags != newFlags {
+		t.Fatalf("Unexpected item.Flags=%d. Expected %d", item.Flags, newFlags)
+	}
+}
+
+func TestClient_Cas(t *testing.T) {
+	client_RunTest(cacher_Cas, t)
 }
 
 func cacher_GetDe(c Cacher, t *testing.T) {
@@ -910,6 +983,11 @@ func distributedClientStatic_RunTest(testFunc cacherTestFunc, t *testing.T) {
 func TestDistributedClient_GetSet(t *testing.T) {
 	distributedClient_RunTest(cacher_GetSet, t)
 	distributedClientStatic_RunTest(cacher_GetSet, t)
+}
+
+func TestDistributedClient_Cas(t *testing.T) {
+	distributedClient_RunTest(cacher_Cas, t)
+	distributedClientStatic_RunTest(cacher_Cas, t)
 }
 
 func TestDistributedClient_GetDe(t *testing.T) {

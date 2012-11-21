@@ -512,7 +512,7 @@ type taskGet struct {
 }
 
 func (t *taskGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeStr(w, strGet) && writeStr(w, t.item.Key) && writeCrLf(w)
+	return writeStr(w, strGets) && writeStr(w, t.item.Key) && writeCrLf(w)
 }
 
 func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
@@ -825,7 +825,7 @@ func writeNoreplyAndValue(w *bufio.Writer, noreply bool, value []byte) bool {
 
 func writeCommonSetParams(w *bufio.Writer, cmd []byte, item *Item, scratchBuf *[]byte) bool {
 	size := len(item.Value)
-	return writeStr(w, strSet) && writeStr(w, item.Key) && writeWs(w) &&
+	return writeStr(w, cmd) && writeStr(w, item.Key) && writeWs(w) &&
 		writeUint32(w, item.Flags, scratchBuf) && writeWs(w) &&
 		writeExpiration(w, item.Expiration, scratchBuf) && writeWs(w) &&
 		writeInt(w, size, scratchBuf)
@@ -869,7 +869,7 @@ type taskCas struct {
 }
 
 func (t *taskCas) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCommonSetParams(w, strCas, t.item, scratchBuf) &&
+	return writeCommonSetParams(w, strCas, t.item, scratchBuf) && writeWs(w) &&
 		writeUint64(w, t.item.Cas, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
 }
 

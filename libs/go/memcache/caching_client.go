@@ -323,6 +323,12 @@ func (c *CachingClient) Set(item *Item) error {
 	return c.SetWithValidateTtl(item, 0)
 }
 
+// See Client.Cas()
+func (c *CachingClient) Cas(item *Item) error {
+	c.Cache.Delete(item.Key)
+	return c.Client.Cas(item)
+}
+
 // See Client.SetNowait()
 func (c *CachingClient) SetNowait(item *Item) {
 	c.SetWithValidateTtlNowait(item, 0)

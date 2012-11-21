@@ -6,6 +6,7 @@ import (
 
 // Client, DistributedClient and CachingClient implement this interface.
 type Memcacher interface {
+	Cas(item *Item) error
 	Get(item *Item) error
 	GetMulti(items []Item) error
 	Set(item *Item) error
