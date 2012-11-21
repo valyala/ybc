@@ -17,7 +17,10 @@ var (
 	errBinaryReadFailed = errors.New("memcache.Server: binary read failed")
 )
 
-var casCounter uint64
+var (
+	casCounter uint64
+	casLock    sync.Mutex
+)
 
 func init() {
 	casCounter = uint64(time.Now().UnixNano())
@@ -333,8 +336,8 @@ func parseSetCmd(line []byte, shouldParseCas bool) (key []byte, flags uint32, ex
 	return
 }
 
-func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, noreply bool) bool {
-	n, err := txn.ReadFrom(c.Reader)
+func readValueToTxn(r *bufio.Reader, txn *ybc.SetTxn, size int) bool {
+	n, err := txn.ReadFrom(r)
 	if err != nil {
 		log.Printf("Error when reading payload with size=[%d]: [%s]", size, err)
 		return false
@@ -343,16 +346,17 @@ func readValueAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, n
 		log.Printf("Unexpected payload size=[%d]. Expected [%d]", n, size)
 		return false
 	}
-	if !matchCrLf(c.Reader) {
-		return false
-	}
+	return matchCrLf(r)
+}
+
+func writeSetResponse(w *bufio.Writer, noreply bool) bool {
 	if noreply {
 		return true
 	}
-	return writeStr(c.Writer, strStoredCrLf)
+	return writeStr(w, strStoredCrLf)
 }
 
-func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
+func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
 	cas := getCas()
 	size += binary.Size(&flags) + binary.Size(&cas)
 	txn, err := cache.NewSetTxn(key, size, expiration)
@@ -365,22 +369,19 @@ func setToCache(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dura
 	return txn
 }
 
-func processSetCmdInternal(c *bufio.ReadWriter, cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int, noreply bool) bool {
-	txn := setToCache(cache, key, flags, expiration, size)
-	if txn == nil {
-		return false
-	}
-	defer txn.Commit()
-
-	return readValueAndWriteResponse(c, txn, size, noreply)
-}
-
 func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	key, flags, expiration, size, _, noreply, ok := parseSetCmd(line, false)
 	if !ok {
 		return false
 	}
-	return processSetCmdInternal(c, cache, key, flags, expiration, size, noreply)
+
+	txn := startSetTxn(cache, key, flags, expiration, size)
+	if txn == nil {
+		return false
+	}
+	defer txn.Commit()
+
+	return readValueToTxn(c.Reader, txn, size) && writeSetResponse(c.Writer, noreply)
 }
 
 func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, ok bool) {
@@ -398,11 +399,31 @@ func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, o
 	return
 }
 
+func closeSetTxn(txn *ybc.SetTxn, shouldRollback *bool) {
+	if *shouldRollback {
+		txn.Rollback()
+	}
+}
+
 func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
 	key, flags, expiration, size, cas, noreply, ok := parseSetCmd(line, true)
 	if !ok {
 		return false
 	}
+
+	txn := startSetTxn(cache, key, flags, expiration, size)
+	if txn == nil {
+		return false
+	}
+	shouldRollback := true
+	defer closeSetTxn(txn, &shouldRollback)
+
+	if !readValueToTxn(c.Reader, txn, size) {
+		return false
+	}
+
+	casLock.Lock()
+	defer casLock.Unlock()
 
 	casOrig, cacheMiss, ok := getCasForCachedItem(cache, key)
 	if !ok {
@@ -414,7 +435,13 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	if casOrig != cas {
 		return writeStr(c.Writer, strExistsCrLf)
 	}
-	return processSetCmdInternal(c, cache, key, flags, expiration, size, noreply)
+
+	shouldRollback = false
+	if err := txn.Commit(); err != nil {
+		log.Fatalf("Unexpected error in SetTxn.Commit(): [%s]", err)
+	}
+
+	return writeSetResponse(c.Writer, noreply)
 }
 
 func parseCsetCmd(line []byte) (key []byte, size int, flags uint32, expiration time.Duration, etag uint64, validateTtl uint32, noreply bool, ok bool) {
@@ -481,7 +508,7 @@ func processCsetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	}
 	defer txn.Commit()
 
-	return readValueAndWriteResponse(c, txn, size, noreply)
+	return readValueToTxn(c.Reader, txn, size) && writeSetResponse(c.Writer, noreply)
 }
 
 func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
