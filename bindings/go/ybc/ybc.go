@@ -660,11 +660,17 @@ func (item *Item) Ttl() time.Duration {
 
 // io.Seeker interface implementation
 func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
-	if whence != 0 {
+	bufSize := int64(len(item.unsafeBuf()))
+	switch whence {
+	case 0:
+	case 1:
+		offset += int64(item.offset)
+	case 2:
+		offset += bufSize
+	default:
 		panic(ErrUnsupportedWhence)
 	}
-	buf := item.unsafeBuf()
-	if offset > int64(len(buf)) {
+	if offset > bufSize || offset < 0 {
 		err = ErrOutOfRange
 		return
 	}

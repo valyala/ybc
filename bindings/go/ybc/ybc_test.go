@@ -602,22 +602,58 @@ func TestItem_Seek_Read(t *testing.T) {
 
 	n, err := item.Seek(2, 0)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Error in Item.Seek(2, 0): [%s]", err)
 	}
 	if n != 2 {
 		t.Fatalf("unexpected n=%d returned in item.Seek(). Expected 2", n)
 	}
 
 	value := item.Value()
-	buf := make([]byte, 10)
+	buf := make([]byte, len(value))
 	nn, err := item.Read(buf)
 	if nn != len(value)-2 {
 		t.Fatalf("unexpected number of bytes read=%d. Expected %d", nn, len(value)-2)
 	}
 	if err != io.EOF {
-		t.Fatal(err)
+		t.Fatalf("unexpected error in Item.Read(): [%s]. Expected io.EOF", err)
 	}
 	checkValue(t, value[2:], buf[:nn])
+
+	if n, err = item.Seek(-3, 2); err != nil {
+		t.Fatalf("Error in Item.Seek(-3, 2): [%s]", err)
+	}
+	if n != int64(len(value))-3 {
+		t.Fatalf("Unexpected n returned from Item.Seek(-3, 2): %d. Expected %d", n, len(value)-3)
+	}
+	nn, err = item.Read(buf)
+	if nn != 3 {
+		t.Fatalf("unexpected nn returned from Item.Read(): %d. Expected %d", nn, 3)
+	}
+	if err != io.EOF {
+		t.Fatalf("Unexpected error in Item.Read(): [%s]. Expected io.EOF", err)
+	}
+	checkValue(t, value[len(value)-nn:], buf[:nn])
+
+	if n, err = item.Seek(3, 0); err != nil {
+		t.Fatalf("Error in Item.Seek(3, 0): [%s]", err)
+	}
+	if n != 3 {
+		t.Fatalf("Unexpected n returned from Item.Seek(3, 0): %d. Expected %d", n, 3)
+	}
+	if n, err = item.Seek(-2, 1); err != nil {
+		t.Fatalf("Error in Item.Seek(-2, 0): [%s]", err)
+	}
+	if n != 1 {
+		t.Fatalf("Unexpected n returned from Item.Seek(-2, 1): %d. Expected %d", n, 1)
+	}
+	nn, err = item.Read(buf)
+	if nn != len(value)-1 {
+		t.Fatalf("unexpected nn returned from Item.Read(): %d. Expected %d", nn, len(value)-1)
+	}
+	if err != io.EOF {
+		t.Fatalf("unexpected error in Item.Read(): [%s]. Expected io.EOF", err)
+	}
+	checkValue(t, value[1:], buf[:nn])
 }
 
 func TestItem_ReadByte(t *testing.T) {
@@ -645,26 +681,32 @@ func TestItem_Seek_OutOfRange(t *testing.T) {
 	defer cache.Close()
 	defer item.Close()
 
-	_, err := item.Seek(100, 0)
-	if err != ErrOutOfRange {
-		t.Fatal(err)
+	if _, err := item.Seek(100, 0); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(100, 0): [%s]. Expected ErrOutOfRange", err)
+	}
+	if _, err := item.Seek(-10, 0); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(-10, 0): [%s]. Expected ErrOutOfRange", err)
+	}
+	if _, err := item.Seek(100, 1); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(100, 1): [%s]. Expected ErrOutOfRange", err)
+	}
+	if _, err := item.Seek(-10, 1); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(-10, 1): [%s]. Expected ErrOutOfRange", err)
+	}
+	if _, err := item.Seek(10, 2); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(10, 2): [%s]. Expected ErrOutOfRange", err)
+	}
+	if _, err := item.Seek(-100, 2); err != ErrOutOfRange {
+		t.Fatalf("Unexpected error in Item.Seek(-100, 2): [%s]. Expected ErrOutOfRange", err)
 	}
 }
 
-func TestItem_Seek_UnsupportedWhence1(t *testing.T) {
+func TestItem_Seek_UnsupportedWhence(t *testing.T) {
 	cache, item := newCacheItem(t)
 	defer cache.Close()
 	defer item.Close()
 
-	expectPanic(t, func() { item.Seek(100, 1) })
-}
-
-func TestItem_Seek_UnsupportedWhence2(t *testing.T) {
-	cache, item := newCacheItem(t)
-	defer cache.Close()
-	defer item.Close()
-
-	expectPanic(t, func() { item.Seek(100, 2) })
+	expectPanic(t, func() { item.Seek(100, 3) })
 }
 
 func TestItem_ReadAt(t *testing.T) {
