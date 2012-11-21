@@ -194,7 +194,7 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if key == nil {
 		return false
 	}
-	etag, ok := parseEtagToken(line, &n)
+	etag, ok := parseUint64Token(line, &n, "etag")
 	if !ok {
 		return false
 	}
@@ -251,7 +251,7 @@ func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 	if key == nil {
 		return false
 	}
-	etag, ok := parseEtagToken(line, &n)
+	etag, ok := parseUint64Token(line, &n, "etag")
 	if !ok {
 		return false
 	}
@@ -391,7 +391,7 @@ func parseCsetCmd(line []byte) (key []byte, size int, flags uint32, expiration t
 	if expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	if etag, ok = parseEtagToken(line, &n); !ok {
+	if etag, ok = parseUint64Token(line, &n, "etag"); !ok {
 		return
 	}
 	if validateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {

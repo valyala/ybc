@@ -269,8 +269,8 @@ func parseExpirationToken(line []byte, n *int) (expiration time.Duration, ok boo
 	return
 }
 
-func parseEtagToken(line []byte, n *int) (etag uint64, ok bool) {
-	etagStr := nextToken(line, n, "etag")
+func parseUint64Token(line []byte, n *int, tokenName string) (etag uint64, ok bool) {
+	etagStr := nextToken(line, n, tokenName)
 	if etagStr == nil {
 		ok = false
 		return

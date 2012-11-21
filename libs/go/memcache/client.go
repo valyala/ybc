@@ -125,6 +125,10 @@ type Item struct {
 	// An opaque value, which is passed to/from memcache.
 	// Optional parameter.
 	Flags uint32
+
+	// This field is filled by get()-type requests and should be passed
+	// to Cas() requests.
+	Cas uint64
 }
 
 type tasker interface {
@@ -353,7 +357,7 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readValueHeader(line []byte) (key []byte, flags uint32, size int, ok bool) {
+func readValueHeader(line []byte) (key []byte, flags uint32, cas uint64, size int, ok bool) {
 	ok = false
 
 	if !bytes.HasPrefix(line, strValue) {
@@ -377,8 +381,7 @@ func readValueHeader(line []byte) (key []byte, flags uint32, size int, ok bool) 
 		return
 	}
 
-	if casidUnused := nextToken(line, &n, "casid"); casidUnused == nil {
-		ok = false
+	if cas, ok = parseUint64Token(line, &n, "cas"); !ok {
 		return
 	}
 	ok = expectEof(line, n)
@@ -397,9 +400,9 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 	return
 }
 
-func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, value []byte, ok bool) {
+func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, cas uint64, value []byte, ok bool) {
 	var size int
-	key, flags, size, ok = readValueHeader(line)
+	key, flags, cas, size, ok = readValueHeader(line)
 	if !ok {
 		return
 	}
@@ -425,7 +428,7 @@ func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof boo
 		return
 	}
 
-	item.Key, item.Flags, item.Value, ok = readKeyValue(r, line)
+	item.Key, item.Flags, item.Cas, item.Value, ok = readKeyValue(r, line)
 	return
 }
 
@@ -617,7 +620,7 @@ func readCgetItem(r *bufio.Reader, line []byte, item *Citem) (found, notModified
 	if item.Expiration, ok = parseExpirationToken(line, &n); !ok {
 		return
 	}
-	if item.Etag, ok = parseEtagToken(line, &n); !ok {
+	if item.Etag, ok = parseUint64Token(line, &n, "etag"); !ok {
 		return
 	}
 	if item.ValidateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
