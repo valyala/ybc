@@ -39,6 +39,7 @@ var (
 	strDeletedCrLf         = []byte("DELETED\r\n")
 	strEnd                 = []byte("END")
 	strEndCrLf             = []byte("END\r\n")
+	strExists              = []byte("EXISTS")
 	strExistsCrLf          = []byte("EXISTS\r\n")
 	strFlushAll            = []byte("flush_all")
 	strFlushAllCrLf        = []byte("flush_all\r\n")

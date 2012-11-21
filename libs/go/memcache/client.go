@@ -14,6 +14,7 @@ import (
 
 var (
 	ErrCacheMiss            = errors.New("memcache.Client: cache miss")
+	ErrCasMismatch          = errors.New("memcache.Client: cas mismatch")
 	ErrClientNotRunning     = errors.New("memcache.Client: the client isn't running")
 	ErrCommunicationFailure = errors.New("memcache.Client: communication failure")
 	ErrMalformedKey         = errors.New("memcache.Client: malformed key")
@@ -520,10 +521,7 @@ func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, e
 	if !ok || eof || wouldBlock {
 		return
 	}
-	if ok = matchStr(r, strEnd); !ok {
-		return
-	}
-	if ok = matchCrLf(r); !ok {
+	if ok = matchStr(r, strEndCrLf); !ok {
 		return
 	}
 	if ok = bytes.Equal(keyOriginal, item.Key); !ok {
@@ -825,7 +823,7 @@ func writeNoreplyAndValue(w *bufio.Writer, noreply bool, value []byte) bool {
 	return writeStr(w, value) && writeCrLf(w)
 }
 
-func writeCommonSetParams(w *bufio.Writer, cmd []byte, item *ITem, scratchBuf *[]byte) bool {
+func writeCommonSetParams(w *bufio.Writer, cmd []byte, item *Item, scratchBuf *[]byte) bool {
 	size := len(item.Value)
 	return writeStr(w, strSet) && writeStr(w, item.Key) && writeWs(w) &&
 		writeUint32(w, item.Flags, scratchBuf) && writeWs(w) &&
@@ -834,12 +832,12 @@ func writeCommonSetParams(w *bufio.Writer, cmd []byte, item *ITem, scratchBuf *[
 }
 
 func writeSetRequest(w *bufio.Writer, item *Item, noreply bool, scratchBuf *[]byte) bool {
-	return writeCommonSetParams(w, strSet, t.item, scratchBuf) &&
-            writeNoreplyAndValue(w, noreply, item.Value)
+	return writeCommonSetParams(w, strSet, item, scratchBuf) &&
+		writeNoreplyAndValue(w, noreply, item.Value)
 }
 
 func readSetResponse(r *bufio.Reader) bool {
-	return matchStr(r, strStored) && matchCrLf(r)
+	return matchStr(r, strStoredCrLf)
 }
 
 func (t *taskSet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
@@ -864,20 +862,42 @@ func (c *Client) Set(item *Item) error {
 }
 
 type taskCas struct {
-	item *Item
+	item        *Item
+	notFound    bool
+	casMismatch bool
 	taskSync
 }
 
 func (t *taskCas) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return writeCommonSetParams(w, strCas, t.item, scratchBuf) &&
-            writeUint64(w, t.item.Cas, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
+		writeUint64(w, t.item.Cas, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
+}
+
+func (t *taskCas) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
+		return false
+	}
+	line := *scratchBuf
+	if bytes.Equal(line, strStored) {
+		return true
+	}
+	if bytes.Equal(line, strNotFound) {
+		t.notFound = true
+		return true
+	}
+	if bytes.Equal(line, strExists) {
+		t.casMismatch = true
+		return true
+	}
+	log.Printf("Unexpected response for cas command: [%s]", line)
+	return false
 }
 
 // Stores the given item only if item.Cas matches cas for the given item
 // on the server.
 //
 // Returns ErrCacheMiss if the server has no item with such a key.
-// Returns ErrExists if item on the server has other cas value.
+// Returns ErrCasMismatch if item on the server has other cas value.
 func (c *Client) Cas(item *Item) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
@@ -887,7 +907,16 @@ func (c *Client) Cas(item *Item) error {
 	}
 	var t taskCas
 	t.item = item
-	return t.do(&t)
+	if err := c.do(&t); err != nil {
+		return err
+	}
+	if t.notFound {
+		return ErrCacheMiss
+	}
+	if t.casMismatch {
+		return ErrCasMismatch
+	}
+	return nil
 }
 
 type taskCset struct {
