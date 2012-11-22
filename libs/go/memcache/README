@@ -1,6 +1,6 @@
 How to build and use it?
 
-$ go get github.com/valyala/ybc/libs/go/memcache
+$ go get -u -a github.com/valyala/ybc/libs/go/memcache
 
 Then import it into your program:
 
@@ -15,10 +15,9 @@ or read at http://go.pkgdoc.org/github.com/valyala/ybc/libs/go/memcache .
 ================================================================================
 FAQ
 
-Q: Why didn't you implement 'add', 'replace', 'append', 'prepend', 'cas',
-   'incr', 'decr' and 'touch' memcache commands?
-A: Because I think they are useless for caching purposes, except the 'cas',
-   which will be implemented in the near future (see TODO).
+Q: Why didn't you implement 'add', 'replace', 'append', 'prepend', 'incr',
+   'decr' and 'touch' memcache commands?
+A: Because I think they are useless for caching purposes.
 
 Q: Your benchmarks show CachingClient is slower than simple Client. Then what's
    the purpose of CachingClient?
