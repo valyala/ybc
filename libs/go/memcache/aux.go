@@ -29,6 +29,7 @@ const (
 )
 
 var (
+	strAdd                 = []byte("add ")
 	strCas                 = []byte("cas ")
 	strCget                = []byte("cget ")
 	strCgetDe              = []byte("cgetde ")
@@ -53,6 +54,8 @@ var (
 	strNotFoundCrLf        = []byte("NOT_FOUND\r\n")
 	strNotModified         = []byte("NM")
 	strNotModifiedCrLf     = []byte("NM\r\n")
+	strNotStored           = []byte("NOT_STORED")
+	strNotStoredCrLf       = []byte("NOT_STORED\r\n")
 	strOkCrLf              = []byte("OK\r\n")
 	strSet                 = []byte("set ")
 	strStored              = []byte("STORED")

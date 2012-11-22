@@ -2,10 +2,15 @@ package memcache
 
 import (
 	"encoding/binary"
+	"errors"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"math/rand"
 	"time"
+)
+
+var (
+	ErrNotImplemented = errors.New("memcache.CachingClient: the function isn't implemented yet")
 )
 
 func init() {
@@ -323,10 +328,14 @@ func (c *CachingClient) Set(item *Item) error {
 	return c.SetWithValidateTtl(item, 0)
 }
 
+// See Client.Add()
+func (c *CachingClient) Add(item *Item) error {
+	return ErrNotImplemented
+}
+
 // See Client.Cas()
 func (c *CachingClient) Cas(item *Item) error {
-	c.Cache.Delete(item.Key)
-	return c.Client.Cas(item)
+	return ErrNotImplemented
 }
 
 // See Client.SetNowait()

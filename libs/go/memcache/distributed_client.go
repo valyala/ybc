@@ -347,6 +347,15 @@ func (c *DistributedClient) Set(item *Item) error {
 	return client.Set(item)
 }
 
+// See Client.Add().
+func (c *DistributedClient) Add(item *Item) error {
+	client, err := c.client(item.Key)
+	if err != nil {
+		return err
+	}
+	return client.Add(item)
+}
+
 // See Client.Cas()
 func (c *DistributedClient) Cas(item *Item) error {
 	client, err := c.client(item.Key)

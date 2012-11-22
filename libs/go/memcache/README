@@ -15,8 +15,8 @@ or read at http://go.pkgdoc.org/github.com/valyala/ybc/libs/go/memcache .
 ================================================================================
 FAQ
 
-Q: Why didn't you implement 'add', 'replace', 'append', 'prepend', 'incr',
-   'decr' and 'touch' memcache commands?
+Q: Why didn't you implement 'replace', 'append', 'prepend', 'incr', 'decr'
+   and 'touch' memcache commands?
 A: Because I think they are useless for caching purposes.
 
 Q: Your benchmarks show CachingClient is slower than simple Client. Then what's

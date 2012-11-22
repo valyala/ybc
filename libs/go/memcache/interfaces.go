@@ -6,13 +6,14 @@ import (
 
 // Client, DistributedClient and CachingClient implement this interface.
 type Memcacher interface {
-	Cas(item *Item) error
 	Get(item *Item) error
 	GetMulti(items []Item) error
 	Set(item *Item) error
 	SetNowait(item *Item)
 	Delete(key []byte) error
 	DeleteNowait(key []byte)
+	Add(item *Item) error
+	Cas(item *Item) error
 	FlushAll() error
 	FlushAllNowait()
 	FlushAllDelayed(expiration time.Duration) error

@@ -20,6 +20,7 @@ var (
 	ErrMalformedKey         = errors.New("memcache.Client: malformed key")
 	ErrNilValue             = errors.New("memcache.Client: nil value")
 	ErrNotModified          = errors.New("memcache.Client: item not modified")
+	ErrAlreadyExists        = errors.New("memcache.Client: the item already exists")
 )
 
 const (
@@ -860,6 +861,56 @@ func (c *Client) Set(item *Item) error {
 	return c.do(&t)
 }
 
+type taskAdd struct {
+	item      *Item
+	notStored bool
+	taskSync
+}
+
+func (t *taskAdd) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
+	return writeCommonSetParams(w, strAdd, t.item, scratchBuf) &&
+		writeNoreplyAndValue(w, false, t.item.Value)
+}
+
+func (t *taskAdd) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
+	if !readLine(r, scratchBuf) {
+		return false
+	}
+	line := *scratchBuf
+	if bytes.Equal(line, strStored) {
+		return true
+	}
+	if bytes.Equal(line, strNotStored) {
+		t.notStored = true
+		return true
+	}
+	log.Printf("Unexpected response for add() command: [%s]", line)
+	return false
+}
+
+// Stores the given item only if the server doesn't already hold data
+// under the item.Key.
+//
+// Returns ErrAlreadyExists error if the server already holds data under
+// the item.Key.
+func (c *Client) Add(item *Item) error {
+	if !validateKey(item.Key) {
+		return ErrMalformedKey
+	}
+	if item.Value == nil {
+		return ErrNilValue
+	}
+	var t taskAdd
+	t.item = item
+	if err := c.do(&t); err != nil {
+		return err
+	}
+	if t.notStored {
+		return ErrAlreadyExists
+	}
+	return nil
+}
+
 type taskCas struct {
 	item        *Item
 	notFound    bool
@@ -888,7 +939,7 @@ func (t *taskCas) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		t.casMismatch = true
 		return true
 	}
-	log.Printf("Unexpected response for cas command: [%s]", line)
+	log.Printf("Unexpected response for cas() command: [%s]", line)
 	return false
 }
 

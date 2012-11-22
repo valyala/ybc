@@ -181,6 +181,40 @@ func TestClient_GetSet(t *testing.T) {
 	client_RunTest(cacher_GetSet, t)
 }
 
+func cacher_Add(c Cacher, t *testing.T) {
+	key := []byte("keybb")
+	value := []byte("value_addd")
+	flags := uint32(18932)
+
+	item := Item{
+		Key:   key,
+		Value: value,
+		Flags: flags,
+	}
+	if err := c.Add(&item); err != nil {
+		t.Fatalf("error in Cacher.Add(): [%s]", err)
+	}
+	if err := c.Add(&item); err != ErrAlreadyExists {
+		t.Fatalf("unexpected error returned from Cacher.Add(): [%s]. Expected ErrAlreadyExists", err)
+	}
+
+	item.Value = nil
+	item.Flags = 0
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("error in Cacher.Get(): [%s]", err)
+	}
+	if !bytes.Equal(item.Value, value) {
+		t.Fatalf("Unexpected item.Value=[%s]. Expected [%s]", item.Value, value)
+	}
+	if item.Flags != flags {
+		t.Fatalf("Unexpected item.Flags=%d. Expected %d", item.Flags, flags)
+	}
+}
+
+func TestClient_Add(t *testing.T) {
+	client_RunTest(cacher_Add, t)
+}
+
 func cacher_Cas(c Cacher, t *testing.T) {
 	key := []byte("keyaa")
 	value := []byte("value_casss")
@@ -983,6 +1017,11 @@ func distributedClientStatic_RunTest(testFunc cacherTestFunc, t *testing.T) {
 func TestDistributedClient_GetSet(t *testing.T) {
 	distributedClient_RunTest(cacher_GetSet, t)
 	distributedClientStatic_RunTest(cacher_GetSet, t)
+}
+
+func TestDistributedClient_Add(t *testing.T) {
+	distributedClient_RunTest(cacher_Add, t)
+	distributedClientStatic_RunTest(cacher_Add, t)
 }
 
 func TestDistributedClient_Cas(t *testing.T) {
