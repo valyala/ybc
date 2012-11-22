@@ -488,7 +488,7 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Obtains multiple items associated with the the corresponding keys.
 //
-// Sets Item.Value and Item.Flags for each returned item.
+// Sets Item.Value, Item.Flags and Item.Cas for each returned item.
 // Doesn't modify Item.Value and Item.Flags for items missing on the server.
 func (c *Client) GetMulti(items []Item) error {
 	itemsCount := len(items)
@@ -541,8 +541,7 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
-// Obtains value (item.Value) and flags (item.Flags) for the given key
-// (item.Key) from memcache server.
+// Obtains item.Value, item.Flags and item.Cas for the given item.Key.
 //
 // Returns ErrCacheMiss on cache miss.
 func (c *Client) Get(item *Item) error {
