@@ -369,6 +369,12 @@ func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dur
 	return txn
 }
 
+func closeSetTxn(txn *ybc.SetTxn, shouldRollback *bool) {
+	if *shouldRollback {
+		txn.Rollback()
+	}
+}
+
 func readValueToTxnAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, noreply bool) bool {
 	if txn == nil {
 		return false
@@ -380,10 +386,10 @@ func readValueToTxnAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size i
 		return false
 	}
 
-	shouldRollback = false
 	if err := txn.Commit(); err != nil {
 		log.Fatalf("Unexpected error returned from SetTxn.Commit(): [%s]", err)
 	}
+	shouldRollback = false
 	return writeSetResponse(c.Writer, noreply)
 }
 
@@ -410,12 +416,6 @@ func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, o
 
 	ok = binaryRead(item, &cas, "cas")
 	return
-}
-
-func closeSetTxn(txn *ybc.SetTxn, shouldRollback *bool) {
-	if *shouldRollback {
-		txn.Rollback()
-	}
 }
 
 func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
@@ -449,10 +449,10 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 		return writeStr(c.Writer, strExistsCrLf)
 	}
 
-	shouldRollback = false
 	if err := txn.Commit(); err != nil {
 		log.Fatalf("Unexpected error in SetTxn.Commit(): [%s]", err)
 	}
+	shouldRollback = false
 
 	return writeSetResponse(c.Writer, noreply)
 }
