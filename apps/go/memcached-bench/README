@@ -1,5 +1,5 @@
 How to build and run it?
 
-$ go get github.com/valyala/ybc/apps/go/memcached-bench
+$ go get -u -a github.com/valyala/ybc/apps/go/memcached-bench
 $ go build -tags release github.com/valyala/ybc/apps/go/memcached-bench
 $ ./memcached-bench -help

@@ -1,6 +1,6 @@
 How to build and use it?
 
-$ go get github.com/valyala/ybc/bindings/go/ybc
+$ go get -u -a github.com/valyala/ybc/bindings/go/ybc
 
 Then import it into your program:
 
