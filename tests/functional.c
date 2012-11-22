@@ -906,7 +906,7 @@ static void test_large_cache(struct ybc *const cache)
     expect_item_set(cache, &key, &value);
   }
 
-  free(value_buf);
+  p_free(value_buf);
 
   ybc_close(cache);
 }
@@ -927,7 +927,8 @@ static void test_out_of_memory(struct ybc *const cache)
   ybc_config_destroy(config);
 
   const size_t value_buf_size = 1024 * 1024 + 1;
-  void *const value_buf = calloc(value_buf_size, 1);
+  void *const value_buf = p_malloc(value_buf_size);
+  memset(value_buf, 0, value_buf_size);
 
   char item_buf[ybc_item_get_size()];
   struct ybc_item *const item = (struct ybc_item *)item_buf;
@@ -977,7 +978,7 @@ static void test_out_of_memory(struct ybc *const cache)
   }
   ybc_item_release(item2);
 
-  free(value_buf);
+  p_free(value_buf);
 
   ybc_close(cache);
 }

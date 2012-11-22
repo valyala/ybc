@@ -98,7 +98,7 @@ static void simple_set(struct ybc *const cache, const size_t requests_count,
     }
   }
 
-  free(buf);
+  p_free(buf);
 }
 
 static void simple_get_miss(struct ybc *const cache,

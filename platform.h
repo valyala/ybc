@@ -35,15 +35,22 @@
 
 /*
  * Allocates the given amount of memory. Always returns non-NULL.
+ *
+ * Allocated memory must be freed with p_free().
  */
 static void *p_malloc(size_t size);
+
+/*
+ * Frees memory allocated with either p_malloc() or p_strdup().
+ */
+static void p_free(void *ptr);
 
 /*
  * Frees memory occupied by *dst and makes a duplicate from src.
  *
  * If src is NULL, then makes *dst NULL.
  *
- * *dst must be freed with free().
+ * *dst must be freed with p_free().
  */
 static void p_strdup(char **dst, const char *src);
 

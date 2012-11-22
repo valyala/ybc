@@ -41,6 +41,11 @@ static void *p_malloc(const size_t size)
   return ptr;
 }
 
+static void p_free(void *const ptr)
+{
+  free(ptr);
+}
+
 static void p_strdup(char **const dst, const char *const src)
 {
   free(*dst);

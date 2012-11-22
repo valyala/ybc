@@ -5,7 +5,7 @@
 #include <assert.h>  /* assert */
 #include <stddef.h>  /* size_t */
 #include <stdint.h>  /* uint*_t */
-#include <stdlib.h>  /* rand, free */
+#include <stdlib.h>  /* rand */
 #include <string.h>  /* memcpy, memcmp, memset */
 
 
@@ -1166,7 +1166,7 @@ static void m_map_cache_init(struct m_map *const map_cache,
 
 static void m_map_cache_destroy(struct m_map *const map_cache)
 {
-  free(map_cache->key_digests);
+  p_free(map_cache->key_digests);
   m_map_destroy(map_cache);
 }
 
@@ -1637,7 +1637,7 @@ static void m_de_item_destroy_all(struct m_de_item *const de_item)
 
   while (tmp != NULL) {
     struct m_de_item *const next = tmp->next;
-    free(tmp);
+    p_free(tmp);
     tmp = next;
   }
 }
@@ -1653,7 +1653,7 @@ static void m_de_destroy(struct m_de *const de)
     p_lock_destroy(&de->locks[i]);
   }
 
-  free(de->locks);
+  p_free(de->locks);
 }
 
 static struct m_de_item *m_de_item_get(
@@ -1672,7 +1672,7 @@ static struct m_de_item *m_de_item_get(
     if (de_item->expiration_time <= current_time) {
       /* Remove expired items. */
       *prev_ptr = de_item->next;
-      free(de_item);
+      p_free(de_item);
       continue;
     }
 
@@ -1762,8 +1762,8 @@ void ybc_config_init(struct ybc_config *const config)
 
 void ybc_config_destroy(struct ybc_config *const config)
 {
-  free(config->index_file);
-  free(config->data_file);
+  p_free(config->index_file);
+  p_free(config->data_file);
 }
 
 void ybc_config_set_max_items_count(struct ybc_config *const config,
