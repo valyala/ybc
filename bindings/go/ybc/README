@@ -1,3 +1,20 @@
+Go wrapper around YBC library - see https://github.com/valyala/ybc .
+
+The wrapper has the following features:
+
+  * it is intended for creating extremly fast in-process blob caches,
+    which can efficiently cache virtually unlimited number of items.
+
+  * it knows how to deal with huge items (i.e. videos, audios, images)
+    and caches exceeding available RAM sizes by multiple orders of magnitude.
+
+  * it supports persistent caches surviving application restarts.
+
+  * it is optimized for both HDDs and SSDs.
+
+  * it is optimized for speed.
+
+------------------------
 How to build and use it?
 
 $ go get -u -a github.com/valyala/ybc/bindings/go/ybc
