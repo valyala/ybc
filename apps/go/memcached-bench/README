@@ -1,3 +1,8 @@
+Benchmark tool for memcache servers.
+
+Supports simultaneous benchmarking of multiple servers.
+
+------------------------
 How to build and run it?
 
 $ go get -u -a github.com/valyala/ybc/apps/go/memcached-bench
