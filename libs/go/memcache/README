@@ -1,3 +1,18 @@
+Fast client and server implementations for memcache protocol.
+
+The package contains the following client implementations:
+  * Client - talks to a single memcache server.
+  * DistributedClient - routes requests to multiple servers using consistent
+    hashing. Supports addition/removal of servers on the fly.
+  * CachingClient - saves network bandwidth between the client and servers
+    by storing responses in local cache. Can talk only to servers supporting
+    'conditional get' (cget) memcache extension.
+
+Server implementation has the following features:
+  * 'conditional get' (cget) memcache extension.
+  * 'dogpile effect-aware get' (getde) memcache extension.
+
+================================================================================
 How to build and use it?
 
 $ go get -u -a github.com/valyala/ybc/libs/go/memcache
