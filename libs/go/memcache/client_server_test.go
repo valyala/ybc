@@ -217,7 +217,7 @@ func TestClient_Add(t *testing.T) {
 
 func cacher_Cas(c Cacher, t *testing.T) {
 	key := []byte("keyaa")
-	value := []byte("value_casss")
+	value := []byte("value_cas")
 	flags := uint32(189832)
 
 	item := Item{
@@ -243,13 +243,13 @@ func cacher_Cas(c Cacher, t *testing.T) {
 
 	newValue := []byte("new_value")
 	newFlags := uint32(98111)
-	cas := item.Cas
+	casid := item.Casid
 
 	item.Value = newValue
 	item.Flags = newFlags
-	item.Cas = cas + 1
-	if err := c.Cas(&item); err != ErrCasMismatch {
-		t.Fatalf("unexpected error returned from Cacher.Cas(): [%s]. Expected ErrCasMismatch", err)
+	item.Casid = casid + 1
+	if err := c.Cas(&item); err != ErrCasidMismatch {
+		t.Fatalf("unexpected error returned from Cacher.Cas(): [%s]. Expected ErrCasidMismatch", err)
 	}
 
 	item.Value = nil
@@ -266,7 +266,7 @@ func cacher_Cas(c Cacher, t *testing.T) {
 
 	item.Value = newValue
 	item.Flags = newFlags
-	item.Cas = cas
+	item.Casid = casid
 	if err := c.Cas(&item); err != nil {
 		t.Fatalf("unexpected error returned from Cacher.Cas(): [%s]", err)
 	}
@@ -323,33 +323,27 @@ func TestClient_GetDe(t *testing.T) {
 	client_RunTest(cacher_GetDe, t)
 }
 
-func cacher_CgetCset(c Cacher, t *testing.T) {
+func cacher_Cget(c Cacher, t *testing.T) {
 	key := []byte("key")
 	value := []byte("value")
 	expiration := time.Hour * 123343
 	flags := uint32(892379)
 
-	etag := uint64(1234567890)
-	validateTtl := uint32(98765432)
-	item := Citem{
-		Item: Item{
-			Key:        key,
-			Value:      value,
-			Expiration: expiration,
-			Flags:      flags,
-		},
-		Etag:        etag,
-		ValidateTtl: validateTtl,
+	item := Item{
+		Key:   key,
+		Value: value,
+		Flags: flags,
 	}
 
 	if err := c.Cget(&item); err != ErrCacheMiss {
 		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrCacheMiss", err)
 	}
-
-	if err := c.Cset(&item); err != nil {
-		t.Fatalf("Error in Client.Cset(): [%s]", err)
+	if err := c.Set(&item); err != nil {
+		t.Fatalf("Error in Client.Set(): [%s]", err)
 	}
-
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("Error in Client.Get(): [%s]", err)
+	}
 	if err := c.Cget(&item); err != ErrNotModified {
 		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrNotModified", err)
 	}
@@ -357,36 +351,29 @@ func cacher_CgetCset(c Cacher, t *testing.T) {
 	item.Value = nil
 	item.Expiration = expiration + time.Hour
 	item.Flags = 0
-	item.Etag = 0
+	casid := item.Casid
+	item.Casid += 1
 	if err := c.Cget(&item); err != nil {
 		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]", err)
 	}
 	if item.Flags != flags {
 		t.Fatalf("Unexpected flags=[%d] returned from Client.Cget(). Expected [%s]", item.Flags, flags)
 	}
-	if item.Etag != etag {
-		t.Fatalf("Unexpected etag=[%d] returned from Client.Cget(). Expected [%d]", item.Etag, etag)
-	}
-	if item.ValidateTtl != validateTtl {
-		t.Fatalf("Unexpected validateTtl=[%d] returned from Client.Cget(). Expected [%d]", item.ValidateTtl, validateTtl)
+	if item.Casid != casid {
+		t.Fatalf("Unexpected casid=[%d] returned from Client.Cget(). Expected [%d]", item.Casid, casid)
 	}
 	if !bytes.Equal(item.Value, value) {
 		t.Fatalf("Unexpected value=[%s] returned from Client.Cget(). Expected [%d]", item.Value, value)
 	}
-	if item.Expiration > expiration {
-		t.Fatalf("Unexpected expiration=[%d] returned from Client.Cget(). Expected not more than [%d]", item.Expiration, expiration)
-	}
 }
 
-func TestClient_CgetCset(t *testing.T) {
-	client_RunTest(cacher_CgetCset, t)
+func TestClient_Cget(t *testing.T) {
+	client_RunTest(cacher_Cget, t)
 }
 
 func cacher_CgetDe(c Cacher, t *testing.T) {
-	item := Citem{
-		Item: Item{
-			Key: []byte("key"),
-		},
+	item := Item{
+		Key: []byte("key"),
 	}
 	grace := 100 * time.Millisecond
 	for i := 0; i < 3; i++ {
@@ -397,15 +384,14 @@ func cacher_CgetDe(c Cacher, t *testing.T) {
 
 	value := []byte("value")
 	flags := uint32(123)
-	etag := uint64(8989)
-	validateTtl := uint32(87989)
 
 	item.Value = value
 	item.Flags = flags
-	item.Etag = etag
-	item.ValidateTtl = validateTtl
-	if err := c.Cset(&item); err != nil {
+	if err := c.Set(&item); err != nil {
 		t.Fatalf("Cannot set value=[%s] for key=[%s]: [%s]", item.Value, item.Key, err)
+	}
+	if err := c.Get(&item); err != nil {
+		t.Fatalf("Cannot get item for key=[%s]: [%s]", item.Key, err)
 	}
 	if err := c.CgetDe(&item, grace); err != ErrNotModified {
 		t.Fatalf("Unexpected err=[%s] for client.CgetDe(key=[%s], grace=[%s]). Expected ErrNotModified", err, item.Key, grace)
@@ -413,8 +399,8 @@ func cacher_CgetDe(c Cacher, t *testing.T) {
 
 	item.Value = nil
 	item.Flags = 0
-	item.Etag = 0
-	item.ValidateTtl = 0
+	casid := item.Casid
+	item.Casid += 1
 	if err := c.CgetDe(&item, grace); err != nil {
 		t.Fatalf("Error in client.CgetDe(key=[%s], grace=[%s]): [%s]", item.Key, grace, err)
 	}
@@ -424,8 +410,8 @@ func cacher_CgetDe(c Cacher, t *testing.T) {
 	if item.Flags != flags {
 		t.Fatalf("Unexpected flags obtained: [%d]. Expected [%d]", item.Flags, flags)
 	}
-	if item.Etag != etag {
-		t.Fatalf("Unexpected etag obtianed: [%d]. Expected [%d]", item.Etag, etag)
+	if item.Casid != casid {
+		t.Fatalf("Unexpected casid obtianed: [%d]. Expected [%d]", item.Casid, casid)
 	}
 }
 
@@ -455,38 +441,6 @@ func checkItems(c Cacher, orig_items []Item, t *testing.T) {
 		}
 		if !bytes.Equal(item.Value, orig_item.Value) {
 			t.Fatalf("Values mismatch for key=[%s]. Returned=[%s], expected=[%s]", item.Key, item.Value, orig_item.Value)
-		}
-	}
-}
-
-func checkCItems(c Cacher, items []Citem, t *testing.T) {
-	for i := 0; i < len(items); i++ {
-		item := items[i]
-		err := c.Cget(&item)
-		if err == ErrCacheMiss {
-			continue
-		}
-		if err != ErrNotModified {
-			t.Fatalf("Unexpected error returned from Client.Cget(): [%s]. Expected ErrNotModified", err)
-		}
-
-		item.Flags = 0
-		item.Etag++
-		item.ValidateTtl = 0
-		if err := c.Cget(&item); err != nil {
-			t.Fatalf("Error when calling Client.Cget(): [%s]", err)
-		}
-		if item.Flags != items[i].Flags {
-			t.Fatalf("Unexpected flags=%d returned. Expected %d", item.Flags, items[i].Flags)
-		}
-		if item.Etag != items[i].Etag {
-			t.Fatalf("Unexpected etag=%d returned. Expected %d", item.Etag, items[i].Etag)
-		}
-		if item.ValidateTtl != items[i].ValidateTtl {
-			t.Fatalf("Unexpected validateTtl=%d returned. Expected %d", item.ValidateTtl, items[i].ValidateTtl)
-		}
-		if !bytes.Equal(item.Value, items[i].Value) {
-			t.Fatalf("Unexpected value=[%s] returned. Expected [%s]", item.Value, items[i].Value)
 		}
 	}
 }
@@ -535,26 +489,6 @@ func cacher_SetNowait(c Cacher, t *testing.T) {
 
 func TestClient_SetNowait(t *testing.T) {
 	client_RunTest(cacher_SetNowait, t)
-}
-
-func cacher_CsetNowait(c Cacher, t *testing.T) {
-	itemsCount := 100
-	items := make([]Citem, itemsCount)
-	for i := 0; i < itemsCount; i++ {
-		item := &items[i]
-		item.Key = []byte(fmt.Sprintf("key_%d", i))
-		item.Value = []byte(fmt.Sprintf("value_%d", i))
-		item.Flags = uint32(i)
-		item.Etag = uint64(i + 1)
-		item.ValidateTtl = uint32(i + 2)
-		c.CsetNowait(item)
-	}
-
-	checkCItems(c, items, t)
-}
-
-func TestClient_CsetNowait(t *testing.T) {
-	client_RunTest(cacher_CsetNowait, t)
 }
 
 func cacher_Delete(c Cacher, t *testing.T) {
@@ -683,20 +617,22 @@ func checkMalformedKey(c Cacher, key []byte, t *testing.T) {
 	if err := c.GetDe(&item, time.Second); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
+	if err := c.Add(&item); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
 	if err := c.Set(&item); err != ErrMalformedKey {
+		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
+	}
+	if err := c.Cas(&item); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
 	if err := c.Delete(item.Key); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
-
-	citem := Citem{
-		Item: item,
-	}
-	if err := c.Cget(&citem); err != ErrMalformedKey {
+	if err := c.Cget(&item); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
-	if err := c.Cset(&citem); err != ErrMalformedKey {
+	if err := c.CgetDe(&item, time.Second); err != ErrMalformedKey {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrMalformedKey", err)
 	}
 }
@@ -717,13 +653,6 @@ func cacher_NilValue(c Cacher, t *testing.T) {
 		Key: []byte("test"),
 	}
 	if err := c.Set(&item); err != ErrNilValue {
-		t.Fatalf("Unexpected err=[%s] returned. Expected ErrNilValue", err)
-	}
-
-	citem := Citem{
-		Item: item,
-	}
-	if err := c.Cset(&citem); err != ErrNilValue {
 		t.Fatalf("Unexpected err=[%s] returned. Expected ErrNilValue", err)
 	}
 }
@@ -752,36 +681,6 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 	if item.Flags != flags {
 		t.Fatalf("Unexpected Flags obtained=[%s]. Expected [%d]", item.Flags, flags)
 	}
-
-	etag := uint64(1234)
-	validateTtl := uint32(1000)
-	citem := Citem{
-		Item:        item,
-		Etag:        etag,
-		ValidateTtl: validateTtl,
-	}
-	if err := c.Cset(&citem); err != nil {
-		t.Fatalf("Cannot set item with empty value: [%s]", err)
-	}
-	citem.Value = nil
-	citem.Flags = 0
-	citem.Etag = 0
-	citem.ValidateTtl = 0
-	if err := c.Cget(&citem); err != nil {
-		t.Fatalf("Error when obtaining empty value: [%s]", err)
-	}
-	if citem.Value == nil || len(citem.Value) != 0 {
-		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", citem.Value)
-	}
-	if citem.Flags != flags {
-		t.Fatalf("Unexpected flags obtained=[%d]. Expected [%d]", citem.Flags, flags)
-	}
-	if citem.Etag != etag {
-		t.Fatalf("Unexpected etag obtained=[%d]. Expected [%d]", citem.Etag, etag)
-	}
-	if citem.ValidateTtl != validateTtl {
-		t.Fatalf("Unexpected validateTtl obtained=[%s]. Expected [%s]", citem.ValidateTtl, validateTtl)
-	}
 }
 
 func TestClient_EmptyValue(t *testing.T) {
@@ -793,10 +692,6 @@ func cacher_NotStartedNoStop(c Cacher, t *testing.T) {
 		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
-	citem := Citem{
-		Item: item,
-	}
-
 	if err := c.Get(&item); err != ErrClientNotRunning {
 		t.Fatalf("Unexpected error received in Cacher.Get(): [%s]. Expected ErrClientNotRunning", err)
 	}
@@ -806,14 +701,20 @@ func cacher_NotStartedNoStop(c Cacher, t *testing.T) {
 	if err := c.GetDe(&item, time.Second); err != ErrClientNotRunning {
 		t.Fatalf("Unexpected error received in Cacher.GetDe(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Cget(&citem); err != ErrClientNotRunning {
+	if err := c.Cget(&item); err != ErrClientNotRunning {
 		t.Fatalf("Unexpected error received in Cacher.Cget(): [%s]. Expected ErrClientNotRunning", err)
+	}
+	if err := c.CgetDe(&item, time.Second); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.CgetDe(): [%s]. Expected ErrClientNotRunning", err)
+	}
+	if err := c.Add(&item); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Add(): [%s]. Expected ErrClientNotRunning", err)
 	}
 	if err := c.Set(&item); err != ErrClientNotRunning {
 		t.Fatalf("Unexpected error received in Cacher.Set(): [%s]. Expected ErrClientNotRunning", err)
 	}
-	if err := c.Cset(&citem); err != ErrClientNotRunning {
-		t.Fatalf("Unexpected error received in Cacher.Cset(): [%s]. Expected ErrClientNotRunning", err)
+	if err := c.Cas(&item); err != ErrClientNotRunning {
+		t.Fatalf("Unexpected error received in Cacher.Cas(): [%s]. Expected ErrClientNotRunning", err)
 	}
 	if err := c.Delete(item.Key); err != ErrClientNotRunning {
 		t.Fatalf("Unexpected error received in Cacher.Delete(): [%s]. Expected ErrClientNotRunning", err)
@@ -863,11 +764,6 @@ func TestDistributedClient_NoServers(t *testing.T) {
 		Value:      []byte("value"),
 		Expiration: time.Second,
 	}
-	citem := Citem{
-		Item:        item,
-		Etag:        12345,
-		ValidateTtl: 1328,
-	}
 	if err := c.Get(&item); err != ErrNoServers {
 		t.Fatalf("Get() should return ErrNoServers, but returned [%s]", err)
 	}
@@ -877,14 +773,20 @@ func TestDistributedClient_NoServers(t *testing.T) {
 	if err := c.GetDe(&item, time.Second); err != ErrNoServers {
 		t.Fatalf("GetDe() should return ErrNoServers, but returned [%s]", err)
 	}
-	if err := c.Cget(&citem); err != ErrNoServers {
+	if err := c.Cget(&item); err != ErrNoServers {
 		t.Fatalf("Cget() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.CgetDe(&item, time.Second); err != ErrNoServers {
+		t.Fatalf("CgetDe() should return ErrNoServers, but returned [%s]", err)
+	}
+	if err := c.Add(&item); err != ErrNoServers {
+		t.Fatalf("Add() should return ErrNoServers, but returned [%s]", err)
 	}
 	if err := c.Set(&item); err != ErrNoServers {
 		t.Fatalf("Set() should return ErrNoServers, but returned [%s]", err)
 	}
-	if err := c.Cset(&citem); err != ErrNoServers {
-		t.Fatalf("Cset() should return ErrNoServers, but returned [%s]", err)
+	if err := c.Cas(&item); err != ErrNoServers {
+		t.Fatalf("Cas() should return ErrNoServers, but returned [%s]", err)
 	}
 	if err := c.Delete(item.Key); err != ErrNoServers {
 		t.Fatalf("Delete() should return ErrNoServers, but returned [%s]", err)
@@ -1034,9 +936,9 @@ func TestDistributedClient_GetDe(t *testing.T) {
 	distributedClientStatic_RunTest(cacher_GetDe, t)
 }
 
-func TestDistributedClient_CgetCset(t *testing.T) {
-	distributedClient_RunTest(cacher_CgetCset, t)
-	distributedClientStatic_RunTest(cacher_CgetCset, t)
+func TestDistributedClient_Cget(t *testing.T) {
+	distributedClient_RunTest(cacher_Cget, t)
+	distributedClientStatic_RunTest(cacher_Cget, t)
 }
 
 func TestDistributedClient_CgetDe(t *testing.T) {
@@ -1057,11 +959,6 @@ func TestDistributedClient_GetMulti(t *testing.T) {
 func TestDistributedClient_SetNowait(t *testing.T) {
 	distributedClient_RunTest(cacher_SetNowait, t)
 	distributedClientStatic_RunTest(cacher_SetNowait, t)
-}
-
-func TestDistributedClient_CsetNowait(t *testing.T) {
-	distributedClient_RunTest(cacher_CsetNowait, t)
-	distributedClientStatic_RunTest(cacher_CsetNowait, t)
 }
 
 func TestDistributedClient_Delete(t *testing.T) {

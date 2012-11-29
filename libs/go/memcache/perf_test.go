@@ -505,7 +505,7 @@ func BenchmarkCachingClientServer_ConcurrentGet_128Workers(b *testing.B) {
 func concurrentGetForCachingClientWithValidateTtl(workersCount int, b *testing.B) {
 	setupFunc := func(c MemcacherDe) {
 		var item Item
-		validateTtl := time.Minute
+		validateTtl := time.Millisecond * 100
 		for i := 0; i < workersCount; i++ {
 			item.Key = []byte(fmt.Sprintf("key_%d", i))
 			item.Value = []byte(fmt.Sprintf("value_%d", i))
@@ -610,7 +610,7 @@ func BenchmarkClientServer_ConcurrentGetDe_128Workers(b *testing.B) {
 func concurrentGetDeWithValidateTtl(workersCount int, b *testing.B) {
 	setupFunc := func(c MemcacherDe) {
 		var item Item
-		validateTtl := time.Minute
+		validateTtl := time.Millisecond * 100
 		for i := 0; i < workersCount; i++ {
 			item.Key = []byte(fmt.Sprintf("key_%d", i))
 			item.Value = []byte(fmt.Sprintf("value_%d", i))
@@ -622,35 +622,35 @@ func concurrentGetDeWithValidateTtl(workersCount int, b *testing.B) {
 	concurrentOpsForCachingClient(setupFunc, getDeWorker, workersCount, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_1Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_1Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(1, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_2Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_2Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(2, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_4Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_4Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(4, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_8Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_8Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(8, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_16Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_16Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(16, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_32Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_32Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(32, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_64Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_64Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(64, b)
 }
 
-func BenchmarkClientServer_ConcurrentGetDeWithValidateTtl_128Workers(b *testing.B) {
+func BenchmarkCachingClientServer_ConcurrentGetDeWithValidateTtl_128Workers(b *testing.B) {
 	concurrentGetDeWithValidateTtl(128, b)
 }
 

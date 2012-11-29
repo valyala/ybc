@@ -3,7 +3,6 @@ package memcache
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
 	"log"
@@ -34,7 +33,6 @@ var (
 	strCget                = []byte("cget ")
 	strCgetDe              = []byte("cgetde ")
 	strCrLf                = []byte("\r\n")
-	strCset                = []byte("cset ")
 	strDelete              = []byte("delete ")
 	strDeleted             = []byte("DELETED")
 	strDeletedCrLf         = []byte("DELETED\r\n")
@@ -64,6 +62,13 @@ var (
 	strWouldBlock          = []byte("WB")
 	strWouldBlockCrLf      = []byte("WB\r\n")
 	strWsNoreplyCrLf       = []byte(" noreply\r\n")
+)
+
+const (
+	casidSize              = 8
+	flagsSize              = 4
+	validateExpirationSize = 8
+	validateTtlSize        = 4
 )
 
 func validateKey(key []byte) bool {
@@ -284,13 +289,13 @@ func parseExpirationToken(line []byte, n *int) (expiration time.Duration, ok boo
 	return
 }
 
-func parseUint64Token(line []byte, n *int, tokenName string) (etag uint64, ok bool) {
-	etagStr := nextToken(line, n, tokenName)
-	if etagStr == nil {
+func parseUint64Token(line []byte, n *int, tokenName string) (n64 uint64, ok bool) {
+	s := nextToken(line, n, tokenName)
+	if s == nil {
 		ok = false
 		return
 	}
-	etag, ok = parseUint64(etagStr)
+	n64, ok = parseUint64(s)
 	return
 }
 
@@ -387,20 +392,6 @@ func writeMilliseconds(w *bufio.Writer, duration time.Duration, scratchBuf *[]by
 		t = maxMilliseconds
 	}
 	return writeUint32(w, uint32(t), scratchBuf)
-}
-
-func binaryRead(r io.Reader, data interface{}, name string) bool {
-	if err := binary.Read(r, binary.LittleEndian, data); err != nil {
-		log.Printf("Error in binary.Read() for [%s]: [%s]", name, err)
-		return false
-	}
-	return true
-}
-
-func binaryWrite(w io.Writer, data interface{}, name string) {
-	if err := binary.Write(w, binary.LittleEndian, data); err != nil {
-		log.Fatalf("Error in binary.Write() for [%s]: [%s]", name, err)
-	}
 }
 
 func cacheClearFunc(cache ybc.Cacher) func() {

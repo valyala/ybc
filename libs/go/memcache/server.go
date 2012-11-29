@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"net"
@@ -14,20 +13,16 @@ import (
 )
 
 var (
-	errBinaryReadFailed = errors.New("memcache.Server: binary read failed")
-)
-
-var (
-	casCounter uint64
-	casLock    sync.Mutex
+	casidCounter uint64
+	casidLock    sync.Mutex
 )
 
 func init() {
-	casCounter = uint64(time.Now().UnixNano())
+	casidCounter = uint64(time.Now().UnixNano())
 }
 
-func getCas() uint64 {
-	return atomic.AddUint64(&casCounter, 1)
+func getCasid() uint64 {
+	return atomic.AddUint64(&casidCounter, 1)
 }
 
 func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
@@ -43,23 +38,17 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 	return writeCrLf(w)
 }
 
-func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCas bool, scratchBuf *[]byte) bool {
-	var cas uint64
-	if shouldWriteCas {
-		if !binaryRead(item, &cas, "cas") {
-			return false
-		}
-	} else {
-		casSize := int64(binary.Size(&cas))
-		if _, err := item.Seek(casSize, 1); err != nil {
-			log.Fatalf("Unexpected error in Item.Seek(%d, 1): [%s]", casSize, err)
-		}
-	}
-
-	var flags uint32
-	if !binaryRead(item, &flags, "flags") {
+func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCasid bool, scratchBuf *[]byte) bool {
+	var casid uint64
+	var buf [casidSize + flagsSize]byte
+	if _, err := item.Read(buf[:]); err != nil {
+		log.Printf("error when reading item metadata: [%s]", err)
 		return false
 	}
+	if shouldWriteCasid {
+		casid = binary.LittleEndian.Uint64(buf[:])
+	}
+	flags := binary.LittleEndian.Uint32(buf[casidSize:])
 
 	size := item.Available()
 	if !writeStr(w, strValue) || !writeStr(w, key) || !writeWs(w) ||
@@ -68,8 +57,8 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCa
 		return false
 	}
 
-	if shouldWriteCas {
-		if !writeWs(w) || !writeUint64(w, cas, scratchBuf) {
+	if shouldWriteCasid {
+		if !writeWs(w) || !writeUint64(w, casid, scratchBuf) {
 			return false
 		}
 	}
@@ -77,7 +66,7 @@ func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCa
 	return writeStr(w, strCrLf) && writeItem(w, item, size)
 }
 
-func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shouldWriteCas bool, scratchBuf *[]byte) bool {
+func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shouldWriteCasid bool, scratchBuf *[]byte) bool {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		if err == ybc.ErrCacheMiss {
@@ -87,14 +76,18 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shou
 	}
 	defer item.Close()
 
-	return writeGetResponse(w, key, item, shouldWriteCas, scratchBuf)
+	return writeGetResponse(w, key, item, shouldWriteCasid, scratchBuf)
+}
+
+func writeGetResponseWithEof(w *bufio.Writer, key []byte, item *ybc.Item, scratchBuf *[]byte) bool {
+	return writeGetResponse(w, key, item, true, scratchBuf) && writeStr(w, strEndCrLf)
 }
 
 func writeEndCrLf(w *bufio.Writer) bool {
 	return writeStr(w, strEndCrLf)
 }
 
-func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte, shouldWriteCas bool) bool {
+func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte, shouldWriteCasid bool) bool {
 	last := -1
 	lineSize := len(line)
 	for last < lineSize {
@@ -109,11 +102,10 @@ func processGetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 			continue
 		}
 		key := line[first:last]
-		if !getItemAndWriteResponse(c.Writer, cache, key, shouldWriteCas, scratchBuf) {
+		if !getItemAndWriteResponse(c.Writer, cache, key, shouldWriteCasid, scratchBuf) {
 			return false
 		}
 	}
-
 	return writeEndCrLf(c.Writer)
 }
 
@@ -144,49 +136,24 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 	}
 	defer item.Close()
 
-	return writeGetResponse(c.Writer, key, item, false, scratchBuf) && writeEndCrLf(c.Writer)
+	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
 }
 
-func writeCgetResponse(w *bufio.Writer, etag uint64, item *ybc.Item, scratchBuf *[]byte) bool {
-	var validateTtl, flags uint32
-	if !binaryRead(item, &flags, "flags") || !binaryRead(item, &validateTtl, "validateTtl") {
-		return false
-	}
-
-	size := item.Available()
-	expiration := item.Ttl()
-	return writeStr(w, strValue) && writeInt(w, size, scratchBuf) && writeWs(w) &&
-		writeUint32(w, flags, scratchBuf) && writeWs(w) &&
-		writeExpiration(w, expiration, scratchBuf) && writeWs(w) &&
-		writeUint64(w, etag, scratchBuf) && writeWs(w) &&
-		writeUint32(w, validateTtl, scratchBuf) && writeCrLf(w) &&
-		writeItem(w, item, size)
-}
-
-func cGetFromCache(cache ybc.Cacher, key []byte, etag *uint64) (item *ybc.Item, err error) {
-	item, err = cache.GetItem(key)
-	if err == ybc.ErrCacheMiss {
+func checkAndUpdateCasid(item *ybc.Item, casid *uint64) (isModified, ok bool) {
+	casidOld := *casid
+	var buf [casidSize]byte
+	if _, err := item.Read(buf[:]); err != nil {
+		log.Printf("Cannod read casid from item: [%s]", err)
 		return
 	}
-	if err != nil {
-		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", key, err)
-	}
-	defer func() {
-		if err != nil {
-			item.Close()
-		}
-	}()
+	*casid = binary.LittleEndian.Uint64(buf[:])
 
-	etagOld := *etag
-	if !binaryRead(item, etag, "etag") {
-		err = errBinaryReadFailed
-		return
+	if _, err := item.Seek(-casidSize, 1); err != nil {
+		log.Fatalf("Unexpected error returned from ybc.Item.Seek(%d, 1): [%s]", -casidSize, err)
 	}
-	if etagOld == *etag {
-		item.Close()
-		item = nil
-		return
-	}
+
+	isModified = (casidOld != *casid)
+	ok = true
 	return
 }
 
@@ -197,7 +164,7 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if key == nil {
 		return false
 	}
-	etag, ok := parseUint64Token(line, &n, "etag")
+	casid, ok := parseUint64Token(line, &n, "casid")
 	if !ok {
 		return false
 	}
@@ -205,46 +172,24 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 		return false
 	}
 
-	item, err := cGetFromCache(cache, key, &etag)
+	item, err := cache.GetItem(key)
 	if err == ybc.ErrCacheMiss {
-		return writeStr(c.Writer, strNotFoundCrLf)
+		return writeStr(c.Writer, strEndCrLf)
 	}
 	if err != nil {
-		return false
-	}
-	if item == nil {
-		return writeStr(c.Writer, strNotModifiedCrLf)
+		log.Fatalf("Unexpected error returned: [%s]", err)
 	}
 	defer item.Close()
 
-	return writeCgetResponse(c.Writer, etag, item, scratchBuf)
-}
+	isModified, ok := checkAndUpdateCasid(item, &casid)
+	if !ok {
+		return false
+	}
+	if !isModified {
+		return writeStr(c.Writer, strNotModifiedCrLf)
+	}
 
-func cGetDeFromCache(cache ybc.Cacher, key []byte, etag *uint64, graceDuration time.Duration) (item *ybc.Item, err error) {
-	item, err = cache.GetDeAsyncItem(key, graceDuration)
-	if err == ybc.ErrCacheMiss || err == ybc.ErrWouldBlock {
-		return
-	}
-	if err != nil {
-		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", key, err)
-	}
-	defer func() {
-		if err != nil {
-			item.Close()
-		}
-	}()
-
-	etagOld := *etag
-	if !binaryRead(item, etag, "etag") {
-		err = errBinaryReadFailed
-		return
-	}
-	if etagOld == *etag {
-		item.Close()
-		item = nil
-		return
-	}
-	return
+	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
 }
 
 func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
@@ -254,7 +199,7 @@ func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 	if key == nil {
 		return false
 	}
-	etag, ok := parseUint64Token(line, &n, "etag")
+	casid, ok := parseUint64Token(line, &n, "casid")
 	if !ok {
 		return false
 	}
@@ -266,22 +211,27 @@ func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 		return false
 	}
 
-	item, err := cGetDeFromCache(cache, key, &etag, graceDuration)
+	item, err := cache.GetDeAsyncItem(key, graceDuration)
 	if err == ybc.ErrWouldBlock {
 		return writeStr(c.Writer, strWouldBlockCrLf)
 	}
 	if err == ybc.ErrCacheMiss {
-		return writeStr(c.Writer, strNotFoundCrLf)
+		return writeStr(c.Writer, strEndCrLf)
 	}
 	if err != nil {
-		return false
-	}
-	if item == nil {
-		return writeStr(c.Writer, strNotModifiedCrLf)
+		log.Fatalf("Unexpected error returned: [%s]", err)
 	}
 	defer item.Close()
 
-	return writeCgetResponse(c.Writer, etag, item, scratchBuf)
+	isModified, ok := checkAndUpdateCasid(item, &casid)
+	if !ok {
+		return false
+	}
+	if !isModified {
+		return writeStr(c.Writer, strNotModifiedCrLf)
+	}
+
+	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
 }
 
 func expectNoreply(line []byte, n *int) bool {
@@ -296,7 +246,7 @@ func expectNoreply(line []byte, n *int) bool {
 	return true
 }
 
-func parseSetCmd(line []byte, shouldParseCas bool) (key []byte, flags uint32, expiration time.Duration, size int, cas uint64, noreply bool, ok bool) {
+func parseSetCmd(line []byte, shouldParseCasid bool) (key []byte, flags uint32, expiration time.Duration, size int, casid uint64, noreply bool, ok bool) {
 	n := -1
 
 	ok = false
@@ -312,8 +262,8 @@ func parseSetCmd(line []byte, shouldParseCas bool) (key []byte, flags uint32, ex
 	if size, ok = parseSizeToken(line, &n); !ok {
 		return
 	}
-	if shouldParseCas {
-		if cas, ok = parseUint64Token(line, &n, "cas"); !ok {
+	if shouldParseCasid {
+		if casid, ok = parseUint64Token(line, &n, "casid"); !ok {
 			return
 		}
 	}
@@ -357,15 +307,24 @@ func writeSetResponse(w *bufio.Writer, noreply bool) bool {
 }
 
 func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
-	cas := getCas()
-	size += binary.Size(&flags) + binary.Size(&cas)
+	casid := getCasid()
+	size += casidSize + flagsSize
 	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
 		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
 		return nil
 	}
-	binaryWrite(txn, &cas, "cas")
-	binaryWrite(txn, &flags, "flags")
+
+	var buf [casidSize + flagsSize]byte
+	binary.LittleEndian.PutUint64(buf[:casidSize], casid)
+	binary.LittleEndian.PutUint32(buf[casidSize:], flags)
+	n, err := txn.Write(buf[:])
+	if err != nil {
+		log.Fatalf("Error in SetTxn.Write(): [%s]", err)
+	}
+	if n != len(buf) {
+		log.Fatalf("Unexpected result returned from SetTxn.Write(): %d. Expected %d", n, len(buf))
+	}
 	return txn
 }
 
@@ -403,7 +362,7 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	return readValueToTxnAndWriteResponse(c, txn, size, noreply)
 }
 
-func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, ok bool) {
+func getCasidForCachedItem(cache ybc.Cacher, key []byte) (casid uint64, cacheMiss, ok bool) {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		if err == ybc.ErrCacheMiss {
@@ -414,7 +373,13 @@ func getCasForCachedItem(cache ybc.Cacher, key []byte) (cas uint64, cacheMiss, o
 	}
 	defer item.Close()
 
-	ok = binaryRead(item, &cas, "cas")
+	var buf [casidSize]byte
+	if _, err = item.Read(buf[:]); err != nil {
+		log.Printf("Error when reading casid for the item: [%s]", err)
+		return
+	}
+	casid = binary.LittleEndian.Uint64(buf[:])
+	ok = true
 	return
 }
 
@@ -447,8 +412,8 @@ func processAddCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 		return false
 	}
 
-	casLock.Lock()
-	defer casLock.Unlock()
+	casidLock.Lock()
+	defer casidLock.Unlock()
 
 	if cachedItemExists(cache, key) {
 		if noreply {
@@ -466,7 +431,7 @@ func processAddCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 }
 
 func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, flags, expiration, size, cas, noreply, ok := parseSetCmd(line, true)
+	key, flags, expiration, size, casid, noreply, ok := parseSetCmd(line, true)
 	if !ok {
 		return false
 	}
@@ -482,10 +447,10 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 		return false
 	}
 
-	casLock.Lock()
-	defer casLock.Unlock()
+	casidLock.Lock()
+	defer casidLock.Unlock()
 
-	casOrig, cacheMiss, ok := getCasForCachedItem(cache, key)
+	casidOrig, cacheMiss, ok := getCasidForCachedItem(cache, key)
 	if !ok {
 		return false
 	}
@@ -495,7 +460,7 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 		}
 		return writeStr(c.Writer, strNotFoundCrLf)
 	}
-	if casOrig != cas {
+	if casidOrig != casid {
 		if noreply {
 			return true
 		}
@@ -508,68 +473,6 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	shouldRollback = false
 
 	return writeSetResponse(c.Writer, noreply)
-}
-
-func parseCsetCmd(line []byte) (key []byte, size int, flags uint32, expiration time.Duration, etag uint64, validateTtl uint32, noreply bool, ok bool) {
-	n := -1
-
-	ok = false
-	if key = nextToken(line, &n, "key"); key == nil {
-		return
-	}
-	if size, ok = parseSizeToken(line, &n); !ok {
-		return
-	}
-	if flags, ok = parseFlagsToken(line, &n); !ok {
-		return
-	}
-	if expiration, ok = parseExpirationToken(line, &n); !ok {
-		return
-	}
-	if etag, ok = parseUint64Token(line, &n, "etag"); !ok {
-		return
-	}
-	if validateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
-		return
-	}
-
-	noreply = false
-	if n == len(line) {
-		ok = true
-		return
-	}
-	if ok = expectNoreply(line, &n); !ok {
-		return
-	}
-	if !expectEof(line, n) {
-		return
-	}
-	noreply = true
-	ok = true
-	return
-}
-
-func startCsetTxn(cache ybc.Cacher, key []byte, size int, flags uint32, expiration time.Duration, etag uint64, validateTtl uint32) *ybc.SetTxn {
-	size += binary.Size(&etag) + binary.Size(&validateTtl) + binary.Size(&flags)
-	txn, err := cache.NewSetTxn(key, size, expiration)
-	if err != nil {
-		log.Printf("Error in Cache.NewSetTxn() for key=[%s], size=[%d], expiration=[%s]: [%s]", key, size, expiration, err)
-		return nil
-	}
-	binaryWrite(txn, &etag, "etag")
-	binaryWrite(txn, &flags, "flags")
-	binaryWrite(txn, &validateTtl, "validateTtl")
-	return txn
-}
-
-func processCsetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
-	key, size, flags, expiration, etag, validateTtl, noreply, ok := parseCsetCmd(line)
-	if !ok {
-		return false
-	}
-
-	txn := startCsetTxn(cache, key, size, flags, expiration, etag, validateTtl)
-	return readValueToTxnAndWriteResponse(c, txn, size, noreply)
 }
 
 func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
@@ -693,9 +596,6 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	}
 	if bytes.HasPrefix(line, strAdd) {
 		return processAddCmd(c, cache, line[len(strAdd):], scratchBuf)
-	}
-	if bytes.HasPrefix(line, strCset) {
-		return processCsetCmd(c, cache, line[len(strCset):], scratchBuf)
 	}
 	if bytes.HasPrefix(line, strDelete) {
 		return processDeleteCmd(c, cache, line[len(strDelete):], scratchBuf)

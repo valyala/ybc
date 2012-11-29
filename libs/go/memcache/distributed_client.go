@@ -312,7 +312,7 @@ func (c *DistributedClient) Get(item *Item) error {
 }
 
 // See Client.Cget().
-func (c *DistributedClient) Cget(item *Citem) error {
+func (c *DistributedClient) Cget(item *Item) error {
 	client, err := c.client(item.Key)
 	if err != nil {
 		return err
@@ -330,7 +330,7 @@ func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error
 }
 
 // See Client.CgetDe()
-func (c *DistributedClient) CgetDe(item *Citem, graceDuration time.Duration) error {
+func (c *DistributedClient) CgetDe(item *Item, graceDuration time.Duration) error {
 	client, err := c.client(item.Key)
 	if err != nil {
 		return err
@@ -365,28 +365,11 @@ func (c *DistributedClient) Cas(item *Item) error {
 	return client.Cas(item)
 }
 
-// See Client.Cset().
-func (c *DistributedClient) Cset(item *Citem) error {
-	client, err := c.client(item.Key)
-	if err != nil {
-		return err
-	}
-	return client.Cset(item)
-}
-
 // See Client.SetNowait().
 func (c *DistributedClient) SetNowait(item *Item) {
 	client, err := c.client(item.Key)
 	if err == nil {
 		client.SetNowait(item)
-	}
-}
-
-// See Client.CsetNowait().
-func (c *DistributedClient) CsetNowait(item *Citem) {
-	client, err := c.client(item.Key)
-	if err == nil {
-		client.CsetNowait(item)
 	}
 }
 

@@ -1,4 +1,3 @@
-* Merge Citem.Etag with Item.Cas.
 * Provide API compatible with https://github.com/bradfitz/gomemcache .
 * Implement more efficient binary RPC protocol with the following features:
     * More compact on-the-wire representation.

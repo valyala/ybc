@@ -31,10 +31,8 @@ type MemcacherDe interface {
 type Ccacher interface {
 	MemcacherDe
 
-	Cget(item *Citem) error
-	CgetDe(item *Citem, graceDuration time.Duration) error
-	Cset(item *Citem) error
-	CsetNowait(item *Citem)
+	Cget(item *Item) error
+	CgetDe(item *Item, graceDuration time.Duration) error
 }
 
 // Client and DistributedClient implement this interface.

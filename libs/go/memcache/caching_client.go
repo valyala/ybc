@@ -5,18 +5,12 @@ import (
 	"errors"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
-	"math/rand"
 	"time"
 )
 
 var (
 	ErrNotImplemented = errors.New("memcache.CachingClient: the function isn't implemented yet")
 )
-
-func init() {
-	seed := time.Now().UnixNano()
-	rand.Seed(seed)
-}
 
 // Memcache client with in-process data caching.
 //
@@ -65,55 +59,60 @@ type CachingClient struct {
 	Cache ybc.Cacher
 }
 
-const deniedEtag = 0
+const metadataSize = casidSize + flagsSize + validateTtlSize + validateExpirationSize
 
-func getEtag() uint64 {
-	for {
-		if etag := uint64(rand.Int63()); etag != deniedEtag {
-			return etag
-		}
-	}
-	panic("unreachable")
-}
-
-func writeItemMetadata(cache ybc.Cacher, key []byte, size int, ttl time.Duration, etag uint64, validateTtl uint32, flags uint32) *ybc.SetTxn {
+func writeItemMetadata(cache ybc.Cacher, key []byte, size int, casid uint64, flags, validateTtl uint32) *ybc.SetTxn {
 	validateExpiration64 := uint64(time.Now().Add(time.Duration(validateTtl) * time.Millisecond).UnixNano())
 
-	size += binary.Size(&etag) + binary.Size(&validateTtl) + binary.Size(flags) + binary.Size(&validateExpiration64)
-	txn, err := cache.NewSetTxn(key, size, ttl)
+	size += metadataSize
+	txn, err := cache.NewSetTxn(key, size, ybc.MaxTtl)
 	if err != nil {
 		log.Printf("Unexpected error in Cache.NewSetTxn(size=%d): [%s]", size, err)
 		return nil
 	}
 
-	binaryWrite(txn, &etag, "etag")
-	binaryWrite(txn, &validateTtl, "validateTtl")
-	binaryWrite(txn, &flags, "flags")
-	binaryWrite(txn, &validateExpiration64, "validateExpiration")
-
+	var buf [metadataSize]byte
+	binary.LittleEndian.PutUint64(buf[:casidSize], casid)
+	binary.LittleEndian.PutUint32(buf[casidSize:], flags)
+	binary.LittleEndian.PutUint32(buf[casidSize+flagsSize:], validateTtl)
+	binary.LittleEndian.PutUint64(buf[casidSize+flagsSize+validateTtlSize:], validateExpiration64)
+	n, err := txn.Write(buf[:])
+	if err != nil {
+		log.Fatalf("Error in SetTxn.Write(): [%s]", err)
+	}
+	if n != len(buf) {
+		log.Fatalf("Unexpected result returned from SetTxn.Write(): %d. Expected %d", n, len(buf))
+	}
 	return txn
 }
 
-func readItemMetadata(it *ybc.Item) (etag uint64, validateTtl uint32, flags uint32, validateExpiration time.Time, ok bool) {
-	var validateExpiration64 uint64
-	if !binaryRead(it, &etag, "etag") || !binaryRead(it, &validateTtl, "validateTtl") ||
-		!binaryRead(it, &flags, "flags") || !binaryRead(it, &validateExpiration64, "validateExpiration") {
+func readItemMetadata(it *ybc.Item) (casid uint64, flags uint32, validateExpiration time.Time, validateTtl uint32, ok bool) {
+	var buf [metadataSize]byte
+	if _, err := it.Read(buf[:]); err != nil {
 		ok = false
+		log.Printf("Cannot read metadata for cached item: [%s]", err)
 		return
 	}
+	casid = binary.LittleEndian.Uint64(buf[:])
+	flags = binary.LittleEndian.Uint32(buf[casidSize:])
+	validateTtl = binary.LittleEndian.Uint32(buf[casidSize+flagsSize:])
+	validateExpiration64 := binary.LittleEndian.Uint64(buf[casidSize+flagsSize+validateTtlSize:])
 	validateExpiration = time.Unix(0, int64(validateExpiration64))
 	ok = true
 	return
 }
 
-func cacheItem(cache ybc.Cacher, item *Item, etag uint64, validateTtl uint32) {
-	size := len(item.Value)
-	txn := writeItemMetadata(cache, item.Key, size, item.Expiration, etag, validateTtl, item.Flags)
+func cacheItem(cache ybc.Cacher, item *Item) {
+	var validateTtl uint32
+	validateTtl = binary.LittleEndian.Uint32(item.Value)
+	item.Value = item.Value[validateTtlSize:]
+	txn := writeItemMetadata(cache, item.Key, len(item.Value), item.Casid, item.Flags, validateTtl)
 	if txn == nil {
 		return
 	}
 	defer txn.Commit()
 
+	size := len(item.Value)
 	n, err := txn.Write(item.Value)
 	if err != nil {
 		log.Fatalf("Unexpected error in SetTxn.Write(size=%d): [%s]", size, err)
@@ -123,41 +122,20 @@ func cacheItem(cache ybc.Cacher, item *Item, etag uint64, validateTtl uint32) {
 	}
 }
 
-func cacheCitem(cache ybc.Cacher, citem *Citem) {
-	cacheItem(cache, &citem.Item, citem.Etag, citem.ValidateTtl)
-}
-
-func getAndCacheRemoteItemInternal(client Ccacher, cache ybc.Cacher, item *Item, getFunc func(*Citem) error) error {
-	citem := Citem{
-		Item: Item{
-			Key: item.Key,
-		},
-		Etag: deniedEtag,
-	}
-	if err := getFunc(&citem); err != nil {
-		if err == ErrNotModified {
-			log.Fatalf("Unexpected result returned. Server said the item with deniedEtag=%d under the key=[%s] isn't modified", deniedEtag, citem.Key)
-		}
+func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
+	if err := client.Get(item); err != nil {
 		return err
 	}
-	cacheCitem(cache, &citem)
-	item.Value = citem.Value
-	item.Flags = citem.Flags
+	cacheItem(cache, item)
 	return nil
 }
 
-func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
-	cGetFunc := func(citem *Citem) error {
-		return client.Cget(citem)
-	}
-	return getAndCacheRemoteItemInternal(client, cache, item, cGetFunc)
-}
-
 func getDeAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item, graceDuration time.Duration) error {
-	cGetDeFunc := func(citem *Citem) error {
-		return client.CgetDe(citem, graceDuration)
+	if err := client.GetDe(item, graceDuration); err != nil {
+		return err
 	}
-	return getAndCacheRemoteItemInternal(client, cache, item, cGetDeFunc)
+	cacheItem(cache, item)
+	return nil
 }
 
 func setItemValue(it *ybc.Item, item *Item) error {
@@ -173,12 +151,11 @@ func setItemValue(it *ybc.Item, item *Item) error {
 	return nil
 }
 
-func updateLocalItem(cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32) {
+func updateLocalItem(cache ybc.Cacher, it *ybc.Item, key []byte, casid uint64, flags, validateTtl uint32) {
 	size := it.Available()
-	offset := it.Size() - size
-	defer it.Seek(int64(offset), 0)
+	defer it.Seek(-int64(size), 2)
 
-	txn := writeItemMetadata(cache, item.Key, size, it.Ttl(), etag, validateTtl, item.Flags)
+	txn := writeItemMetadata(cache, key, size, casid, flags, validateTtl)
 	if txn == nil {
 		return
 	}
@@ -191,20 +168,13 @@ func updateLocalItem(cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, va
 	if n != int64(size) {
 		log.Fatalf("Unexpected number of bytes copied in SetTxn.ReadFrom(size=%d): %d", size, n)
 	}
-
 }
 
-func revalidateAndSetItemValueInternal(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32, getFunc func(*Citem) error) error {
-	citem := Citem{
-		Item: Item{
-			Key: item.Key,
-		},
-		Etag: etag,
-	}
-	if err := getFunc(&citem); err != nil {
+func revalidateAndSetItemValueInternal(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, casid uint64, flags, validateTtl uint32, getFunc func() error) error {
+	if err := getFunc(); err != nil {
 		if err == ErrNotModified {
 			if validateTtl > 0 {
-				updateLocalItem(cache, it, item, etag, validateTtl)
+				updateLocalItem(cache, it, item.Key, casid, flags, validateTtl)
 			}
 			return setItemValue(it, item)
 		}
@@ -213,23 +183,22 @@ func revalidateAndSetItemValueInternal(client Ccacher, cache ybc.Cacher, it *ybc
 		}
 		return err
 	}
-	cacheCitem(cache, &citem)
-	item.Value = citem.Value
+	cacheItem(cache, item)
 	return nil
 }
 
-func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32) error {
-	cGetFunc := func(citem *Citem) error {
-		return client.Cget(citem)
+func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, casid uint64, flags, validateTtl uint32) error {
+	getFunc := func() error {
+		return client.Cget(item)
 	}
-	return revalidateAndSetItemValueInternal(client, cache, it, item, etag, validateTtl, cGetFunc)
+	return revalidateAndSetItemValueInternal(client, cache, it, item, casid, flags, validateTtl, getFunc)
 }
 
-func revalidateDeAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, etag uint64, validateTtl uint32, graceDuration time.Duration) error {
-	cGetDeFunc := func(citem *Citem) error {
-		return client.CgetDe(citem, graceDuration)
+func revalidateDeAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, casid uint64, flags, validateTtl uint32, graceDuration time.Duration) error {
+	getFunc := func() error {
+		return client.CgetDe(item, graceDuration)
 	}
-	return revalidateAndSetItemValueInternal(client, cache, it, item, etag, validateTtl, cGetDeFunc)
+	return revalidateAndSetItemValueInternal(client, cache, it, item, casid, flags, validateTtl, getFunc)
 }
 
 // See Client.Get()
@@ -243,28 +212,22 @@ func (c *CachingClient) Get(item *Item) error {
 	}
 	defer it.Close()
 
-	etag, validateTtl, flags, validateExpiration, ok := readItemMetadata(it)
+	casid, flags, validateExpiration, validateTtl, ok := readItemMetadata(it)
 	if !ok {
 		return getAndCacheRemoteItem(c.Client, c.Cache, item)
 	}
+	item.Casid = casid
 	item.Flags = flags
 
 	if time.Now().After(validateExpiration) {
-		return revalidateAndSetItemValue(c.Client, c.Cache, it, item, etag, validateTtl)
+		return revalidateAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl)
 	}
 	return setItemValue(it, item)
 }
 
 // See Client.GetMulti()
 func (c *CachingClient) GetMulti(items []Item) error {
-	// TODO(valyala): implement Client.CgetMulti().
-	itemsCount := len(items)
-	for i := 0; i < itemsCount; i++ {
-		if err := c.Get(&items[i]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrNotImplemented
 }
 
 // See Client.GetDe()
@@ -278,16 +241,26 @@ func (c *CachingClient) GetDe(item *Item, graceDuration time.Duration) error {
 	}
 	defer it.Close()
 
-	etag, validateTtl, flags, validateExpiration, ok := readItemMetadata(it)
+	casid, flags, validateExpiration, validateTtl, ok := readItemMetadata(it)
 	if !ok {
 		return getDeAndCacheRemoteItem(c.Client, c.Cache, item, graceDuration)
 	}
+	item.Casid = casid
 	item.Flags = flags
 
 	if time.Now().After(validateExpiration) {
-		return revalidateDeAndSetItemValue(c.Client, c.Cache, it, item, etag, validateTtl, graceDuration)
+		return revalidateDeAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl, graceDuration)
 	}
 	return setItemValue(it, item)
+}
+
+func prependValidateTtl(value []byte, validateTtl time.Duration) []byte {
+	validateTtl32 := uint32(validateTtl / time.Millisecond)
+	size := len(value) + validateTtlSize
+	buf := make([]byte, size)
+	binary.LittleEndian.PutUint32(buf[:], validateTtl32)
+	copy(buf[validateTtlSize:], value)
+	return buf
 }
 
 // The same as CachingClient.Set(), but sets interval for periodic item
@@ -303,24 +276,16 @@ func (c *CachingClient) GetDe(item *Item, graceDuration time.Duration) error {
 // item size exceeds ~100 bytes.
 func (c *CachingClient) SetWithValidateTtl(item *Item, validateTtl time.Duration) error {
 	c.Cache.Delete(item.Key)
-	citem := Citem{
-		Item:        *item,
-		Etag:        getEtag(),
-		ValidateTtl: uint32(validateTtl / time.Millisecond),
-	}
-	return c.Client.Cset(&citem)
+	item.Value = prependValidateTtl(item.Value, validateTtl)
+	return c.Client.Set(item)
 }
 
 // The same as CachingClient.SetWithValidateTtl(), but doesn't wait
 // for completion of the operation.
 func (c *CachingClient) SetWithValidateTtlNowait(item *Item, validateTtl time.Duration) {
 	c.Cache.Delete(item.Key)
-	citem := Citem{
-		Item:        *item,
-		Etag:        getEtag(),
-		ValidateTtl: uint32(validateTtl / time.Millisecond),
-	}
-	c.Client.CsetNowait(&citem)
+	item.Value = prependValidateTtl(item.Value, validateTtl)
+	c.Client.SetNowait(item)
 }
 
 // See Client.Set()
@@ -328,14 +293,48 @@ func (c *CachingClient) Set(item *Item) error {
 	return c.SetWithValidateTtl(item, 0)
 }
 
+// The same as CachingClient.Add(), but sets interval for periodic item
+// revalidation on the server.
+//
+// This means that outdated, locally cached version of the item may be returned
+// during validateTtl interval. Use CachingClient.Add() if you don't unserstand
+// how this works.
+//
+// Setting validateTtl to 0 leads to item re-validation on every get() request.
+// This is equivalent ot CachingClient.Add() call. Even in this scenario network
+// bandwidth between the client and memcache servers is saved if the average
+// item size exceeds ~100 bytes.
+func (c *CachingClient) AddWithValidateTtl(item *Item, validateTtl time.Duration) error {
+	c.Cache.Delete(item.Key)
+	item.Value = prependValidateTtl(item.Value, validateTtl)
+	return c.Client.Add(item)
+}
+
 // See Client.Add()
 func (c *CachingClient) Add(item *Item) error {
-	return ErrNotImplemented
+	return c.AddWithValidateTtl(item, 0)
+}
+
+// The same as CachingClient.Cas(), but sets interval for periodic item
+// revalidation on the server.
+//
+// This means that outdated, locally cached version of the item may be returned
+// during validateTtl interval. Use CachingClient.Cas() if you don't unserstand
+// how this works.
+//
+// Setting validateTtl to 0 leads to item re-validation on every get() request.
+// This is equivalent ot CachingClient.Cas() call. Even in this scenario network
+// bandwidth between the client and memcache servers is saved if the average
+// item size exceeds ~100 bytes.
+func (c *CachingClient) CasWithValidateTtl(item *Item, validateTtl time.Duration) error {
+	c.Cache.Delete(item.Key)
+	item.Value = prependValidateTtl(item.Value, validateTtl)
+	return c.Client.Cas(item)
 }
 
 // See Client.Cas()
 func (c *CachingClient) Cas(item *Item) error {
-	return ErrNotImplemented
+	return c.CasWithValidateTtl(item, 0)
 }
 
 // See Client.SetNowait()

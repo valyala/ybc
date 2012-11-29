@@ -14,7 +14,7 @@ import (
 
 var (
 	ErrCacheMiss            = errors.New("memcache.Client: cache miss")
-	ErrCasMismatch          = errors.New("memcache.Client: cas mismatch")
+	ErrCasidMismatch        = errors.New("memcache.Client: casid mismatch")
 	ErrClientNotRunning     = errors.New("memcache.Client: the client isn't running")
 	ErrCommunicationFailure = errors.New("memcache.Client: communication failure")
 	ErrMalformedKey         = errors.New("memcache.Client: malformed key")
@@ -129,8 +129,8 @@ type Item struct {
 	Flags uint32
 
 	// This field is filled by get()-type requests and should be passed
-	// to Cas() requests.
-	Cas uint64
+	// to Cas() and Cget*() requests.
+	Casid uint64
 }
 
 type tasker interface {
@@ -359,7 +359,7 @@ type taskGetMulti struct {
 	taskSync
 }
 
-func readValueHeader(line []byte) (key []byte, flags uint32, cas uint64, size int, ok bool) {
+func readValueHeader(line []byte) (key []byte, flags uint32, casid uint64, size int, ok bool) {
 	ok = false
 
 	if !bytes.HasPrefix(line, strValue) {
@@ -383,7 +383,7 @@ func readValueHeader(line []byte) (key []byte, flags uint32, cas uint64, size in
 		return
 	}
 
-	if cas, ok = parseUint64Token(line, &n, "cas"); !ok {
+	if casid, ok = parseUint64Token(line, &n, "casid"); !ok {
 		return
 	}
 	ok = expectEof(line, n)
@@ -402,18 +402,16 @@ func readValue(r *bufio.Reader, size int) (value []byte, ok bool) {
 	return
 }
 
-func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, cas uint64, value []byte, ok bool) {
+func readKeyValue(r *bufio.Reader, line []byte) (key []byte, flags uint32, casid uint64, value []byte, ok bool) {
 	var size int
-	key, flags, cas, size, ok = readValueHeader(line)
-	if !ok {
+	if key, flags, casid, size, ok = readValueHeader(line); !ok {
 		return
 	}
-
 	value, ok = readValue(r, size)
 	return
 }
 
-func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool, notModified bool) {
 	if ok = readLine(r, scratchBuf); !ok {
 		return
 	}
@@ -429,8 +427,14 @@ func readItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof boo
 		wouldBlock = true
 		return
 	}
+	if bytes.Equal(line, strNotModified) {
+		ok = true
+		eof = true
+		notModified = true
+		return
+	}
 
-	item.Key, item.Flags, item.Cas, item.Value, ok = readKeyValue(r, line)
+	item.Key, item.Flags, item.Casid, item.Value, ok = readKeyValue(r, line)
 	return
 }
 
@@ -473,7 +477,7 @@ func updateItemByKey(items []Item, item *Item) bool {
 func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	var item Item
 	for {
-		ok, eof, _ := readItem(r, scratchBuf, &item)
+		ok, eof, _, _ := readItem(r, scratchBuf, &item)
 		if !ok {
 			return false
 		}
@@ -489,7 +493,7 @@ func (t *taskGetMulti) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 
 // Obtains multiple items associated with the the corresponding keys.
 //
-// Sets Item.Value, Item.Flags and Item.Cas for each returned item.
+// Sets Item.Value, Item.Flags and Item.Casid for each returned item.
 // Doesn't modify Item.Value and Item.Flags for items missing on the server.
 func (c *Client) GetMulti(items []Item) error {
 	itemsCount := len(items)
@@ -516,10 +520,10 @@ func (t *taskGet) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return writeStr(w, strGets) && writeStr(w, t.item.Key) && writeCrLf(w)
 }
 
-func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock bool) {
+func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, eof bool, wouldBlock, notModified bool) {
 	keyOriginal := item.Key
-	ok, eof, wouldBlock = readItem(r, scratchBuf, item)
-	if !ok || eof || wouldBlock {
+	ok, eof, wouldBlock, notModified = readItem(r, scratchBuf, item)
+	if !ok || eof || wouldBlock || notModified {
 		return
 	}
 	if ok = matchStr(r, strEndCrLf); !ok {
@@ -534,7 +538,7 @@ func readSingleItem(r *bufio.Reader, scratchBuf *[]byte, item *Item) (ok bool, e
 }
 
 func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	ok, eof, _ := readSingleItem(r, scratchBuf, t.item)
+	ok, eof, _, _ := readSingleItem(r, scratchBuf, t.item)
 	if !ok {
 		return false
 	}
@@ -542,7 +546,7 @@ func (t *taskGet) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 	return true
 }
 
-// Obtains item.Value, item.Flags and item.Cas for the given item.Key.
+// Obtains item.Value, item.Flags and item.Casid for the given item.Key.
 //
 // Returns ErrCacheMiss on cache miss.
 func (c *Client) Get(item *Item) error {
@@ -560,115 +564,45 @@ func (c *Client) Get(item *Item) error {
 	return nil
 }
 
-// The item for 'conditional set/get' requests - Client.Cget(), Client.Cset(),
-// Client.CsetNowait().
-type Citem struct {
-	Item
-
-	// Etag should uniquely identify the given item.
-	Etag uint64
-
-	// Validation time in milliseconds. After this period of time the item
-	// shouldn't be returned to the caller without re-validation
-	// via Client.Cget().
-	ValidateTtl uint32
-}
-
 type taskCget struct {
-	item        *Citem
+	item        *Item
 	found       bool
 	notModified bool
 	taskSync
 }
 
 func (t *taskCget) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strCget) && writeStr(w, t.item.Key) && writeWs(w) &&
-		writeUint64(w, t.item.Etag, scratchBuf) && writeCrLf(w))
-}
-
-func readCgetItem(r *bufio.Reader, line []byte, item *Citem) (found, notModified, ok bool) {
-	ok = false
-	if bytes.Equal(line, strNotFound) {
-		found = false
-		notModified = false
-		ok = true
-		return
-	}
-	if bytes.Equal(line, strNotModified) {
-		found = true
-		notModified = true
-		ok = true
-		return
-	}
-	if !bytes.HasPrefix(line, strValue) {
-		log.Printf("Unexpected line read=[%s]. It should start with [%s]", line, strValue)
-		return
-	}
-	line = line[len(strValue):]
-
-	n := -1
-
-	size, ok := parseSizeToken(line, &n)
-	if !ok {
-		return
-	}
-	if item.Flags, ok = parseFlagsToken(line, &n); !ok {
-		return
-	}
-	if item.Expiration, ok = parseExpirationToken(line, &n); !ok {
-		return
-	}
-	if item.Etag, ok = parseUint64Token(line, &n, "etag"); !ok {
-		return
-	}
-	if item.ValidateTtl, ok = parseUint32Token(line, &n, "validateTtl"); !ok {
-		return
-	}
-	if !expectEof(line, n) {
-		return
-	}
-	if item.Value, ok = readValue(r, size); !ok {
-		return
-	}
-	found = true
-	notModified = false
-	ok = true
-	return
+	return writeStr(w, strCget) && writeStr(w, t.item.Key) && writeWs(w) &&
+		writeUint64(w, t.item.Casid, scratchBuf) && writeCrLf(w)
 }
 
 func (t *taskCget) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	if !readLine(r, scratchBuf) {
+	var ok, eof bool
+	if ok, eof, _, t.notModified = readSingleItem(r, scratchBuf, t.item); !ok {
 		return false
 	}
-	line := *scratchBuf
-
-	var ok bool
-	t.found, t.notModified, ok = readCgetItem(r, line, t.item)
-	return ok
+	t.found = !eof
+	return true
 }
 
-// Performs conditional get request for the given item.Key and item.Etag.
+// Performs conditional get request for the given item.Key and item.Casid.
 //
 // This is an extension to memcache protocol, so it isn't supported
 // by the original memcache server.
 //
-// Conditional get requests must be performed only on items stored in the cache
-// via Client.Cset(). The method returns garbage for items stored via other
-// mechanisms.
-//
-// Fills item.Value, item.Expiration, item.Flags, item.Etag and item.ValidateTtl
-// only on cache hit and only if the given etag doesn't match the etag on
-// the server, i.e. if the server contains new value for the given key.
+// Fills item.Value, item.Flags and item.Casid only on cache hit and only
+// if the given casid doesn't match the casid on the server, i.e. if the server
+// contains new value for the given key.
 //
 // Returns ErrCacheMiss on cache miss.
 // Returns ErrNotModified if the corresponding item on the server has
-// the same etag.
+// the same casid (i.e. the item wasn't modified).
 //
-// Client.Cset() and Client.Cget() are intended for reducing network bandwidth
-// consumption in multi-level caches. They are modelled after HTTP cache
-// validation approach with entity tags -
-// see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
-func (c *Client) Cget(item *Citem) error {
+// Client.Cget() is intended for reducing network bandwidth consumption
+// in multi-level caches. It is modelled after HTTP cache validation approach
+// with entity tags - see
+// http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
+func (c *Client) Cget(item *Item) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
@@ -687,7 +621,7 @@ func (c *Client) Cget(item *Citem) error {
 }
 
 type taskCgetDe struct {
-	item          *Citem
+	item          *Item
 	graceDuration time.Duration
 	found         bool
 	wouldBlock    bool
@@ -696,31 +630,22 @@ type taskCgetDe struct {
 }
 
 func (t *taskCgetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strCgetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
-		writeUint64(w, t.item.Etag, scratchBuf) && writeWs(w) &&
-		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w))
+	return writeStr(w, strCgetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
+		writeUint64(w, t.item.Casid, scratchBuf) && writeWs(w) &&
+		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w)
 }
 
 func (t *taskCgetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	if !readLine(r, scratchBuf) {
+	var ok, eof bool
+	if ok, eof, t.wouldBlock, t.notModified = readSingleItem(r, scratchBuf, t.item); !ok {
 		return false
 	}
-	line := *scratchBuf
-	if bytes.Equal(line, strWouldBlock) {
-		t.found = false
-		t.wouldBlock = true
-		t.notModified = false
-		return true
-	}
-	t.wouldBlock = false
-
-	var ok bool
-	t.found, t.notModified, ok = readCgetItem(r, line, t.item)
-	return ok
+	t.found = !eof
+	return true
 }
 
 // Combines functionality of Client.Cget() and Client.GetDe().
-func (c *Client) CgetDe(item *Citem, graceDuration time.Duration) error {
+func (c *Client) CgetDe(item *Item, graceDuration time.Duration) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
 	}
@@ -755,12 +680,12 @@ type taskGetDe struct {
 }
 
 func (t *taskGetDe) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return (writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
-		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w))
+	return writeStr(w, strGetDe) && writeStr(w, t.item.Key) && writeWs(w) &&
+		writeMilliseconds(w, t.graceDuration, scratchBuf) && writeCrLf(w)
 }
 
 func (t *taskGetDe) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	ok, eof, wouldBlock := readSingleItem(r, scratchBuf, t.item)
+	ok, eof, wouldBlock, _ := readSingleItem(r, scratchBuf, t.item)
 	if !ok {
 		return false
 	}
@@ -912,15 +837,15 @@ func (c *Client) Add(item *Item) error {
 }
 
 type taskCas struct {
-	item        *Item
-	notFound    bool
-	casMismatch bool
+	item          *Item
+	notFound      bool
+	casidMismatch bool
 	taskSync
 }
 
 func (t *taskCas) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
 	return writeCommonSetParams(w, strCas, t.item, scratchBuf) && writeWs(w) &&
-		writeUint64(w, t.item.Cas, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
+		writeUint64(w, t.item.Casid, scratchBuf) && writeNoreplyAndValue(w, false, t.item.Value)
 }
 
 func (t *taskCas) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
@@ -936,18 +861,18 @@ func (t *taskCas) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
 		return true
 	}
 	if bytes.Equal(line, strExists) {
-		t.casMismatch = true
+		t.casidMismatch = true
 		return true
 	}
 	log.Printf("Unexpected response for cas() command: [%s]", line)
 	return false
 }
 
-// Stores the given item only if item.Cas matches cas for the given item
+// Stores the given item only if item.Casid matches casid for the given item
 // on the server.
 //
 // Returns ErrCacheMiss if the server has no item with such a key.
-// Returns ErrCasMismatch if item on the server has other cas value.
+// Returns ErrCasidMismatch if item on the server has other casid value.
 func (c *Client) Cas(item *Item) error {
 	if !validateKey(item.Key) {
 		return ErrMalformedKey
@@ -963,61 +888,10 @@ func (c *Client) Cas(item *Item) error {
 	if t.notFound {
 		return ErrCacheMiss
 	}
-	if t.casMismatch {
-		return ErrCasMismatch
+	if t.casidMismatch {
+		return ErrCasidMismatch
 	}
 	return nil
-}
-
-type taskCset struct {
-	item *Citem
-	taskSync
-}
-
-func writeCsetRequest(w *bufio.Writer, item *Citem, noreply bool, scratchBuf *[]byte) bool {
-	size := len(item.Value)
-	if !writeStr(w, strCset) || !writeStr(w, item.Key) || !writeWs(w) ||
-		!writeInt(w, size, scratchBuf) || !writeWs(w) ||
-		!writeUint32(w, item.Flags, scratchBuf) || !writeWs(w) ||
-		!writeExpiration(w, item.Expiration, scratchBuf) || !writeWs(w) ||
-		!writeUint64(w, item.Etag, scratchBuf) || !writeWs(w) ||
-		!writeUint32(w, item.ValidateTtl, scratchBuf) {
-		return false
-	}
-	return writeNoreplyAndValue(w, noreply, item.Value)
-}
-
-func (t *taskCset) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCsetRequest(w, t.item, false, scratchBuf)
-}
-
-func (t *taskCset) ReadResponse(r *bufio.Reader, scratchBuf *[]byte) bool {
-	return readSetResponse(r)
-}
-
-// Performs conditional set for the given item.
-//
-// This is an extension to memcache protocol, so it isn't supported
-// by the original memcache server.
-//
-// Items stored via this method must be obtained only via Client.Cget() call!
-// Calls to other methods such as Client.Get() will return garbage
-// for item's key.
-//
-// Client.Cset() and Client.Cget() are intended for reducing network bandwidth
-// consumption in multi-level caches. They are modelled after HTTP cache
-// validation approach with entity tags -
-// see http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.11 .
-func (c *Client) Cset(item *Citem) error {
-	if !validateKey(item.Key) {
-		return ErrMalformedKey
-	}
-	if item.Value == nil {
-		return ErrNilValue
-	}
-	var t taskCset
-	t.item = item
-	return c.do(&t)
 }
 
 type taskNowait struct{}
@@ -1052,28 +926,6 @@ func (c *Client) SetNowait(item *Item) {
 		return
 	}
 	var t taskSetNowait
-	t.item = *item
-	c.do(&t)
-}
-
-type taskCsetNowait struct {
-	item Citem
-	taskNowait
-}
-
-func (t *taskCsetNowait) WriteRequest(w *bufio.Writer, scratchBuf *[]byte) bool {
-	return writeCsetRequest(w, &t.item, true, scratchBuf)
-}
-
-// The same as Client.Cset(), but doesn't wait for operation completion.
-//
-// Do not modify slices pointed by item.Key and item.Value after passing
-// to this function - it actually becomes an owner of these slices.
-func (c *Client) CsetNowait(item *Citem) {
-	if !validateKey(item.Key) || item.Value == nil {
-		return
-	}
-	var t taskCsetNowait
 	t.item = *item
 	c.do(&t)
 }
