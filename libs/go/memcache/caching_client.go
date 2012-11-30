@@ -88,9 +88,13 @@ func writeItemMetadata(cache ybc.Cacher, key []byte, size int, casid uint64, fla
 
 func readItemMetadata(it *ybc.Item) (casid uint64, flags uint32, validateExpiration time.Time, validateTtl uint32, ok bool) {
 	var buf [metadataSize]byte
-	if _, err := it.Read(buf[:]); err != nil {
-		ok = false
+	n, err := it.Read(buf[:])
+	if err != nil {
 		log.Printf("Cannot read metadata for cached item: [%s]", err)
+		return
+	}
+	if n != len(buf) {
+		log.Printf("Unexpected result returned from ybc.Item.Read(): %d. Expected %d", n, len(buf))
 		return
 	}
 	casid = binary.LittleEndian.Uint64(buf[:])
@@ -102,13 +106,16 @@ func readItemMetadata(it *ybc.Item) (casid uint64, flags uint32, validateExpirat
 	return
 }
 
-func cacheItem(cache ybc.Cacher, item *Item) {
-	var validateTtl uint32
-	validateTtl = binary.LittleEndian.Uint32(item.Value)
+func cacheItem(cache ybc.Cacher, item *Item) error {
+	if len(item.Value) < validateTtlSize {
+		log.Printf("Cannot read validateTtl from too short item.Value. Its' size is %d bytes, while expected size should be greater than %d", len(item.Value), validateTtlSize-1)
+		return ErrCacheMiss
+	}
+	validateTtl := binary.LittleEndian.Uint32(item.Value)
 	item.Value = item.Value[validateTtlSize:]
 	txn := writeItemMetadata(cache, item.Key, len(item.Value), item.Casid, item.Flags, validateTtl)
 	if txn == nil {
-		return
+		return nil
 	}
 	defer txn.Commit()
 
@@ -120,22 +127,21 @@ func cacheItem(cache ybc.Cacher, item *Item) {
 	if n != size {
 		log.Fatalf("Unexpected number of bytes written in SetTxn.Write(size=%d): %d", size, n)
 	}
+	return nil
 }
 
 func getAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item) error {
 	if err := client.Get(item); err != nil {
 		return err
 	}
-	cacheItem(cache, item)
-	return nil
+	return cacheItem(cache, item)
 }
 
 func getDeAndCacheRemoteItem(client Ccacher, cache ybc.Cacher, item *Item, graceDuration time.Duration) error {
 	if err := client.GetDe(item, graceDuration); err != nil {
 		return err
 	}
-	cacheItem(cache, item)
-	return nil
+	return cacheItem(cache, item)
 }
 
 func setItemValue(it *ybc.Item, item *Item) error {
@@ -183,8 +189,7 @@ func revalidateAndSetItemValueInternal(client Ccacher, cache ybc.Cacher, it *ybc
 		}
 		return err
 	}
-	cacheItem(cache, item)
-	return nil
+	return cacheItem(cache, item)
 }
 
 func revalidateAndSetItemValue(client Ccacher, cache ybc.Cacher, it *ybc.Item, item *Item, casid uint64, flags, validateTtl uint32) error {

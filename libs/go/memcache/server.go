@@ -41,8 +41,13 @@ func writeItem(w *bufio.Writer, item *ybc.Item, size int) bool {
 func writeGetResponse(w *bufio.Writer, key []byte, item *ybc.Item, shouldWriteCasid bool, scratchBuf *[]byte) bool {
 	var casid uint64
 	var buf [casidSize + flagsSize]byte
-	if _, err := item.Read(buf[:]); err != nil {
+	n, err := item.Read(buf[:])
+	if err != nil {
 		log.Printf("error when reading item metadata: [%s]", err)
+		return false
+	}
+	if n != len(buf) {
+		log.Printf("Unexpected result returned from ybc.Item.Read(): %d. Expected %d", n, len(buf))
 		return false
 	}
 	if shouldWriteCasid {
@@ -142,8 +147,13 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 func checkAndUpdateCasid(item *ybc.Item, casid *uint64) (isModified, ok bool) {
 	casidOld := *casid
 	var buf [casidSize]byte
-	if _, err := item.Read(buf[:]); err != nil {
+	n, err := item.Read(buf[:])
+	if err != nil {
 		log.Printf("Cannod read casid from item: [%s]", err)
+		return
+	}
+	if n != len(buf) {
+		log.Printf("Unexpected result returned from ybc.Item.Read(): %d. Expected %d", n, len(buf))
 		return
 	}
 	*casid = binary.LittleEndian.Uint64(buf[:])
@@ -374,8 +384,13 @@ func getCasidForCachedItem(cache ybc.Cacher, key []byte) (casid uint64, cacheMis
 	defer item.Close()
 
 	var buf [casidSize]byte
-	if _, err = item.Read(buf[:]); err != nil {
+	n, err := item.Read(buf[:])
+	if err != nil {
 		log.Printf("Error when reading casid for the item: [%s]", err)
+		return
+	}
+	if n != len(buf) {
+		log.Printf("Unexpected result returned from ybc.Item.Read(): %d. Expected %d", n, len(buf))
 		return
 	}
 	casid = binary.LittleEndian.Uint64(buf[:])
