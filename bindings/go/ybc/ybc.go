@@ -34,7 +34,6 @@ var (
 	ErrOpenFailed        = errors.New("ybc: cannot open the cache")
 	ErrOutOfRange        = errors.New("ybc: out of range offset")
 	ErrPartialCommit     = errors.New("ybc: partial commit")
-	ErrUnsupportedWhence = errors.New("ybc: unsupported whence")
 	ErrWouldBlock        = errors.New("ybc: the operation would block")
 
 	// Errors for internal use only
@@ -668,7 +667,7 @@ func (item *Item) Seek(offset int64, whence int) (ret int64, err error) {
 	case 2:
 		offset += bufSize
 	default:
-		panic(ErrUnsupportedWhence)
+		panic("unsupported whence")
 	}
 	if offset > bufSize || offset < 0 {
 		err = ErrOutOfRange
