@@ -9,9 +9,10 @@
 //     accessed items don't fit RAM if cache files are located on fast SSDs.
 //   * The maximum value size is limited by 2Gb.
 //   * There is no 250 byte limit on key size.
-//   * Out-of-the box support for 'dogpile effect' handling - see Client.GetDe()
-//     memcache extension at github.com/valyala/ybc/libs/go/memcache
-//     for details.
+//   * Support for 'dogpile effect' handling - see Client.GetDe()
+//     at github.com/valyala/ybc/libs/go/memcache for details.
+//   * Support for 'conditional get' command - see Client.Cget()
+//     at github.com/valyala/ybc/libs/go/memcache for details.
 package main
 
 import (
