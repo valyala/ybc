@@ -154,6 +154,10 @@ class _Cache(object):
     _ybc.ybc_item_release(item_buf)
     return value
 
+  def remove(self, key):
+    key = _Key.create(key)
+    return (_ybc.ybc_item_remove(self._buf, ctypes.byref(key)) == 1)
+
 
 def f():
   c = Config()
@@ -173,11 +177,13 @@ def f():
   print "get(): v=[%s], len=%d" % (v, len(v))
   v = cache.get_de("key", 1000)
   print "get_de(): v=[%s], len=%d" % (v, len(v))
+  if not cache.remove("key"):
+    print "cannot remove existing item"
 
   for i in range(10):
     try:
       print "get_de(%d)" % i
-      cache.get_de("key1", 100)
+      cache.get_de("key", 100)
     except CacheMissError:
       pass
 
