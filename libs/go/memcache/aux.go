@@ -118,7 +118,20 @@ func matchStr(r *bufio.Reader, s []byte) bool {
 }
 
 func matchCrLf(r *bufio.Reader) bool {
-	return matchByte(r, '\r') && matchByte(r, '\n')
+	c, err := r.ReadByte()
+	if err != nil {
+		log.Printf("Unexpected error when reading \\r\\n: [%s]", err)
+		return false
+	}
+	switch c {
+	case '\n':
+		return true
+	case '\r':
+		return matchByte(r, '\n')
+	default:
+		return false
+	}
+	panic("unreachable")
 }
 
 func readBytesUntil(r *bufio.Reader, endCh byte, lineBuf *[]byte) bool {
