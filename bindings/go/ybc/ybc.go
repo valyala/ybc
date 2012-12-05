@@ -29,12 +29,12 @@ import (
 )
 
 var (
-	ErrNoSpace           = errors.New("ybc: not enough space in the cache")
-	ErrCacheMiss         = errors.New("ybc: the item is not found in the cache")
-	ErrOpenFailed        = errors.New("ybc: cannot open the cache")
-	ErrOutOfRange        = errors.New("ybc: out of range offset")
-	ErrPartialCommit     = errors.New("ybc: partial commit")
-	ErrWouldBlock        = errors.New("ybc: the operation would block")
+	ErrNoSpace       = errors.New("ybc: not enough space in the cache")
+	ErrCacheMiss     = errors.New("ybc: the item is not found in the cache")
+	ErrOpenFailed    = errors.New("ybc: cannot open the cache")
+	ErrOutOfRange    = errors.New("ybc: out of range offset")
+	ErrPartialCommit = errors.New("ybc: partial commit")
+	ErrWouldBlock    = errors.New("ybc: the operation would block")
 
 	// Errors for internal use only
 	errPanic = errors.New("ybc: panic")
@@ -312,8 +312,10 @@ func (cache *Cache) Close() error {
 // files - use Cache.NewSetTxn() instead.
 func (cache *Cache) Set(key []byte, value []byte, ttl time.Duration) error {
 	cache.dg.CheckLive()
-	k := newKey(key)
-	v := newValue(value, ttl)
+	var k C.struct_ybc_key
+	initKey(&k, key)
+	var v C.struct_ybc_value
+	initValue(&v, value, ttl)
 	if C.ybc_item_set(cache.ctx(), &k, &v) == 0 {
 		return ErrNoSpace
 	}
@@ -379,7 +381,8 @@ func (cache *Cache) GetDeAsync(key []byte, graceDuration time.Duration) (value [
 // Returns true on success, false if there was no such value in the cache.
 func (cache *Cache) Delete(key []byte) bool {
 	cache.dg.CheckLive()
-	k := newKey(key)
+	var k C.struct_ybc_key
+	initKey(&k, key)
 	return C.ybc_item_remove(cache.ctx(), &k) != C.int(0)
 }
 
@@ -390,8 +393,10 @@ func (cache *Cache) Delete(key []byte) bool {
 func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = acquireItem()
-	k := newKey(key)
-	v := newValue(value, ttl)
+	var k C.struct_ybc_key
+	initKey(&k, key)
+	var v C.struct_ybc_value
+	initValue(&v, value, ttl)
 	if C.ybc_item_set_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
 		releaseItem(item)
 		err = ErrNoSpace
@@ -412,7 +417,8 @@ func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *
 func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	cache.dg.CheckLive()
 	item = acquireItem()
-	k := newKey(key)
+	var k C.struct_ybc_key
+	initKey(&k, key)
 	if C.ybc_item_get(cache.ctx(), item.ctx(), &k) == 0 {
 		releaseItem(item)
 		err = ErrCacheMiss
@@ -452,7 +458,8 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceDuration time.Duration) (ite
 		graceDuration = 0
 	}
 	item = acquireItem()
-	k := newKey(key)
+	var k C.struct_ybc_key
+	initKey(&k, key)
 	mGraceTtl := C.uint64_t(graceDuration / time.Millisecond)
 	switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
 	case C.YBC_DE_WOULDBLOCK:
@@ -484,7 +491,8 @@ func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn
 		ttl = 0
 	}
 	txn = acquireSetTxn()
-	k := newKey(key)
+	var k C.struct_ybc_key
+	initKey(&k, key)
 	if C.ybc_set_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
@@ -907,18 +915,16 @@ func (cluster *Cluster) cache(key []byte) *Cache {
  * Aux functions
  ******************************************************************************/
 
-func newKey(key []byte) C.struct_ybc_key {
+func initKey(k *C.struct_ybc_key, key []byte) {
 	var ptr unsafe.Pointer
 	if len(key) > 0 {
 		ptr = unsafe.Pointer(&key[0])
 	}
-	return C.struct_ybc_key{
-		ptr:  ptr,
-		size: C.size_t(len(key)),
-	}
+	k.ptr = ptr
+	k.size = C.size_t(len(key))
 }
 
-func newValue(value []byte, ttl time.Duration) C.struct_ybc_value {
+func initValue(v *C.struct_ybc_value, value []byte, ttl time.Duration) {
 	if ttl < 0 {
 		ttl = 0
 	}
@@ -926,11 +932,9 @@ func newValue(value []byte, ttl time.Duration) C.struct_ybc_value {
 	if len(value) > 0 {
 		ptr = unsafe.Pointer(&value[0])
 	}
-	return C.struct_ybc_value{
-		ptr:  ptr,
-		size: C.size_t(len(value)),
-		ttl:  C.uint64_t(ttl / time.Millisecond),
-	}
+	v.ptr = ptr
+	v.size = C.size_t(len(value))
+	v.ttl = C.uint64_t(ttl / time.Millisecond)
 }
 
 func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
