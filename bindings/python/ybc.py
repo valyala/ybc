@@ -137,8 +137,22 @@ class _Cache(object):
       raise CacheMissError
     value = _Value()
     _ybc.ybc_item_get_value(item_buf, ctypes.byref(value))
+    value = ctypes.create_string_buffer(value.ptr, value.size).raw
     _ybc.ybc_item_release(item_buf)
-    return ctypes.create_string_buffer(value.ptr, value.size).raw
+    return value
+
+  def get_de(self, key, grace_ttl):
+    key = _Key.create(key)
+    grace_ttl = ctypes.c_uint64(grace_ttl)
+    item_buf = ctypes.create_string_buffer(_Item._BUF_SIZE)
+    if not _ybc.ybc_item_get_de(self._buf, item_buf, ctypes.byref(key),
+        grace_ttl):
+      raise CacheMissError
+    value = _Value()
+    _ybc.ybc_item_get_value(item_buf, ctypes.byref(value))
+    value = ctypes.create_string_buffer(value.ptr, value.size).raw
+    _ybc.ybc_item_release(item_buf)
+    return value
 
 
 def f():
@@ -155,8 +169,18 @@ def f():
   cache = c.open_cache(True)
   cache.clear()
   cache.set("key", "value")
-  v = cache.get("key1")
-  print "v=[%s], len=%d" % (v, len(v))
+  v = cache.get("key")
+  print "get(): v=[%s], len=%d" % (v, len(v))
+  v = cache.get_de("key", 1000)
+  print "get_de(): v=[%s], len=%d" % (v, len(v))
+
+  for i in range(10):
+    try:
+      print "get_de(%d)" % i
+      cache.get_de("key1", 100)
+    except CacheMissError:
+      pass
+
   del cache
 
   c.remove_cache()
