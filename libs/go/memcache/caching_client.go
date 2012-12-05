@@ -2,14 +2,9 @@ package memcache
 
 import (
 	"encoding/binary"
-	"errors"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"log"
 	"time"
-)
-
-var (
-	ErrNotImplemented = errors.New("memcache.CachingClient: the function isn't implemented yet")
 )
 
 // Memcache client with in-process data caching.
@@ -232,7 +227,14 @@ func (c *CachingClient) Get(item *Item) error {
 
 // See Client.GetMulti()
 func (c *CachingClient) GetMulti(items []Item) error {
-	return ErrNotImplemented
+	// TODO(valyala): optimize this
+	itemsCount := len(items)
+	for i := 0; i < itemsCount; i++ {
+		if err := c.Get(&items[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // See Client.GetDe()
