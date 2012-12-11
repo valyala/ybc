@@ -4,10 +4,10 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
-	"github.com/valyala/ybc/libs/go/memcache"
+	memcache_org "github.com/bradfitz/gomemcache/memcache"
+	memcache_new "github.com/valyala/ybc/libs/go/memcache"
 	"log"
 	"math/rand"
 	"runtime"
@@ -17,58 +17,91 @@ import (
 )
 
 var (
-	serverAddrs             = flag.String("serverAddrs", ":11211", "Comma-delimited addresses of memcache servers to test")
-	connectionsCount        = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
+	clientType = flag.String("clientType", "new", "Client type. May be 'new' or 'original'.\n"+
+		"'original' is http://github.com/bradfitz/gomemcache/memcache,\n"+
+		"'new' is http://github.com/valyala/ybc/libs/go/memcache")
+	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
+	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSetRand.\n"+
+		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	keySize                 = flag.Int("keySize", 16, "Key size in bytes")
-	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests")
-	osReadBufferSize        = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS")
-	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS")
+	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
+	osReadBufferSize        = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
+	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
-	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes")
+	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes. Makes sense only for clientType=new")
+	serverAddrs             = flag.String("serverAddrs", ":11211", "Comma-delimited addresses of memcache servers to test")
 	valueSize               = flag.Int("valueSize", 100, "Value size in bytes")
 	workerMode              = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSetRand'")
 	workersCount            = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
-	writeBufferSize         = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes")
+	writeBufferSize         = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes. Makes sense only for clientType=new")
 )
 
 var (
 	key, value []byte
 )
 
-func workerGetMiss(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	var item memcache.Item
-	item.Key = key
+	keyStr := string(key)
 
 	for _ = range ch {
-		if err := client.Get(&item); err != memcache.ErrCacheMiss {
+		if _, err := client.Get(keyStr); err != memcache_org.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
 	}
 }
 
-func workerGetHit(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetMissNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	var item memcache.Item
+	var item memcache_new.Item
 	item.Key = key
-	item.Value = value
-	valueOrig := item.Value
-	item.Value = nil
+
+	for _ = range ch {
+		if err := client.Get(&item); err != memcache_new.ErrCacheMiss {
+			log.Fatalf("Error in Client.Get(): [%s]", err)
+		}
+	}
+}
+
+func workerGetHitOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	keyStr := string(key)
+
+	for _ = range ch {
+		if _, err := client.Get(keyStr); err != nil {
+			log.Fatalf("Error in Client.Get(): [%s]", err)
+		}
+	}
+}
+
+func workerGetHitNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	var item memcache_new.Item
+	item.Key = key
 
 	for _ = range ch {
 		if err := client.Get(&item); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
-		if !bytes.Equal(valueOrig, item.Value) {
-			log.Fatalf("Unexpected value read=[%s]. Expected=[%s]", item.Value, valueOrig)
+	}
+}
+
+func workerSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	var item memcache_org.Item
+	for i := range ch {
+		item.Key = fmt.Sprintf("%s_%d", key, i)
+		item.Value = []byte(fmt.Sprintf("%s_%d", value, i))
+		if err := client.Set(&item); err != nil {
+			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
 	}
 }
 
-func workerSet(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+func workerSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	var item memcache.Item
+	var item memcache_new.Item
 	for i := range ch {
 		item.Key = []byte(fmt.Sprintf("%s_%d", key, i))
 		item.Value = []byte(fmt.Sprintf("%s_%d", value, i))
@@ -78,27 +111,47 @@ func workerSet(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
 	}
 }
 
-func workerGetSetRand(client memcache.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+func workerGetSetRandOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
-	var item memcache.Item
+	var item memcache_org.Item
 	itemsCount := *requestsCount / *workersCount
 	for _ = range ch {
 		n := rand.Intn(itemsCount)
-		item.Key = []byte(fmt.Sprintf("%s_%d", key, n))
-		v := []byte(fmt.Sprintf("%s_%d", value, n))
-		if rand.Float32() < 0.5 {
-			err := client.Get(&item)
-			if err == memcache.ErrCacheMiss {
+		item.Key = fmt.Sprintf("%s_%d", key, n)
+		if rand.Float64() < *getRatio {
+			_, err := client.Get(item.Key)
+			if err == memcache_org.ErrCacheMiss {
 				continue
 			}
 			if err != nil {
 				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
-			if !bytes.Equal(item.Value, v) {
-				log.Fatalf("Unexpected value=[%s] obtained. Expected [%s]", item.Value, v)
+		} else {
+			item.Value = []byte(fmt.Sprintf("%s_%d", value, n))
+			if err := client.Set(&item); err != nil {
+				log.Fatalf("Error in Client.Set(): [%s]", err)
+			}
+		}
+	}
+}
+
+func workerGetSetRandNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int) {
+	defer wg.Done()
+	var item memcache_new.Item
+	itemsCount := *requestsCount / *workersCount
+	for _ = range ch {
+		n := rand.Intn(itemsCount)
+		item.Key = []byte(fmt.Sprintf("%s_%d", key, n))
+		if rand.Float64() < *getRatio {
+			err := client.Get(&item)
+			if err == memcache_new.ErrCacheMiss {
+				continue
+			}
+			if err != nil {
+				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
 		} else {
-			item.Value = v
+			item.Value = []byte(fmt.Sprintf("%s_%d", value, n))
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
 			}
@@ -124,15 +177,40 @@ func getRandomValue(size int) []byte {
 	return buf
 }
 
-func main() {
-	flag.Parse()
+func getWorkerOrg(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func() {
+	client := memcache_org.New(serverAddrs_...)
+	keyStr := string(key)
 
-	runtime.GOMAXPROCS(*goMaxProcs)
+	worker := workerGetMissOrg
+	switch *workerMode {
+	case "GetHit":
+		item := memcache_org.Item{
+			Key:   keyStr,
+			Value: value,
+		}
+		if err := client.Set(&item); err != nil {
+			log.Fatalf("Error in Client.Set(): [%s]", err)
+		}
+		worker = workerGetHitOrg
+	case "GetMiss":
+		client.Delete(keyStr)
+		worker = workerGetMissOrg
+	case "Set":
+		worker = workerSetOrg
+	case "GetSetRand":
+		worker = workerGetSetRandOrg
+	default:
+		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
+	}
+	return func() {
+		worker(client, wg, ch)
+	}
+}
 
-	serverAddrs_ := strings.Split(*serverAddrs, ",")
-	var client memcache.Cacher
+func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func() {
+	var client memcache_new.Cacher
 	if len(serverAddrs_) < 2 {
-		client = &memcache.Client{
+		client = &memcache_new.Client{
 			ServerAddr:              *serverAddrs,
 			ConnectionsCount:        *connectionsCount,
 			MaxPendingRequestsCount: *maxPendingRequestsCount,
@@ -143,7 +221,7 @@ func main() {
 		}
 		client.Start()
 	} else {
-		c := &memcache.DistributedClient{
+		c := &memcache_new.DistributedClient{
 			ConnectionsCount:        *connectionsCount,
 			MaxPendingRequestsCount: *maxPendingRequestsCount,
 			ReadBufferSize:          *readBufferSize,
@@ -154,11 +232,45 @@ func main() {
 		c.StartStatic(serverAddrs_)
 		client = c
 	}
-	defer client.Stop()
+
+	worker := workerGetMissNew
+	switch *workerMode {
+	case "GetHit":
+		item := memcache_new.Item{
+			Key:   key,
+			Value: value,
+		}
+		if err := client.Set(&item); err != nil {
+			log.Fatalf("Error in Client.Set(): [%s]", err)
+		}
+		worker = workerGetHitNew
+	case "GetMiss":
+		client.Delete(key)
+		worker = workerGetMissNew
+	case "Set":
+		worker = workerSetNew
+	case "GetSetRand":
+		worker = workerGetSetRandNew
+	default:
+		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
+	}
+	return func() {
+		worker(client, wg, ch)
+	}
+
+}
+
+func main() {
+	flag.Parse()
+
+	runtime.GOMAXPROCS(*goMaxProcs)
+
+	serverAddrs_ := strings.Split(*serverAddrs, ",")
 
 	fmt.Printf("Config:\n")
-	fmt.Printf("serverAddrs=[%s]\n", *serverAddrs)
+	fmt.Printf("clientType=[%s]\n", *clientType)
 	fmt.Printf("connectionsCount=[%d]\n", *connectionsCount)
+	fmt.Printf("getRatio=[%f]\n", *getRatio)
 	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
 	fmt.Printf("keySize=[%d]\n", *keySize)
 	fmt.Printf("maxPendingRequestsCount=[%d]\n", *maxPendingRequestsCount)
@@ -166,6 +278,7 @@ func main() {
 	fmt.Printf("osWriteBufferSize=[%d]\n", *osWriteBufferSize)
 	fmt.Printf("requestsCount=[%d]\n", *requestsCount)
 	fmt.Printf("readBufferSize=[%d]\n", *readBufferSize)
+	fmt.Printf("serverAddrs=[%s]\n", *serverAddrs)
 	fmt.Printf("valueSize=[%d]\n", *valueSize)
 	fmt.Printf("workerMode=[%s]\n", *workerMode)
 	fmt.Printf("workersCount=[%d]\n", *workersCount)
@@ -175,9 +288,6 @@ func main() {
 	fmt.Printf("Preparing...")
 	key = getRandomKey(*keySize)
 	value = getRandomValue(*valueSize)
-	if err := client.FlushAll(); err != nil {
-		log.Fatalf("Cannot flush entries in memcache: [%s]", err)
-	}
 
 	ch := make(chan int, *requestsCount)
 	for i := 0; i < *requestsCount; i++ {
@@ -195,30 +305,18 @@ func main() {
 		fmt.Printf("done! %.3f seconds, %.0f qps\n", duration, float64(*requestsCount)/duration)
 	}()
 
-	item := memcache.Item{
-		Key:   key,
-		Value: value,
-	}
-
-	worker := workerGetMiss
-	switch *workerMode {
-	case "GetHit":
-		if err := client.Set(&item); err != nil {
-			log.Fatalf("Error in Client.Set(): [%s]", err)
-		}
-		worker = workerGetHit
-	case "GetMiss":
-		worker = workerGetMiss
-	case "Set":
-		worker = workerSet
-	case "GetSetRand":
-		worker = workerGetSetRand
+	var worker func()
+	switch *clientType {
+	case "original":
+		worker = getWorkerOrg(serverAddrs_, &wg, ch)
+	case "new":
+		worker = getWorkerNew(serverAddrs_, &wg, ch)
 	default:
-		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
+		log.Fatalf("Unknown clientType=[%s]. Expected 'new' or 'original'", *clientType)
 	}
-
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
-		go worker(client, &wg, ch)
+		go worker()
 	}
+	wg.Wait()
 }
