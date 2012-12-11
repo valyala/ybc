@@ -30,7 +30,7 @@ var (
 	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
 	readBufferSize          = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes. Makes sense only for clientType=new")
-	serverAddrs             = flag.String("serverAddrs", ":11211", "Comma-delimited addresses of memcache servers to test")
+	serverAddrs             = flag.String("serverAddrs", "localhost:11211", "Comma-delimited addresses of memcache servers to test")
 	valueSize               = flag.Int("valueSize", 100, "Value size in bytes")
 	workerMode              = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSetRand'")
 	workersCount            = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
