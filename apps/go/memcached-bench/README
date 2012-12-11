@@ -1,6 +1,14 @@
 Benchmark tool for memcache servers.
 
 Supports simultaneous benchmarking of multiple servers.
+Allows comparing two memcache implementations:
+
+  * https://github.com/bradfitz/gomemcache/tree/master/memcache (clientType=original)
+  * https://github.com/valyala/ybc/tree/master/libs/go/memcache (clientType=new)
+
+For clientType=original the following sysctl may be useful:
+
+  # sysctl -w net.ipv4.tcp_tw_recycle=1
 
 ------------------------
 How to build and run it?

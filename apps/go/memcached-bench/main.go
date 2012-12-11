@@ -18,8 +18,8 @@ import (
 
 var (
 	clientType = flag.String("clientType", "new", "Client type. May be 'new' or 'original'.\n"+
-		"'original' is http://github.com/bradfitz/gomemcache/memcache,\n"+
-		"'new' is http://github.com/valyala/ybc/libs/go/memcache")
+		"'original' is https://github.com/bradfitz/gomemcache/tree/master/memcache,\n"+
+		"'new' is https://github.com/valyala/ybc/tree/master/libs/go/memcache")
 	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
 	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSetRand.\n"+
 		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
