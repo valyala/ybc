@@ -28,40 +28,8 @@ const (
 	defaultMaxPendingRequestsCount = 1024
 )
 
-// Fast memcache client.
-//
-// The client is goroutine-safe. It is designed to work fast when hundreds
-// concurrent goroutines are calling simultaneously its' methods.
-//
-// The client works with a single memcached server. Use DistributedClient
-// if you want working with multiple servers.
-//
-// Usage:
-//
-//   c := Client{
-//       ServerAddr: ":11211",
-//   }
-//   c.Start()
-//   defer c.Stop()
-//
-//   item := Item{
-//       Key:   []byte("key"),
-//       Value: []byte("value"),
-//   }
-//   if err := c.Set(&item); err != nil {
-//       handleError(err)
-//   }
-//   if err := c.Get(&item); err != nil {
-//       handleError(err)
-//   }
-//
-type Client struct {
-	// TCP address of memcached server to connect to.
-	// Required parameter.
-	//
-	// The address should be in the form addr:port.
-	ServerAddr string
-
+// Memcache client configuration. Can be passed to Client and DistributedClient.
+type ClientConfig struct {
 	// The number of simultaneous TCP connections to establish
 	// to memcached server.
 	// Optional parameter.
@@ -101,6 +69,43 @@ type Client struct {
 	// The size in bytes of OS-supplied write buffer per TCP connection.
 	// Optional parameter.
 	OSWriteBufferSize int
+}
+
+// Fast memcache client.
+//
+// The client is goroutine-safe. It is designed to work fast when hundreds
+// concurrent goroutines are calling simultaneously its' methods.
+//
+// The client works with a single memcached server. Use DistributedClient
+// if you want working with multiple servers.
+//
+// Usage:
+//
+//   c := Client{
+//       ServerAddr: ":11211",
+//   }
+//   c.Start()
+//   defer c.Stop()
+//
+//   item := Item{
+//       Key:   []byte("key"),
+//       Value: []byte("value"),
+//   }
+//   if err := c.Set(&item); err != nil {
+//       handleError(err)
+//   }
+//   if err := c.Get(&item); err != nil {
+//       handleError(err)
+//   }
+//
+type Client struct {
+	ClientConfig
+
+	// TCP address of memcached server to connect to.
+	// Required parameter.
+	//
+	// The address should be in the form addr:port.
+	ServerAddr string
 
 	requests chan tasker
 	done     *sync.WaitGroup

@@ -42,39 +42,7 @@ var (
 //   }
 //
 type DistributedClient struct {
-	// The number of simultaneous TCP connections to establish
-	// to each memcached server.
-	//
-	// The client is able to squeeze out impossible from a single
-	// connection by pipelining a ton of requests on it.
-	// Multiple simultaneous connections may be required in the following
-	// cases:
-	//   * If memcached server delays incoming requests' execution.
-	//     Since memcached protocol doesn't allow out-of-order requests'
-	//     execution, a single slow request may delay execution of all
-	//     the requests pipelined on the connection after it.
-	//     Multiple concurrent connections may help in such a situation.
-	//   * If memcached server runs on multi-CPU system, but uses a single
-	//     CPU (thread) per connection.
-	ConnectionsCount int
-
-	// The maximum number of pending requests awaiting to be processed
-	// by each memcached server.
-	MaxPendingRequestsCount int
-
-	// The size in bytes of buffer used by the client for reading responses
-	// received from memcached per connection.
-	ReadBufferSize int
-
-	// The size in bytes of buffer used by the Client for writing requests
-	// to be sent to memcached per connection.
-	WriteBufferSize int
-
-	// The size in bytes of OS-supplied read buffer per TCP connection.
-	OSReadBufferSize int
-
-	// The size in bytes of OS-supplied write buffer per TCP connection.
-	OSWriteBufferSize int
+	ClientConfig
 
 	isDynamic   bool
 	lock        sync.Mutex
@@ -128,13 +96,8 @@ func (c *DistributedClient) registerClient(client *Client) bool {
 
 func (c *DistributedClient) addServer(serverAddr string) {
 	client := &Client{
-		ServerAddr:              serverAddr,
-		ConnectionsCount:        c.ConnectionsCount,
-		MaxPendingRequestsCount: c.MaxPendingRequestsCount,
-		ReadBufferSize:          c.ReadBufferSize,
-		WriteBufferSize:         c.WriteBufferSize,
-		OSReadBufferSize:        c.OSReadBufferSize,
-		OSWriteBufferSize:       c.OSWriteBufferSize,
+		ServerAddr:   serverAddr,
+		ClientConfig: c.ClientConfig,
 	}
 	if c.registerClient(client) {
 		client.Start()

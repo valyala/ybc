@@ -77,8 +77,10 @@ func TestServer_Wait(t *testing.T) {
 
 func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache) {
 	c = &Client{
-		ServerAddr:       testAddr,
-		ConnectionsCount: 1, // tests require single connection!
+		ServerAddr: testAddr,
+		ClientConfig: ClientConfig{
+			ConnectionsCount: 1, // tests require single connection!
+		},
 	}
 	s, cache = newServerCache(t)
 	s.Start()
@@ -801,7 +803,9 @@ func TestDistributedClient_NoServers(t *testing.T) {
 
 func newDistributedClientServersCaches(t *testing.T) (c *DistributedClient, ss []*Server, caches []*ybc.Cache) {
 	c = &DistributedClient{
-		ConnectionsCount: 1, // tests require single connection!
+		ClientConfig: ClientConfig{
+			ConnectionsCount: 1, // tests require single connection!
+		},
 	}
 	for i := 0; i < 4; i++ {
 		serverAddr := fmt.Sprintf("localhost:%d", 12345+i)

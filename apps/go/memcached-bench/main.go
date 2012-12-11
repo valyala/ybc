@@ -208,26 +208,24 @@ func getWorkerOrg(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 }
 
 func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func() {
+	config := memcache_new.ClientConfig{
+		ConnectionsCount:        *connectionsCount,
+		MaxPendingRequestsCount: *maxPendingRequestsCount,
+		ReadBufferSize:          *readBufferSize,
+		WriteBufferSize:         *writeBufferSize,
+		OSReadBufferSize:        *osReadBufferSize,
+		OSWriteBufferSize:       *osWriteBufferSize,
+	}
 	var client memcache_new.Cacher
 	if len(serverAddrs_) < 2 {
 		client = &memcache_new.Client{
-			ServerAddr:              *serverAddrs,
-			ConnectionsCount:        *connectionsCount,
-			MaxPendingRequestsCount: *maxPendingRequestsCount,
-			ReadBufferSize:          *readBufferSize,
-			WriteBufferSize:         *writeBufferSize,
-			OSReadBufferSize:        *osReadBufferSize,
-			OSWriteBufferSize:       *osWriteBufferSize,
+			ServerAddr:                *serverAddrs,
+			memcache_new.ClientConfig: config,
 		}
 		client.Start()
 	} else {
 		c := &memcache_new.DistributedClient{
-			ConnectionsCount:        *connectionsCount,
-			MaxPendingRequestsCount: *maxPendingRequestsCount,
-			ReadBufferSize:          *readBufferSize,
-			WriteBufferSize:         *writeBufferSize,
-			OSReadBufferSize:        *osReadBufferSize,
-			OSWriteBufferSize:       *osWriteBufferSize,
+			memcache_new.ClientConfig: config,
 		}
 		c.StartStatic(serverAddrs_)
 		client = c
