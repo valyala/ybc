@@ -500,10 +500,23 @@ func processDeleteCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 
 	noreply := false
 	if n < len(line) {
-		if !expectNoreply(line, &n) {
+		s := nextToken(line, &n, "noreply_or_exptime")
+		if s == nil {
 			return false
 		}
-		noreply = true
+		if !bytes.Equal(s, strNoreply) {
+			if _, ok := parseUint32(s); !ok {
+				return false
+			}
+			if n < len(line) {
+				if !expectNoreply(line, &n) {
+					return false
+				}
+				noreply = true
+			}
+		} else {
+			noreply = true
+		}
 	}
 	if !expectEof(line, n) {
 		return false
