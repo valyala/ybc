@@ -228,12 +228,12 @@ func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 	if len(serverAddrs_) < 2 {
 		client = &memcache_new.Client{
 			ServerAddr:                *serverAddrs,
-			memcache_new.ClientConfig: config,
+			ClientConfig: config,
 		}
 		client.Start()
 	} else {
 		c := &memcache_new.DistributedClient{
-			memcache_new.ClientConfig: config,
+			ClientConfig: config,
 		}
 		c.StartStatic(serverAddrs_)
 		client = c
