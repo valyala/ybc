@@ -45,20 +45,33 @@ type DistributedClient struct {
 	ClientConfig
 
 	isDynamic   bool
-	lock        sync.Mutex
+	mutex       sync.Mutex
 	clientsList []*Client
 	clientsMap  map[string]*Client
 	clientsHash consistentHash
 }
 
+func (c *DistributedClient) lock() {
+	if c.isDynamic {
+		c.mutex.Lock()
+	}
+}
+
+func (c *DistributedClient) unlock() {
+	if c.isDynamic {
+		c.mutex.Unlock()
+	}
+}
+
 func (c *DistributedClient) init(isDynamic bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.isDynamic = isDynamic
+
+	c.lock()
+	defer c.unlock()
 
 	if c.clientsMap != nil {
 		panic("Did you forgot calling DistributedClient.Stop() before calling DistributedClient.Start()?")
 	}
-	c.isDynamic = isDynamic
 	c.clientsMap = make(map[string]*Client)
 	c.clientsHash.ReplicasCount = consistentHashReplicasCount
 	c.clientsHash.BucketsCount = consistentHashBucketsCount
@@ -80,8 +93,8 @@ func (c *DistributedClient) Start() {
 func (c *DistributedClient) registerClient(client *Client) bool {
 	serverAddr := client.ServerAddr
 
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock()
+	defer c.unlock()
 
 	if c.clientsMap[serverAddr] != nil {
 		return false
@@ -123,8 +136,8 @@ func (c *DistributedClient) StartStatic(serverAddrs []string) {
 
 // Stops distributed client.
 func (c *DistributedClient) Stop() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock()
+	defer c.unlock()
 
 	if c.clientsMap == nil {
 		panic("Did you forgot calling DistributedClient.Start() before calling DistributedClient.Stop()?")
@@ -147,8 +160,8 @@ func lookupClientIdx(clients []*Client, client *Client) int {
 }
 
 func (c *DistributedClient) deregisterClient(serverAddr string) *Client {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.lock()
+	defer c.unlock()
 
 	client := c.clientsMap[serverAddr]
 	if client != nil {
@@ -216,24 +229,25 @@ func (c *DistributedClient) clientsCount() (n int, err error) {
 }
 
 func (c *DistributedClient) client(key []byte) (client *Client, err error) {
-	if c.isDynamic {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-	}
+	c.lock()
+	// do not use defer c.unlock() for performance reasons.
+
 	if _, err = c.clientsCount(); err != nil {
+		c.unlock()
 		return
 	}
 	client = c.clientNolock(key)
+	c.unlock()
 	return
 }
 
 func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []*Client, err error) {
-	if c.isDynamic {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-	}
+	c.lock()
+	// do not use defer c.unlock() for performance reasons.
+
 	clientsCount, err := c.clientsCount()
 	if err != nil {
+		c.unlock()
 		return
 	}
 
@@ -248,6 +262,7 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 	} else {
 		clients = c.clientsList
 	}
+	c.unlock()
 	return
 }
 
@@ -354,12 +369,12 @@ func (c *DistributedClient) DeleteNowait(key []byte) {
 }
 
 func (c *DistributedClient) allClients() (clients []*Client, err error) {
-	if c.isDynamic {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-	}
+	c.lock()
+	// do not use defer c.unlock() for performance reasons.
+
 	clientsCount, err := c.clientsCount()
 	if err != nil {
+		c.unlock()
 		return
 	}
 	if c.isDynamic {
@@ -368,6 +383,7 @@ func (c *DistributedClient) allClients() (clients []*Client, err error) {
 	} else {
 		clients = c.clientsList
 	}
+	c.unlock()
 	return
 }
 
