@@ -127,7 +127,7 @@ func workerGetSetRandOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-c
 				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
 		} else {
-			item.Value = []byte(fmt.Sprintf("%s_%d", value, n))
+			item.Value = value
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
 			}
@@ -151,7 +151,7 @@ func workerGetSetRandNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-ch
 				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
 		} else {
-			item.Value = []byte(fmt.Sprintf("%s_%d", value, n))
+			item.Value = value
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
 			}
@@ -181,13 +181,14 @@ func getWorkerOrg(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 	client := memcache_org.New(serverAddrs_...)
 	keyStr := string(key)
 
+	item := memcache_org.Item{
+		Key:   keyStr,
+		Value: value,
+	}
+
 	worker := workerGetMissOrg
 	switch *workerMode {
 	case "GetHit":
-		item := memcache_org.Item{
-			Key:   keyStr,
-			Value: value,
-		}
 		if err := client.Set(&item); err != nil {
 			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
@@ -198,6 +199,13 @@ func getWorkerOrg(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 	case "Set":
 		worker = workerSetOrg
 	case "GetSetRand":
+		n := *requestsCount / *workersCount
+		for i := 0; i < n; i++ {
+			item.Key = fmt.Sprintf("%s_%d", key, i)
+			if err := client.Set(&item); err != nil {
+				log.Fatalf("Error in Client.Set(): [%s]", err)
+			}
+		}
 		worker = workerGetSetRandOrg
 	default:
 		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
@@ -231,13 +239,14 @@ func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 		client = c
 	}
 
+	item := memcache_new.Item{
+		Key:   key,
+		Value: value,
+	}
+
 	worker := workerGetMissNew
 	switch *workerMode {
 	case "GetHit":
-		item := memcache_new.Item{
-			Key:   key,
-			Value: value,
-		}
 		if err := client.Set(&item); err != nil {
 			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
@@ -248,6 +257,13 @@ func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 	case "Set":
 		worker = workerSetNew
 	case "GetSetRand":
+		n := *requestsCount / *workersCount
+		for i := 0; i < n; i++ {
+			item.Key = []byte(fmt.Sprintf("%s_%d", key, i))
+			if err := client.Set(&item); err != nil {
+				log.Fatalf("Error in Client.Set(): [%s]", err)
+			}
+		}
 		worker = workerGetSetRandNew
 	default:
 		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
@@ -294,9 +310,8 @@ func main() {
 	close(ch)
 	fmt.Printf("done\n")
 
-	fmt.Printf("starting...")
-	startTime := time.Now()
 	wg := sync.WaitGroup{}
+	var startTime time.Time
 	defer func() {
 		wg.Wait()
 		duration := float64(time.Since(startTime)) / float64(time.Second)
@@ -312,6 +327,9 @@ func main() {
 	default:
 		log.Fatalf("Unknown clientType=[%s]. Expected 'new' or 'original'", *clientType)
 	}
+
+	fmt.Printf("starting...")
+	startTime = time.Now()
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
 		go worker()
