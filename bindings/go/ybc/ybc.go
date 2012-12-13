@@ -333,8 +333,10 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	if err != nil {
 		return
 	}
-	defer item.Close()
 	value = item.Value()
+
+        // do not use defer item.Close() for performance reasons
+        item.Close()
 	return
 }
 
@@ -356,8 +358,10 @@ func (cache *Cache) GetDe(key []byte, graceDuration time.Duration) (value []byte
 	if err != nil {
 		return
 	}
-	defer item.Close()
 	value = item.Value()
+
+	// do not use defer item.Close() for performance reasons
+	item.Close()
 	return
 }
 
@@ -371,8 +375,10 @@ func (cache *Cache) GetDeAsync(key []byte, graceDuration time.Duration) (value [
 	if err != nil {
 		return
 	}
-	defer item.Close()
 	value = item.Value()
+
+	// do not use defer item.Close() for performance reasons
+	item.Close()
 	return
 }
 
