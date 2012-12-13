@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +27,7 @@ var (
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	keySize                 = flag.Int("keySize", 16, "Key size in bytes")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
+	maxResponseTime         = flag.Duration("maxResponseTime", time.Millisecond*50, "Maximum response time shown on response time histogram")
 	osReadBufferSize        = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
 	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
@@ -39,16 +41,47 @@ var (
 
 var (
 	key, value []byte
+
+	responseTimeHistogram = make([]uint32, 10)
 )
+
+func updateResponseTimeHistogram(startTime time.Time) {
+	n := len(responseTimeHistogram)
+	t := time.Since(startTime)
+	i := int(float64(t) / float64(*maxResponseTime) * float64(n))
+	if i > n-1 {
+		i = n - 1
+	} else if i < 0 {
+		i = 0
+	}
+	atomic.AddUint32(&responseTimeHistogram[i], 1)
+}
+
+func printResponseTimeHistogram() {
+	fmt.Printf("======\nResponse time histogram\n")
+	n := len(responseTimeHistogram)
+	interval := *maxResponseTime / time.Duration(n)
+	for i := 0; i < n; i++ {
+		startDuration := interval * time.Duration(i)
+		endDuration := interval * time.Duration(i+1)
+		if i == n-1 {
+			endDuration = time.Hour
+		}
+		percent := float64(responseTimeHistogram[i]) / float64(*requestsCount) * 100.0
+		fmt.Printf("%6s - %6s: %6.3f%%\n", startDuration, endDuration, percent)
+	}
+}
 
 func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int) {
 	defer wg.Done()
 	keyStr := string(key)
 
 	for _ = range ch {
+		startTime := time.Now()
 		if _, err := client.Get(keyStr); err != memcache_org.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -58,9 +91,11 @@ func workerGetMissNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan 
 	item.Key = key
 
 	for _ = range ch {
+		startTime := time.Now()
 		if err := client.Get(&item); err != memcache_new.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -69,9 +104,11 @@ func workerGetHitOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 	keyStr := string(key)
 
 	for _ = range ch {
+		startTime := time.Now()
 		if _, err := client.Get(keyStr); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -81,9 +118,11 @@ func workerGetHitNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 	item.Key = key
 
 	for _ = range ch {
+		startTime := time.Now()
 		if err := client.Get(&item); err != nil {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -92,10 +131,12 @@ func workerSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int
 	var item memcache_org.Item
 	for i := range ch {
 		item.Key = fmt.Sprintf("%s_%d", key, i)
-		item.Value = []byte(fmt.Sprintf("%s_%d", value, i))
+		item.Value = value
+		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
 			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -104,10 +145,12 @@ func workerSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int)
 	var item memcache_new.Item
 	for i := range ch {
 		item.Key = []byte(fmt.Sprintf("%s_%d", key, i))
-		item.Value = []byte(fmt.Sprintf("%s_%d", value, i))
+		item.Value = value
+		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
 			log.Fatalf("Error in Client.Set(): [%s]", err)
 		}
+		updateResponseTimeHistogram(startTime)
 	}
 }
 
@@ -118,19 +161,23 @@ func workerGetSetRandOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-c
 	for _ = range ch {
 		n := rand.Intn(itemsCount)
 		item.Key = fmt.Sprintf("%s_%d", key, n)
+		startTime := time.Now()
 		if rand.Float64() < *getRatio {
 			_, err := client.Get(item.Key)
 			if err == memcache_org.ErrCacheMiss {
+				updateResponseTimeHistogram(startTime)
 				continue
 			}
 			if err != nil {
 				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
+			updateResponseTimeHistogram(startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
 			}
+			updateResponseTimeHistogram(startTime)
 		}
 	}
 }
@@ -142,19 +189,23 @@ func workerGetSetRandNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-ch
 	for _ = range ch {
 		n := rand.Intn(itemsCount)
 		item.Key = []byte(fmt.Sprintf("%s_%d", key, n))
+		startTime := time.Now()
 		if rand.Float64() < *getRatio {
 			err := client.Get(&item)
 			if err == memcache_new.ErrCacheMiss {
+				updateResponseTimeHistogram(startTime)
 				continue
 			}
 			if err != nil {
 				log.Fatalf("Error in Client.Get(): [%s]", err)
 			}
+			updateResponseTimeHistogram(startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
 			}
+			updateResponseTimeHistogram(startTime)
 		}
 	}
 }
@@ -227,7 +278,7 @@ func getWorkerNew(serverAddrs_ []string, wg *sync.WaitGroup, ch chan int) func()
 	var client memcache_new.Cacher
 	if len(serverAddrs_) < 2 {
 		client = &memcache_new.Client{
-			ServerAddr:                *serverAddrs,
+			ServerAddr:   *serverAddrs,
 			ClientConfig: config,
 		}
 		client.Start()
@@ -288,6 +339,7 @@ func main() {
 	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
 	fmt.Printf("keySize=[%d]\n", *keySize)
 	fmt.Printf("maxPendingRequestsCount=[%d]\n", *maxPendingRequestsCount)
+	fmt.Printf("maxResponseTime=[%s]\n", *maxResponseTime)
 	fmt.Printf("osReadBufferSize=[%d]\n", *osReadBufferSize)
 	fmt.Printf("osWriteBufferSize=[%d]\n", *osWriteBufferSize)
 	fmt.Printf("requestsCount=[%d]\n", *requestsCount)
@@ -316,6 +368,7 @@ func main() {
 		wg.Wait()
 		duration := float64(time.Since(startTime)) / float64(time.Second)
 		fmt.Printf("done! %.3f seconds, %.0f qps\n", duration, float64(*requestsCount)/duration)
+		printResponseTimeHistogram()
 	}()
 
 	var worker func()
