@@ -316,5 +316,4 @@ func main() {
 		wg.Add(1)
 		go worker()
 	}
-	wg.Wait()
 }
