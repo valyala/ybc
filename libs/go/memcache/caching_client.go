@@ -112,7 +112,7 @@ func cacheItem(cache ybc.Cacher, item *Item) error {
 	if txn == nil {
 		return nil
 	}
-	defer txn.Commit()
+	// do not use defer txn.Commit() for performance reasons
 
 	size := len(item.Value)
 	n, err := txn.Write(item.Value)
@@ -122,6 +122,7 @@ func cacheItem(cache ybc.Cacher, item *Item) error {
 	if n != size {
 		log.Fatalf("Unexpected number of bytes written in SetTxn.Write(size=%d): %d", size, n)
 	}
+	txn.Commit()
 	return nil
 }
 
@@ -210,19 +211,23 @@ func (c *CachingClient) Get(item *Item) error {
 	if err != nil {
 		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", item.Key, err)
 	}
-	defer it.Close()
+	// do not use defer it.Close() for performance reasons.
 
 	casid, flags, validateExpiration, validateTtl, ok := readItemMetadata(it)
 	if !ok {
+		it.Close()
 		return getAndCacheRemoteItem(c.Client, c.Cache, item)
 	}
 	item.Casid = casid
 	item.Flags = flags
 
 	if time.Now().After(validateExpiration) {
-		return revalidateAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl)
+		err = revalidateAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl)
+	} else {
+		err = setItemValue(it, item)
 	}
-	return setItemValue(it, item)
+	it.Close()
+	return err
 }
 
 // See Client.GetMulti()
@@ -246,19 +251,23 @@ func (c *CachingClient) GetDe(item *Item, graceDuration time.Duration) error {
 	if err != nil {
 		log.Fatalf("Unexpected error returned from Cache.GetDeItem() for key=[%s]: [%s]", item.Key, err)
 	}
-	defer it.Close()
+	// do not use defer it.Close() for performance reasons.
 
 	casid, flags, validateExpiration, validateTtl, ok := readItemMetadata(it)
 	if !ok {
+		it.Close()
 		return getDeAndCacheRemoteItem(c.Client, c.Cache, item, graceDuration)
 	}
 	item.Casid = casid
 	item.Flags = flags
 
 	if time.Now().After(validateExpiration) {
-		return revalidateDeAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl, graceDuration)
+		err = revalidateDeAndSetItemValue(c.Client, c.Cache, it, item, casid, flags, validateTtl, graceDuration)
+	} else {
+		err = setItemValue(it, item)
 	}
-	return setItemValue(it, item)
+	it.Close()
+	return err
 }
 
 func prependValidateTtl(value []byte, validateTtl time.Duration) []byte {
