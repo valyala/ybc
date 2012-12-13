@@ -79,9 +79,11 @@ func getItemAndWriteResponse(w *bufio.Writer, cache ybc.Cacher, key []byte, shou
 		}
 		log.Fatalf("Unexpected error returned by cache.GetItem(key=[%s]): [%s]", key, err)
 	}
-	defer item.Close()
+	// do not use defer item.Close() for performance reasons
 
-	return writeGetResponse(w, key, item, shouldWriteCasid, scratchBuf)
+	ok := writeGetResponse(w, key, item, shouldWriteCasid, scratchBuf)
+	item.Close()
+	return ok
 }
 
 func writeGetResponseWithEof(w *bufio.Writer, key []byte, item *ybc.Item, scratchBuf *[]byte) bool {
@@ -139,9 +141,11 @@ func processGetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratch
 		}
 		log.Fatalf("Unexpected error returned by Cache.GetDeAsyncItem(): [%s]", err)
 	}
-	defer item.Close()
+	// do not use defer item.Close() for performance reasons
 
-	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	ok = writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	item.Close()
+	return ok
 }
 
 func checkAndUpdateCasid(item *ybc.Item, casid *uint64) (isModified, ok bool) {
@@ -189,17 +193,21 @@ func processCgetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchB
 	if err != nil {
 		log.Fatalf("Unexpected error returned: [%s]", err)
 	}
-	defer item.Close()
+	// do not use defer item.Close() for performance reasons
 
 	isModified, ok := checkAndUpdateCasid(item, &casid)
 	if !ok {
+		item.Close()
 		return false
 	}
 	if !isModified {
+		item.Close()
 		return writeStr(c.Writer, strNotModifiedCrLf)
 	}
 
-	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	ok = writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	item.Close()
+	return ok
 }
 
 func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBuf *[]byte) bool {
@@ -231,17 +239,21 @@ func processCgetDeCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratc
 	if err != nil {
 		log.Fatalf("Unexpected error returned: [%s]", err)
 	}
-	defer item.Close()
+	// do not use defer item.Close() for performance reasons
 
 	isModified, ok := checkAndUpdateCasid(item, &casid)
 	if !ok {
+		item.Close()
 		return false
 	}
 	if !isModified {
+		item.Close()
 		return writeStr(c.Writer, strNotModifiedCrLf)
 	}
 
-	return writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	ok = writeGetResponseWithEof(c.Writer, key, item, scratchBuf)
+	item.Close()
+	return ok
 }
 
 func expectNoreply(line []byte, n *int) bool {
@@ -338,27 +350,17 @@ func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dur
 	return txn
 }
 
-func closeSetTxn(txn *ybc.SetTxn, shouldRollback *bool) {
-	if *shouldRollback {
-		txn.Rollback()
-	}
-}
-
 func readValueToTxnAndWriteResponse(c *bufio.ReadWriter, txn *ybc.SetTxn, size int, noreply bool) bool {
 	if txn == nil {
 		return false
 	}
-	shouldRollback := true
-	defer closeSetTxn(txn, &shouldRollback)
-
 	if !readValueToTxn(c.Reader, txn, size) {
+		txn.Rollback()
 		return false
 	}
-
 	if err := txn.Commit(); err != nil {
 		log.Fatalf("Unexpected error returned from SetTxn.Commit(): [%s]", err)
 	}
-	shouldRollback = false
 	return writeSetResponse(c.Writer, noreply)
 }
 
@@ -381,10 +383,11 @@ func getCasidForCachedItem(cache ybc.Cacher, key []byte) (casid uint64, cacheMis
 		}
 		log.Fatalf("Unexpected error returned from Cache.GetItem() for key=[%s]: [%s]", key, err)
 	}
-	defer item.Close()
+	// do not use defer item.Close() for performance reasons
 
 	var buf [casidSize]byte
 	n, err := item.Read(buf[:])
+	item.Close()
 	if err != nil {
 		log.Printf("Error when reading casid for the item: [%s]", err)
 		return
@@ -420,28 +423,26 @@ func processAddCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	if txn == nil {
 		return false
 	}
-	shouldRollback := true
-	defer closeSetTxn(txn, &shouldRollback)
-
 	if !readValueToTxn(c.Reader, txn, size) {
+		txn.Rollback()
 		return false
 	}
 
 	casidLock.Lock()
-	defer casidLock.Unlock()
+	// do not use defer casid.Unlock() for performance reasons
 
 	if cachedItemExists(cache, key) {
+		casidLock.Unlock()
+		txn.Rollback()
 		if noreply {
 			return true
 		}
 		return writeStr(c.Writer, strNotStoredCrLf)
 	}
-
 	if err := txn.Commit(); err != nil {
 		log.Fatalf("Unexpected error in SetTxn.Commit(): [%s]", err)
 	}
-	shouldRollback = false
-
+	casidLock.Unlock()
 	return writeSetResponse(c.Writer, noreply)
 }
 
@@ -455,38 +456,40 @@ func processCasCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 	if txn == nil {
 		return false
 	}
-	shouldRollback := true
-	defer closeSetTxn(txn, &shouldRollback)
-
 	if !readValueToTxn(c.Reader, txn, size) {
+		txn.Rollback()
 		return false
 	}
 
 	casidLock.Lock()
-	defer casidLock.Unlock()
+	// do not use defer casidLock.Unlock() for performance reasons
 
 	casidOrig, cacheMiss, ok := getCasidForCachedItem(cache, key)
 	if !ok {
+		casidLock.Unlock()
+		txn.Rollback()
 		return false
 	}
 	if cacheMiss {
+		casidLock.Unlock()
+		txn.Rollback()
 		if noreply {
 			return true
 		}
 		return writeStr(c.Writer, strNotFoundCrLf)
 	}
 	if casidOrig != casid {
+		casidLock.Unlock()
+		txn.Rollback()
 		if noreply {
 			return true
 		}
 		return writeStr(c.Writer, strExistsCrLf)
 	}
-
 	if err := txn.Commit(); err != nil {
 		log.Fatalf("Unexpected error in SetTxn.Commit(): [%s]", err)
 	}
-	shouldRollback = false
-
+	casidLock.Unlock()
 	return writeSetResponse(c.Writer, noreply)
 }
 
