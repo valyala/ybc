@@ -17,6 +17,7 @@ in the original memcached:
 ------------------------
 How to build and run it?
 
+$ sudo apt-get install golang
 $ go get -u -a github.com/valyala/ybc/apps/go/memcached
 $ go build -tags release github.com/valyala/ybc/apps/go/memcached
 $ ./memcached -help
