@@ -1,4 +1,4 @@
-Benchmark tool for memcache servers.
+Benchmark tool for servers supporting memcache protocol.
 
 Supports simultaneous benchmarking of multiple servers.
 Allows comparing two memcache implementations:
