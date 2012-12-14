@@ -42,12 +42,15 @@ var (
 var (
 	key, value []byte
 
-	responseTimeHistogram = make([]uint32, 10)
+	maxHistogramResponseTime time.Duration
 )
 
 func updateResponseTimeHistogram(responseTimeHistogram []uint32, startTime time.Time) {
 	n := *responseTimeHistogramSize
 	t := time.Since(startTime)
+	if t > maxHistogramResponseTime {
+		maxHistogramResponseTime = t
+	}
 	i := int(float64(t) / float64(*maxResponseTime) * float64(n))
 	if i > n-1 {
 		i = n - 1
@@ -70,7 +73,8 @@ func printResponseTimeHistogram(responseTimeHistograms [][]uint32) {
 		}
 	}
 
-	fmt.Printf("======\nResponse time histogram\n")
+	fmt.Printf("Max response time: %s\n", maxHistogramResponseTime)
+	fmt.Printf("Response time histogram\n")
 	interval := *maxResponseTime / time.Duration(n)
 	for i := 0; i < n; i++ {
 		startDuration := interval * time.Duration(i)
