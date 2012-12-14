@@ -27,7 +27,7 @@ var (
 	goMaxProcs              = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	keySize                 = flag.Int("keySize", 16, "Key size in bytes")
 	maxPendingRequestsCount = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
-	maxResponseTime         = flag.Duration("maxResponseTime", time.Millisecond*50, "Maximum response time shown on response time histogram")
+	maxResponseTime         = flag.Duration("maxResponseTime", time.Millisecond*30, "Maximum response time shown on response time histogram")
 	osReadBufferSize        = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
 	osWriteBufferSize       = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount           = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
@@ -57,6 +57,10 @@ func updateResponseTimeHistogram(startTime time.Time) {
 	atomic.AddUint32(&responseTimeHistogram[i], 1)
 }
 
+func dashBar(percent float64) string {
+	return strings.Repeat("#", int(percent/100.0*60.0))
+}
+
 func printResponseTimeHistogram() {
 	fmt.Printf("======\nResponse time histogram\n")
 	n := len(responseTimeHistogram)
@@ -68,7 +72,7 @@ func printResponseTimeHistogram() {
 			endDuration = time.Hour
 		}
 		percent := float64(responseTimeHistogram[i]) / float64(*requestsCount) * 100.0
-		fmt.Printf("%6s - %6s: %6.3f%%\n", startDuration, endDuration, percent)
+		fmt.Printf("%6s -%6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
 	}
 }
 
