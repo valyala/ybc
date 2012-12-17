@@ -54,6 +54,9 @@ func main() {
 	if syncInterval_ <= 0 {
 		syncInterval_ = ybc.ConfigDisableSync
 	}
+	if *cacheFilesPath == "" {
+		syncInterval_ = 0
+	}
 	config := ybc.Config{
 		MaxItemsCount:   ybc.SizeT(*maxItemsCount),
 		DataFileSize:    ybc.SizeT(*cacheSize) * ybc.SizeT(1024*1024),
