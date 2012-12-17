@@ -276,16 +276,21 @@ func (c *Client) run() {
 	}
 }
 
-func handleClosedRequests(err *error) {
-	if r := recover(); r != nil {
-		*err = ErrClientNotRunning
+func (c *Client) pushTask(t tasker) error {
+	// There is a race condition here, when c.requests is closed,
+	// but c.done isn't nil yet in Client.Stop().
+	// In this an attempt to push task to c.requests will panic.
+	//
+	// This condition may appear only if clients are dynamically
+	// added/removed to/from clients pool such as DistributedClient.
+	//
+	// Do not use recover() in deferred function as a workaround for this
+	// race condition due to performance reasons.
+	if c.done == nil {
+		return ErrClientNotRunning
 	}
-}
-
-func (c *Client) pushTask(t tasker) (err error) {
-	defer handleClosedRequests(&err)
 	c.requests <- t
-	return
+	return nil
 }
 
 func (c *Client) do(t tasker) (err error) {

@@ -266,79 +266,109 @@ func (c *DistributedClient) itemsPerClient(items []Item) (m [][]Item, clients []
 	return
 }
 
+func handleRaceCondition(err *error) {
+	if r := recover(); r != nil {
+		*err = ErrClientNotRunning
+	}
+}
+
 // See Client.GetMulti().
-func (c *DistributedClient) GetMulti(items []Item) error {
+func (c *DistributedClient) GetMulti(items []Item) (err error) {
 	itemsPerClient, clients, err := c.itemsPerClient(items)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	for clientIdx, clientItems := range itemsPerClient {
 		if err = clients[clientIdx].GetMulti(clientItems); err != nil {
-			return err
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // See Client.Get().
-func (c *DistributedClient) Get(item *Item) error {
+func (c *DistributedClient) Get(item *Item) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Get(item)
 }
 
 // See Client.Cget().
-func (c *DistributedClient) Cget(item *Item) error {
+func (c *DistributedClient) Cget(item *Item) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Cget(item)
 }
 
 // See Client.GetDe().
-func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) error {
+func (c *DistributedClient) GetDe(item *Item, graceDuration time.Duration) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.GetDe(item, graceDuration)
 }
 
 // See Client.CgetDe()
-func (c *DistributedClient) CgetDe(item *Item, graceDuration time.Duration) error {
+func (c *DistributedClient) CgetDe(item *Item, graceDuration time.Duration) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.CgetDe(item, graceDuration)
 }
 
 // See Client.Set().
-func (c *DistributedClient) Set(item *Item) error {
+func (c *DistributedClient) Set(item *Item) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Set(item)
 }
 
 // See Client.Add().
-func (c *DistributedClient) Add(item *Item) error {
+func (c *DistributedClient) Add(item *Item) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Add(item)
 }
 
 // See Client.Cas()
-func (c *DistributedClient) Cas(item *Item) error {
+func (c *DistributedClient) Cas(item *Item) (err error) {
 	client, err := c.client(item.Key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Cas(item)
 }
@@ -346,16 +376,23 @@ func (c *DistributedClient) Cas(item *Item) error {
 // See Client.SetNowait().
 func (c *DistributedClient) SetNowait(item *Item) {
 	client, err := c.client(item.Key)
-	if err == nil {
-		client.SetNowait(item)
+	if err != nil {
+		return
 	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
+	}
+	client.SetNowait(item)
 }
 
 // See Client.Delete().
-func (c *DistributedClient) Delete(key []byte) error {
+func (c *DistributedClient) Delete(key []byte) (err error) {
 	client, err := c.client(key)
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	return client.Delete(key)
 }
@@ -363,9 +400,13 @@ func (c *DistributedClient) Delete(key []byte) error {
 // See Client.DeleteNowait().
 func (c *DistributedClient) DeleteNowait(key []byte) {
 	client, err := c.client(key)
-	if err == nil {
-		client.DeleteNowait(key)
+	if err != nil {
+		return
 	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
+	}
+	client.DeleteNowait(key)
 }
 
 func (c *DistributedClient) allClients() (clients []*Client, err error) {
@@ -388,31 +429,37 @@ func (c *DistributedClient) allClients() (clients []*Client, err error) {
 }
 
 // See Client.FlushAllDelayed().
-func (c *DistributedClient) FlushAllDelayed(expiration time.Duration) error {
+func (c *DistributedClient) FlushAllDelayed(expiration time.Duration) (err error) {
 	clients, err := c.allClients()
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	for _, client := range clients {
-		if err := client.FlushAllDelayed(expiration); err != nil {
-			return err
+		if err = client.FlushAllDelayed(expiration); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // See Client.FlushAll().
-func (c *DistributedClient) FlushAll() error {
+func (c *DistributedClient) FlushAll() (err error) {
 	clients, err := c.allClients()
 	if err != nil {
-		return err
+		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	for _, client := range clients {
-		if err := client.FlushAll(); err != nil {
-			return err
+		if err = client.FlushAll(); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // See Client.FlushAllDelayedNowait().
@@ -420,6 +467,9 @@ func (c *DistributedClient) FlushAllDelayedNowait(expiration time.Duration) {
 	clients, err := c.allClients()
 	if err != nil {
 		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	for _, client := range clients {
 		client.FlushAllDelayedNowait(expiration)
@@ -431,6 +481,9 @@ func (c *DistributedClient) FlushAllNowait() {
 	clients, err := c.allClients()
 	if err != nil {
 		return
+	}
+	if c.isDynamic {
+		defer handleRaceCondition(&err)
 	}
 	for _, client := range clients {
 		client.FlushAllNowait()
