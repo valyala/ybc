@@ -26,7 +26,7 @@ var (
 	goMaxProcs                = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	keySize                   = flag.Int("keySize", 16, "Key size in bytes")
 	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
-	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*30, "Maximum response time shown on response time histogram")
+	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*20, "Maximum response time shown on response time histogram")
 	osReadBufferSize          = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
 	osWriteBufferSize         = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount             = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
@@ -73,18 +73,22 @@ func printResponseTimeHistogram(responseTimeHistograms [][]uint32) {
 		}
 	}
 
-	fmt.Printf("Max response time: %s\n", maxHistogramResponseTime)
 	fmt.Printf("Response time histogram\n")
 	interval := *maxResponseTime / time.Duration(n)
+	var meanHistogramResponseTime float64
 	for i := 0; i < n; i++ {
 		startDuration := interval * time.Duration(i)
 		endDuration := interval * time.Duration(i+1)
 		if i == n-1 {
 			endDuration = time.Hour
 		}
-		percent := float64(responseTimeHistogram[i]) / float64(*requestsCount) * 100.0
-		fmt.Printf("%6s -%6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
+		percent := float64(responseTimeHistogram[i]) / float64(*requestsCount)
+		meanHistogramResponseTime += float64(startDuration + interval / 2) * percent
+		percent *= 100.0
+		fmt.Printf("%6.6s -%6.6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
 	}
+	fmt.Printf("Mean response time: %s\n", time.Duration(meanHistogramResponseTime))
+	fmt.Printf("Max response time: %s\n", maxHistogramResponseTime)
 }
 
 func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, responseTimeHistogram []uint32) {
