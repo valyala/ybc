@@ -60,8 +60,8 @@ static int m_memset_check(const void *const s, const char c, const size_t n)
 
   for (size_t i = 0; i < n; ++i) {
     if (ss[i] != c) {
-      fprintf(stderr, "Expected %d char, but obtained %d at position %zu\n",
-          (int)i, (int)ss[i], n);
+      fprintf(stderr, "Expected %d char, but obtained %d at position %zu. object_size=%zu\n",
+          (int)c, (int)ss[i], i, n);
       return 0;
     }
   }
