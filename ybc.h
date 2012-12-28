@@ -233,6 +233,21 @@ YBC_API void ybc_config_set_de_hashtable_size(struct ybc_config *config,
 YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
     uint64_t sync_interval);
 
+/*
+ * Disables protection from items' overwrite corruption.
+ *
+ * By default the protection is enabled, so your data should always be
+ * in a consistent state.
+ *
+ * If protection is disabled, then items' data may be corrupted by overwriting
+ * old items' data by new items' data. This mode may be useful if you'll make
+ * a copy of returned items' data into your memory and then verify this data
+ * before passing it further.
+ *
+ * Read operations scale much better under this mode on multiple CPUs.
+ */
+YBC_API void ybc_config_disable_overwrite_protection(struct ybc_config *config);
+
 
 /*******************************************************************************
  * Cache management API.

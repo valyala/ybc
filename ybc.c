@@ -486,22 +486,54 @@ static void m_storage_payload_assert_valid(
   assert(payload->cursor.offset <= storage_size - payload->size);
 }
 
+static int m_storage_find_free_hole(struct ybc_item *const acquired_items_head,
+    struct ybc_item *const item, struct m_storage_cursor *const next_cursor,
+    const size_t item_size, const size_t storage_size)
+{
+  m_item_skiplist_get_prevs(acquired_items_head, item->next,
+      next_cursor->offset);
+  const size_t N = C_ITEM_SKIPLIST_HEIGHT - 1;
+  const struct ybc_item *tmp = item->next[N];
+  /*
+   * It is expected that item's properties are already verified
+   * in ybc_item_get(), so use only assertions here.
+   */
+  m_storage_payload_assert_valid(&tmp->payload, storage_size);
+
+  if (next_cursor->offset >= tmp->payload.cursor.offset + tmp->payload.size) {
+    tmp = tmp->next[N];
+    m_storage_payload_assert_valid(&tmp->payload, storage_size);
+
+    assert(next_cursor->offset <= storage_size - item_size);
+
+    if (next_cursor->offset + item_size <= tmp->payload.cursor.offset) {
+      return 1;
+    }
+  }
+
+  next_cursor->offset = tmp->payload.cursor.offset + tmp->payload.size;
+  return 0;
+}
+
 /*
  * Allocates storage space for the given item with the given item->payload.size.
  *
  * On success returns non-zero, sets up item->cursor to point to the allocated
- * space in the storage and registers the item in acquired_items skiplist.
+ * space in the storage.
+ * Registers the item in acquired_items skiplist if has_overwrite_protection
+ * is set.
  *
  * On failure returns zero.
  */
 static int m_storage_allocate(struct m_storage *const storage,
-    struct ybc_item *const acquired_items_head, struct ybc_item *const item)
+    struct ybc_item *const acquired_items_head, struct ybc_item *const item,
+    const int has_overwrite_protection)
 {
-  const size_t size = item->payload.size;
-  assert(size > 0);
+  const size_t item_size = item->payload.size;
+  assert(item_size > 0);
 
   const size_t storage_size = storage->size;
-  if (size > storage_size) {
+  if (item_size > storage_size) {
     return 0;
   }
 
@@ -511,35 +543,20 @@ static int m_storage_allocate(struct m_storage *const storage,
   const size_t initial_offset = next_cursor.offset;
   int is_storage_wrapped = 0;
   for (;;) {
-    if (next_cursor.offset > storage_size - size) {
+    if (next_cursor.offset > storage_size - item_size) {
       /* Hit the end of storage. Wrap the cursor. */
       ++next_cursor.wrap_count;
       next_cursor.offset = 0;
       is_storage_wrapped = 1;
     }
 
-    m_item_skiplist_get_prevs(acquired_items_head, item->next,
-        next_cursor.offset);
-    const size_t N = C_ITEM_SKIPLIST_HEIGHT - 1;
-    const struct ybc_item *tmp = item->next[N];
-    /*
-     * It is expected that item's properties are already verified
-     * in ybc_item_get(), so use only assertions here.
-     */
-    m_storage_payload_assert_valid(&tmp->payload, storage_size);
-
-    if (next_cursor.offset >= tmp->payload.cursor.offset + tmp->payload.size) {
-      tmp = tmp->next[N];
-      m_storage_payload_assert_valid(&tmp->payload, storage_size);
-
-      assert(next_cursor.offset <= storage_size - size);
-
-      if (next_cursor.offset + size <= tmp->payload.cursor.offset) {
-        break;
-      }
+    if (!has_overwrite_protection) {
+      break;
     }
-
-    next_cursor.offset = tmp->payload.cursor.offset + tmp->payload.size;
+    if (m_storage_find_free_hole(acquired_items_head, item, &next_cursor,
+        item_size, storage_size)) {
+      break;
+    }
 
     if (is_storage_wrapped && next_cursor.offset >= initial_offset) {
       /* Couldn't find a hole with appropriate size in the storage. */
@@ -553,11 +570,14 @@ static int m_storage_allocate(struct m_storage *const storage,
    */
   assert(next_cursor.offset < storage_size);
   item->payload.cursor = next_cursor;
-  m_item_skiplist_add(item);
+
+  if (has_overwrite_protection) {
+    m_item_skiplist_add(item);
+  }
 
   /* Update storage->next_cursor */
-  assert(next_cursor.offset <= storage_size - size);
-  next_cursor.offset += size;
+  assert(next_cursor.offset <= storage_size - item_size);
+  next_cursor.offset += item_size;
   storage->next_cursor = next_cursor;
 
   return 1;
@@ -1384,6 +1404,11 @@ struct m_sync
   uint64_t sync_interval;
 
   /*
+   * A copy of ybc->has_overwrite_protection.
+   */
+  int has_overwrite_protection;
+
+  /*
    * Start pointer for unsynced storage data.
    */
   struct m_storage_cursor *sync_cursor;
@@ -1471,11 +1496,14 @@ static void m_sync_commit(const struct m_storage *const storage,
 static void m_sync_flush_data(struct p_lock *const cache_lock,
     const struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
-    struct m_storage_cursor *const sync_cursor)
+    struct m_storage_cursor *const sync_cursor,
+    const int has_overwrite_protection)
 {
   p_lock_lock(cache_lock);
   struct m_storage_cursor next_cursor = storage->next_cursor;
-  m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+  if (has_overwrite_protection) {
+    m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+  }
   p_lock_unlock(cache_lock);
 
   if (next_cursor.wrap_count == sync_cursor->wrap_count) {
@@ -1527,20 +1555,22 @@ static void m_sync_thread_func(void *const ctx)
 
   while (!p_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
     m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_head,
-        sc->sync_cursor);
+        sc->sync_cursor, sc->has_overwrite_protection);
   }
 
   m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_head,
-      sc->sync_cursor);
+      sc->sync_cursor, sc->has_overwrite_protection);
 }
 
 static void m_sync_init(struct m_sync *const sc,
     const uint64_t sync_interval, struct m_storage_cursor *const sync_cursor,
     struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
-    struct p_lock *const cache_lock)
+    struct p_lock *const cache_lock,
+    const int has_overwrite_protection)
 {
   sc->sync_interval = sync_interval;
+  sc->has_overwrite_protection = has_overwrite_protection;
   sc->sync_cursor = sync_cursor;
   sc->storage = storage;
   sc->acquired_items_head = acquired_items_head;
@@ -1741,6 +1771,7 @@ struct ybc_config
   size_t hot_data_size;
   size_t de_hashtable_size;
   uint64_t sync_interval;
+  int has_overwrite_protection;
 };
 
 size_t ybc_config_get_size(void)
@@ -1758,6 +1789,7 @@ void ybc_config_init(struct ybc_config *const config)
   config->hot_data_size = C_CONFIG_DEFAULT_HOT_DATA_SIZE;
   config->de_hashtable_size = C_CONFIG_DEFAULT_DE_HASHTABLE_SIZE;
   config->sync_interval = C_CONFIG_DEFAULT_SYNC_INTERVAL;
+  config->has_overwrite_protection = 0;
 }
 
 void ybc_config_destroy(struct ybc_config *const config)
@@ -1818,6 +1850,11 @@ void ybc_config_set_sync_interval(struct ybc_config *const config,
   config->sync_interval = sync_interval;
 }
 
+void ybc_config_disable_overwrite_protection(struct ybc_config *const config)
+{
+  config->has_overwrite_protection = 0;
+}
+
 
 /*******************************************************************************
  * Cache management API
@@ -1833,6 +1870,7 @@ struct ybc
   struct ybc_item acquired_items_head;
   struct ybc_item acquired_items_tail;
   size_t hot_data_size;
+  int has_overwrite_protection;
 };
 
 static int m_open(struct ybc *const cache,
@@ -1843,6 +1881,7 @@ static int m_open(struct ybc *const cache,
 
   p_memory_init();
 
+  cache->has_overwrite_protection = config->has_overwrite_protection;
   cache->storage.size = config->data_file_size;
   m_storage_fix_size(&cache->storage.size);
 
@@ -1882,7 +1921,8 @@ static int m_open(struct ybc *const cache,
   p_lock_init(&cache->lock);
 
   m_sync_init(&cache->sc, config->sync_interval, next_cursor, &cache->storage,
-      &cache->acquired_items_head, &cache->lock);
+      &cache->acquired_items_head, &cache->lock,
+      cache->has_overwrite_protection);
   m_de_init(&cache->de, config->de_hashtable_size);
 
   cache->hot_data_size = config->hot_data_size;
@@ -1996,11 +2036,12 @@ static void m_item_deregister(struct ybc_item *const item)
 
 static void m_item_release(struct ybc_item *const item)
 {
-  struct p_lock *const cache_lock = &item->cache->lock;
-
-  p_lock_lock(cache_lock);
-  m_item_deregister(item);
-  p_lock_unlock(cache_lock);
+  if (item->cache->has_overwrite_protection) {
+    struct p_lock *const cache_lock = &item->cache->lock;
+    p_lock_lock(cache_lock);
+    m_item_deregister(item);
+    p_lock_unlock(cache_lock);
+  }
   item->cache = NULL;
 }
 
@@ -2045,7 +2086,7 @@ int ybc_set_txn_begin(struct ybc *const cache, struct ybc_set_txn *const txn,
 
   p_lock_lock(&cache->lock);
   int is_success = m_storage_allocate(&cache->storage,
-      &cache->acquired_items_head, &txn->item);
+      &cache->acquired_items_head, &txn->item, cache->has_overwrite_protection);
   p_lock_unlock(&cache->lock);
 
   if (!is_success) {
@@ -2073,10 +2114,14 @@ void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
 {
   struct ybc *const cache = txn->item.cache;
 
-  p_lock_lock(&cache->lock);
-  m_item_relocate(item, &txn->item);
-  item->is_set_txn = 0;
-  p_lock_unlock(&cache->lock);
+  if (cache->has_overwrite_protection) {
+    p_lock_lock(&cache->lock);
+    m_item_relocate(item, &txn->item);
+    item->is_set_txn = 0;
+    p_lock_unlock(&cache->lock);
+  } else {
+    item->is_set_txn = 0;
+  }
 
   m_map_cache_set(&cache->index.map, &cache->index.map_cache, &txn->key_digest,
       &item->payload);
@@ -2119,7 +2164,9 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
     p_lock_unlock(&cache->lock);
     return 0;
   }
-  m_item_register(item, &cache->acquired_items_head);
+  if (cache->has_overwrite_protection) {
+    m_item_register(item, &cache->acquired_items_head);
+  }
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   p_lock_unlock(&cache->lock);
 
