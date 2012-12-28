@@ -2159,15 +2159,15 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
 
   const uint64_t current_time = p_get_current_time();
   p_lock_lock(&cache->lock);
-  if (!m_storage_payload_check(&cache->storage, &cache->storage.next_cursor,
-      &item->payload, current_time)) {
+  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
+  if (!m_storage_payload_check(&cache->storage, &next_cursor, &item->payload,
+      current_time)) {
     p_lock_unlock(&cache->lock);
     return 0;
   }
   if (cache->has_overwrite_protection) {
     m_item_register(item, &cache->acquired_items_head);
   }
-  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
   p_lock_unlock(&cache->lock);
 
   if (!m_storage_metadata_check(&cache->storage, &item->payload, key)) {
