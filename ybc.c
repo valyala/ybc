@@ -1789,7 +1789,7 @@ void ybc_config_init(struct ybc_config *const config)
   config->hot_data_size = C_CONFIG_DEFAULT_HOT_DATA_SIZE;
   config->de_hashtable_size = C_CONFIG_DEFAULT_DE_HASHTABLE_SIZE;
   config->sync_interval = C_CONFIG_DEFAULT_SYNC_INTERVAL;
-  config->has_overwrite_protection = 0;
+  config->has_overwrite_protection = 1;
 }
 
 void ybc_config_destroy(struct ybc_config *const config)
