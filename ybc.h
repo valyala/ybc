@@ -244,6 +244,11 @@ YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
  * a copy of returned items' data into your memory and then verify this data
  * before passing it further.
  *
+ * This mode is safe if the folllowing conditions are met:
+ *   * only read operations performed on the cache;
+ *   * hot data compaction is disabled (see ybc_config_set_hot_data_size()
+ *     for details).
+ *
  * Read operations scale much better under this mode on multiple CPUs.
  */
 YBC_API void ybc_config_disable_overwrite_protection(struct ybc_config *config);
