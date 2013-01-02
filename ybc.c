@@ -2117,11 +2117,11 @@ void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
   if (cache->has_overwrite_protection) {
     p_lock_lock(&cache->lock);
     m_item_relocate(item, &txn->item);
-    item->is_set_txn = 0;
     p_lock_unlock(&cache->lock);
   } else {
-    item->is_set_txn = 0;
+    *item = txn->item;
   }
+  item->is_set_txn = 0;
 
   m_map_cache_set(&cache->index.map, &cache->index.map_cache, &txn->key_digest,
       &item->payload);
