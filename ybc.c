@@ -591,17 +591,6 @@ static int m_storage_allocate(struct m_storage *const storage,
  *
  * See also m_storage_metadata_check().
  *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_storage_payload_check(..., &next_cursor, ...);
- *
  * Returns non-zero on successful check, zero on failure.
  */
 static int m_storage_payload_check(const struct m_storage *const storage,
@@ -796,17 +785,6 @@ static void m_ws_defragment(struct ybc *const cache,
 
 /*
  * Checks whether the item pointed by the given payload should be defragmented.
- *
- * next_cursor must point to a thread-private copy of storage->next_cursor,
- * which shouldn't be modified from other threads! Don't pass
- * &storage->next_cursor here! Instead, make a copy under the ybc->lock
- * and then pass a pointer to this copy here:
- *
- * p_lock_lock(cache->lock);
- * next_cursor = storage->next_cursor;
- * p_lock_unlock(cache->lock);
- * ...
- * m_ws_should_defragment(..., &next_cursor, ...);
  *
  * Returns 1 if the item should be defragmented, i.e. should be moved
  * to the front of the storage. Otherwise returns 0.
@@ -2157,18 +2135,30 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
     return 0;
   }
 
-  const uint64_t current_time = p_get_current_time();
-  p_lock_lock(&cache->lock);
+
+  /*
+   * Race condition is possible when makin a copy of cache->storage.next_cursor
+   * if it is concurrently updated by other thread in m_storage_allocate().
+   * In this case copied next_cursor may have corrupted value. This is OK.
+   * Two innocent things may occur if next_cursor contains invalid value:
+   * - 'no item' may be returned for existing item;
+   * - superflouos defragmentation may occur for the item.
+   *
+   * This racy copy significantly improves scalability of 'get item' operation
+   * if overwrite protection is disabled ( cache->has_overwrite_protection = 0).
+   */
   const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
+
+  const uint64_t current_time = p_get_current_time();
   if (!m_storage_payload_check(&cache->storage, &next_cursor, &item->payload,
       current_time)) {
-    p_lock_unlock(&cache->lock);
     return 0;
   }
   if (cache->has_overwrite_protection) {
+    p_lock_lock(&cache->lock);
     m_item_register(item, &cache->acquired_items_head);
+    p_lock_unlock(&cache->lock);
   }
-  p_lock_unlock(&cache->lock);
 
   if (!m_storage_metadata_check(&cache->storage, &item->payload, key)) {
     m_item_release(item);
