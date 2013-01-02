@@ -872,22 +872,8 @@ static void test_broken_index_handling(struct ybc *const cache)
   ybc_config_destroy(config);
 }
 
-static void test_large_cache(struct ybc *const cache)
+static void provoke_data_wrapping(struct ybc *const cache)
 {
-  char config_buf[ybc_config_get_size()];
-  struct ybc_config *const config = (struct ybc_config *)config_buf;
-
-  ybc_config_init(config);
-
-  ybc_config_set_max_items_count(config, 10 * 1000);
-  ybc_config_set_data_file_size(config, 32 * 1024 * 1024);
-
-  if (!ybc_open(cache, config, 1)) {
-    M_ERROR("cannot create anonymous cache");
-  }
-
-  ybc_config_destroy(config);
-
   const size_t value_buf_size = 13 * 3457;
   char *const value_buf = p_malloc(value_buf_size);
   memset(value_buf, 'q', value_buf_size);
@@ -907,6 +893,66 @@ static void test_large_cache(struct ybc *const cache)
   }
 
   p_free(value_buf);
+}
+
+static void test_large_cache(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 10 * 1000);
+  ybc_config_set_data_file_size(config, 32 * 1024 * 1024);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  provoke_data_wrapping(cache);
+
+  ybc_close(cache);
+}
+
+static void test_overwrite_protection(struct ybc *const cache)
+{
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config*)config_buf;
+
+  ybc_config_init(config);
+
+  ybc_config_set_max_items_count(config, 10 * 1000);
+  ybc_config_set_data_file_size(config, 1024 * 1024);
+
+  if (!ybc_open(cache, config, 1)) {
+    M_ERROR("cannot create anonymous cache");
+  }
+
+  ybc_config_destroy(config);
+
+  const struct ybc_key survive_key = {
+    .ptr = "you_should_survive :)",
+    .size = 21,
+  };
+  const struct ybc_value survive_value = {
+    .ptr = "survive, please!",
+    .size = 16,
+    .ttl = YBC_MAX_TTL,
+  };
+
+  provoke_data_wrapping(cache);
+
+  char survive_item_buf[ybc_item_get_size()];
+  struct ybc_item *const survive_item = (struct ybc_item *)survive_item_buf;
+  ybc_item_set_item(cache, survive_item, &survive_key, &survive_value);
+  expect_value(survive_item, &survive_value);
+
+  provoke_data_wrapping(cache);
+
+  expect_value(survive_item, &survive_value);
+  ybc_item_release(survive_item);
 
   ybc_close(cache);
 }
@@ -1250,6 +1296,7 @@ int main(void)
   test_persistent_survival(cache);
   test_broken_index_handling(cache);
   test_large_cache(cache);
+  test_overwrite_protection(cache);
   test_out_of_memory(cache);
   test_data_compaction(cache);
   test_small_sync_interval(cache);
