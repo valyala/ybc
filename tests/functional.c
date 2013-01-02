@@ -566,6 +566,51 @@ static void test_cluster_ops(const size_t cluster_size,
   ybc_cluster_close(cluster);
 }
 
+static void test_tiny_ops(struct ybc *const cache)
+{
+  m_open_anonymous(cache);
+
+  struct ybc_key key;
+  struct ybc_value value;
+
+  size_t i = 0;
+  key.ptr = &i;
+  key.size = sizeof(i);
+  value.ptr = &i;
+  value.size = sizeof(i);
+  value.ttl = YBC_MAX_TTL;
+
+  if (ybc_tiny_get(cache, &key, &value) != 0) {
+    M_ERROR("unexpected result returned from ybc_tiny_get()");
+  }
+
+  for (i = 0; i < 1000; i++) {
+    if (!ybc_tiny_set(cache, &key, &value)) {
+      M_ERROR("unexpected error in ybc_tiny_set()");
+    }
+  }
+
+  value.size--;
+  i--;
+  if (ybc_tiny_get(cache, &key, &value) != -1) {
+    M_ERROR("unexpected result returned from ybc_tiny_get()");
+  }
+  assert(value.size == sizeof(i));
+
+  size_t j;
+  value.ptr = &j;
+  for (i = 0; i < 1000; i++) {
+    int rv = ybc_tiny_get(cache, &key, &value);
+    if (rv == 0) {
+      continue;
+    }
+    assert(rv == 1);
+    assert(j == i);
+  }
+
+  ybc_close(cache);
+}
+
 static struct ybc_item *m_get_item(struct ybc_item *const items, const size_t i)
 {
   return (struct ybc_item *)(((char *)items) + ybc_item_get_size() * i);
@@ -1289,6 +1334,7 @@ int main(void)
   test_dogpile_effect_ops(cache);
   test_dogpile_effect_hashtable(cache);
   test_cluster_ops(5, 1000);
+  test_tiny_ops(cache);
 
   test_overlapped_acquirements(cache, 1000);
   test_interleaved_sets(cache);

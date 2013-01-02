@@ -2504,3 +2504,71 @@ void ybc_cluster_clear(struct ybc_cluster *cluster)
 		ybc_clear(&caches[i]);
 	}
 }
+
+
+/*******************************************************************************
+ * Tiny API.
+ ******************************************************************************/
+
+uint32_t m_tiny_crc_get(const void *const ptr, const size_t size)
+{
+  // TODO: use more appropriate functon here (for example, crc32).
+  return (uint32_t)m_hash_get(0, ptr, size);
+}
+
+int ybc_tiny_set(struct ybc *const cache, const struct ybc_key *const key,
+    const struct ybc_value *const value)
+{
+  const uint32_t crc = m_tiny_crc_get(value->ptr, value->size);
+  const size_t crc_size = sizeof(crc);
+  if (value->size > SIZE_MAX - crc_size) {
+    return 0;
+  }
+
+  struct ybc_set_txn txn;
+  const size_t value_size = value->size + crc_size;
+  if (!ybc_set_txn_begin(cache, &txn, key, value_size, value->ttl)) {
+    return 0;
+  }
+
+  struct ybc_set_txn_value txn_value;
+  ybc_set_txn_get_value(&txn, &txn_value);
+  memcpy(txn_value.ptr, &crc, crc_size);
+  memcpy(((char *)txn_value.ptr) + crc_size, value->ptr, value->size);
+
+  ybc_set_txn_commit(&txn);
+
+  return 1;
+}
+
+int ybc_tiny_get(struct ybc *const cache, const struct ybc_key *const key,
+    struct ybc_value *const value)
+{
+  struct ybc_item item;
+  if (!ybc_item_get(cache, &item, key)) {
+    return 0;
+  }
+
+  struct ybc_value tmp_value;
+  ybc_item_get_value(&item, &tmp_value);
+  value->ttl = tmp_value.ttl;
+
+  const size_t crc_size = sizeof(uint32_t);
+  assert(tmp_value.size >= crc_size);
+  const size_t actual_size = tmp_value.size - crc_size;
+  if (actual_size > value->size) {
+    value->size = actual_size;
+    ybc_item_release(&item);
+    return -1;
+  }
+
+  uint32_t actual_crc;
+  memcpy(&actual_crc, tmp_value.ptr, crc_size);
+  memcpy((char *)value->ptr, ((const char *)tmp_value.ptr) + crc_size,
+      actual_size);
+  ybc_item_release(&item);
+  value->size = actual_size;
+
+  const uint32_t expected_crc = m_tiny_crc_get(value->ptr, actual_size);
+  return (actual_crc == expected_crc);
+}

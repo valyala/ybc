@@ -101,6 +101,39 @@ static void simple_set(struct ybc *const cache, const size_t requests_count,
   p_free(buf);
 }
 
+static void simple_set_tiny(struct ybc *const cache, const size_t requests_count,
+    const size_t items_count, const size_t max_item_size)
+{
+  struct m_rand_state rand_state;
+  uint64_t tmp;
+
+  char *const buf = p_malloc(max_item_size);
+
+  const struct ybc_key key = {
+      .ptr = &tmp,
+      .size = sizeof(tmp),
+  };
+  struct ybc_value value = {
+      .ptr = buf,
+      .size = 0,
+      .ttl = YBC_MAX_TTL,
+  };
+
+  m_rand_init(&rand_state);
+
+  for (size_t i = 0; i < requests_count; ++i) {
+    tmp = m_rand_next(&rand_state) % items_count;
+    value.size = m_rand_next(&rand_state) % (max_item_size + 1);
+    m_memset(buf, (char)value.size, value.size);
+
+    if (!ybc_tiny_set(cache, &key, &value)) {
+      M_ERROR("Cannot store item in the cache");
+    }
+  }
+
+  p_free(buf);
+}
+
 static void simple_get_miss(struct ybc *const cache,
     const size_t requests_count, const size_t items_count)
 {
@@ -160,8 +193,48 @@ static void simple_get_hit(struct ybc *const cache,
   }
 }
 
+static void simple_get_tiny_hit(struct ybc *const cache,
+    const size_t requests_count, const size_t items_count,
+    const size_t max_item_size)
+{
+  struct m_rand_state rand_state;
+  uint64_t tmp;
+
+  const struct ybc_key key = {
+      .ptr = &tmp,
+      .size = sizeof(tmp),
+  };
+  struct ybc_value value;
+  value.size = max_item_size;
+  value.ptr = p_malloc(value.size);
+
+  m_rand_init(&rand_state);
+
+  for (size_t i = 0; i < requests_count; ++i) {
+    tmp = m_rand_next(&rand_state) % items_count;
+
+    value.size = max_item_size;
+    int rv = ybc_tiny_get(cache, &key, &value);
+    if (rv == 0) {
+      continue;
+    }
+    assert(rv == 1);
+
+    if (value.size > max_item_size) {
+      M_ERROR("Unexpected value size");
+    }
+    if (!m_memset_check(value.ptr, (char)value.size, value.size)) {
+      fprintf(stderr, "i=%zu, requests_count=%zu, value.size=%zu\n", i, requests_count, value.size);
+      M_ERROR("Unexpected value");
+    }
+  }
+
+  p_free((void *)value.ptr);
+}
+
 static void m_open(struct ybc *const cache, const size_t items_count,
-    const size_t hot_items_count, const size_t max_item_size)
+    const size_t hot_items_count, const size_t max_item_size,
+    const int has_overwrite_protection)
 {
   char config_buf[ybc_config_get_size()];
   struct ybc_config *const config = (struct ybc_config *)config_buf;
@@ -174,6 +247,9 @@ static void m_open(struct ybc *const cache, const size_t items_count,
   ybc_config_set_hot_items_count(config, hot_items_count);
   ybc_config_set_data_file_size(config, data_file_size);
   ybc_config_set_hot_data_size(config, hot_data_size);
+  if (!has_overwrite_protection) {
+    ybc_config_disable_overwrite_protection(config);
+  }
 
   if (!ybc_open(cache, config, 1)) {
     M_ERROR("Cannot create a cache");
@@ -184,36 +260,56 @@ static void m_open(struct ybc *const cache, const size_t items_count,
 
 static void measure_simple_ops(struct ybc *const cache,
     const size_t requests_count, const size_t items_count,
-    const size_t hot_items_count, const size_t max_item_size)
+    const size_t hot_items_count, const size_t max_item_size,
+    const int has_overwrite_protection)
 {
   double start_time, end_time;
   double qps;
 
-  m_open(cache, items_count, hot_items_count, max_item_size);
+  m_open(cache, items_count, hot_items_count, max_item_size,
+      has_overwrite_protection);
 
   printf("simple_ops(requests=%zu, items=%zu, "
-      "hot_items=%zu, max_item_size=%zu)\n",
-      requests_count, items_count, hot_items_count, max_item_size);
+      "hot_items=%zu, max_item_size=%zu, has_overwrite_protection=%d)\n",
+      requests_count, items_count, hot_items_count, max_item_size,
+      has_overwrite_protection);
 
   start_time = p_get_current_time();
   simple_get_miss(cache, requests_count, items_count);
   end_time = p_get_current_time();
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  get_miss: %.02f qps\n", qps);
+  printf("  get_miss     : %.02f qps\n", qps);
 
   start_time = p_get_current_time();
   simple_set(cache, requests_count, items_count, max_item_size);
   end_time = p_get_current_time();
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  set     : %.02f qps\n", qps);
+  printf("  set          : %.02f qps\n", qps);
 
   const size_t get_items_count = hot_items_count ? hot_items_count :
       items_count;
+
+  if (has_overwrite_protection) {
+    start_time = p_get_current_time();
+    simple_get_hit(cache, requests_count, get_items_count, max_item_size);
+    end_time = p_get_current_time();
+    qps = requests_count / (end_time - start_time) * 1000;
+    printf("  get_hit      : %.02f qps\n", qps);
+  }
+
+  ybc_clear(cache);
+
   start_time = p_get_current_time();
-  simple_get_hit(cache, requests_count, get_items_count, max_item_size);
+  simple_set_tiny(cache, requests_count, items_count, max_item_size);
   end_time = p_get_current_time();
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  get_hit : %.02f qps\n", qps);
+  printf("  set_tiny     : %.02f qps\n", qps);
+
+  start_time = p_get_current_time();
+  simple_get_tiny_hit(cache, requests_count, get_items_count, max_item_size);
+  end_time = p_get_current_time();
+  qps = requests_count / (end_time - start_time) * 1000;
+  printf("  get_tiny_hit : %.02f qps\n", qps);
 
   ybc_close(cache);
 }
@@ -299,6 +395,32 @@ static void thread_func_set_get(void *const ctx)
   }
 }
 
+static void thread_func_set_tiny(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
+    if (requests_count == 0) {
+      break;
+    }
+    simple_set_tiny(task->cache, requests_count, task->items_count,
+        task->max_item_size);
+  }
+}
+
+static void thread_func_get_tiny_hit(void *const ctx)
+{
+  struct thread_task *const task = ctx;
+  for (;;) {
+    const size_t requests_count = get_batch_requests_count(task);
+    if (requests_count == 0) {
+      break;
+    }
+    simple_get_tiny_hit(task->cache, requests_count, task->get_items_count,
+        task->max_item_size);
+  }
+}
+
 static double measure_qps(struct thread_task *const task,
     const p_thread_func thread_func, const size_t threads_count,
     const size_t requests_count)
@@ -322,11 +444,12 @@ static double measure_qps(struct thread_task *const task,
 static void measure_multithreaded_ops(struct ybc *const cache,
     const size_t threads_count, const size_t requests_count,
     const size_t items_count, const size_t hot_items_count,
-    const size_t max_item_size)
+    const size_t max_item_size, const int has_overwrite_protection)
 {
   double qps;
 
-  m_open(cache, items_count, hot_items_count, max_item_size);
+  m_open(cache, items_count, hot_items_count, max_item_size,
+      has_overwrite_protection);
 
   struct thread_task task = {
       .cache = cache,
@@ -338,9 +461,9 @@ static void measure_multithreaded_ops(struct ybc *const cache,
   p_lock_init(&task.lock);
 
   printf("multithreaded_ops(requests=%zu, items=%zu, hot_items=%zu, "
-      "max_item_size=%zu, threads=%zu)\n",
+      "max_item_size=%zu, threads=%zu, has_overwrite_protection=%d)\n",
       requests_count, items_count, hot_items_count, max_item_size,
-      threads_count);
+      threads_count, has_overwrite_protection);
 
   qps = measure_qps(&task, thread_func_get_miss, threads_count, requests_count);
   printf("  get_miss: %.2f qps\n", qps);
@@ -348,11 +471,23 @@ static void measure_multithreaded_ops(struct ybc *const cache,
   qps = measure_qps(&task, thread_func_set, threads_count, requests_count);
   printf("  set     : %.2f qps\n", qps);
 
-  qps = measure_qps(&task, thread_func_get_hit, threads_count, requests_count);
-  printf("  get_hit : %.2f qps\n", qps);
+  if (has_overwrite_protection) {
+    qps = measure_qps(&task, thread_func_get_hit, threads_count,
+        requests_count);
+    printf("  get_hit : %.2f qps\n", qps);
 
-  qps = measure_qps(&task, thread_func_set_get, threads_count, requests_count);
-  printf("  get_set : %.2f qps\n", qps);
+    qps = measure_qps(&task, thread_func_set_get, threads_count,
+        requests_count);
+    printf("  get_set : %.2f qps\n", qps);
+  }
+
+  ybc_clear(cache);
+
+  qps = measure_qps(&task, thread_func_set_tiny, threads_count, requests_count);
+  printf("  set_tiny : %.2f qps\n", qps);
+
+  qps = measure_qps(&task, thread_func_get_tiny_hit, threads_count, requests_count);
+  printf("  get_tiny_hit : %.2f qps\n", qps);
 
   p_lock_destroy(&task.lock);
 
@@ -368,16 +503,21 @@ int main(void)
   const size_t items_count = 200 * 1000;
 
   for (size_t max_item_size = 8; max_item_size <= 4096; max_item_size *= 2) {
-    measure_simple_ops(cache, requests_count, items_count, 0, max_item_size);
+    measure_simple_ops(cache, requests_count, items_count, 0, max_item_size, 0);
+    measure_simple_ops(cache, requests_count, items_count, 0, max_item_size, 1);
     for (size_t hot_items_count = 1000; hot_items_count <= items_count;
         hot_items_count *= 10) {
       measure_simple_ops(cache, requests_count, items_count, hot_items_count,
-          max_item_size);
+          max_item_size, 0);
+      measure_simple_ops(cache, requests_count, items_count, hot_items_count,
+          max_item_size, 1);
     }
 
     for (size_t threads_count = 1; threads_count <= 16; threads_count *= 2) {
       measure_multithreaded_ops(cache, threads_count, requests_count,
-          items_count, 10 * 1000, max_item_size);
+          items_count, 10 * 1000, max_item_size, 0);
+      measure_multithreaded_ops(cache, threads_count, requests_count,
+          items_count, 10 * 1000, max_item_size, 1);
     }
   }
 
