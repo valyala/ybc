@@ -33,7 +33,7 @@ var (
 	readBufferSize            = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes. Makes sense only for clientType=new")
 	responseTimeHistogramSize = flag.Int("responseTimeHistogramSize", 10, "The size of response time histogram")
 	serverAddrs               = flag.String("serverAddrs", "localhost:11211", "Comma-delimited addresses of memcache servers to test")
-	valueSize                 = flag.Int("valueSize", 500, "Value size in bytes")
+	valueSize                 = flag.Int("valueSize", 200, "Value size in bytes")
 	workerMode                = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSetRand'")
 	workersCount              = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
 	writeBufferSize           = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes. Makes sense only for clientType=new")
