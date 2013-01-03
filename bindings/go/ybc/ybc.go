@@ -30,6 +30,7 @@ import (
 
 var (
 	ErrNoSpace       = errors.New("ybc: not enough space in the cache")
+	ErrItemTooLarge  = errors.New("ybc: item is too large to store in the cache")
 	ErrCacheMiss     = errors.New("ybc: the item is not found in the cache")
 	ErrOpenFailed    = errors.New("ybc: cannot open the cache")
 	ErrOutOfRange    = errors.New("ybc: out of range offset")
@@ -55,20 +56,25 @@ var (
 	itemSize   = int(C.ybc_item_get_size())
 )
 
-// Cache and Cluster implement this interface
-type Cacher interface {
+// TinyCache, Cache and Cluster implement this interface
+type TinyCacher interface {
 	Set(key []byte, value []byte, ttl time.Duration) error
 	Get(key []byte) (value []byte, err error)
+	Delete(key []byte) bool
+	Clear()
+	Close() error
+}
+
+// Cache and Cluster implement this interface
+type Cacher interface {
+	TinyCacher
 	GetDe(key []byte, graceDuration time.Duration) (value []byte, err error)
 	GetDeAsync(key []byte, graceDuration time.Duration) (value []byte, err error)
-	Delete(key []byte) bool
 	SetItem(key []byte, value []byte, ttl time.Duration) (item *Item, err error)
 	GetItem(key []byte) (item *Item, err error)
 	GetDeItem(key []byte, graceDuration time.Duration) (item *Item, err error)
 	GetDeAsyncItem(key []byte, graceDuration time.Duration) (item *Item, err error)
 	NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn *SetTxn, err error)
-	Clear()
-	Close() error
 }
 
 /*******************************************************************************
@@ -185,7 +191,7 @@ type configInternal struct {
 	cg  cacheGuard
 }
 
-// Opens a cache.
+// Opens Cache.
 //
 // If force is true, then tries fixing the following non-critical errors
 // instead of returning ErrOpenFailed:
@@ -204,7 +210,45 @@ type configInternal struct {
 //   defer cache.Close()
 //
 func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
-	c := cfg.internal()
+	return cfg.openCacheInternal(force, false)
+}
+
+// Opens TinyCache.
+//
+// maxItemSize is the maximum size of object the cache can handle.
+// Consider using Cache instead of TinyCache if you plan storing objects
+// in the cache bigger than a few Kb.
+//
+// If force is true, then tries fixing the following non-critical errors
+// instead of returning ErrOpenFailed:
+//   * creates missing index or data files.
+//   * fixes incorrect sizes for index or data files.
+//
+// Do not open the same cache more than once at the same time!
+//
+// The returned cache must be closed with cache.Close() call!
+// Prefer using defer for closing opened caches:
+//
+//   tc, err := config.OpenTinyCache(true)
+//   if err != nil {
+//     log.Fatalf("Error when opening the cache: [%s]", err)
+//   }
+//   defer tc.Close()
+//
+func (cfg *Config) OpenTinyCache(maxItemSize int, force bool) (tc *TinyCache, err error) {
+	cache, err := cfg.openCacheInternal(force, true)
+	if err != nil {
+		return
+	}
+	tc = &TinyCache{
+		cache:       cache,
+		maxItemSize: maxItemSize,
+	}
+	return
+}
+
+func (cfg *Config) openCacheInternal(force, isTinyCache bool) (cache *Cache, err error) {
+	c := cfg.internal(isTinyCache)
 	defer C.ybc_config_destroy(c.ctx)
 
 	c.cg.Acquire()
@@ -235,13 +279,13 @@ func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
 
 // Removes cache files from filesystem.
 func (cfg *Config) RemoveCache() {
-	c := cfg.internal()
+	c := cfg.internal(false)
 	defer C.ybc_config_destroy(c.ctx)
 
 	C.ybc_remove(c.ctx)
 }
 
-func (cfg *Config) internal() *configInternal {
+func (cfg *Config) internal(isTiny bool) *configInternal {
 	c := &configInternal{
 		buf: make([]byte, configSize),
 	}
@@ -279,9 +323,93 @@ func (cfg *Config) internal() *configInternal {
 		}
 		C.ybc_config_set_sync_interval(ctx, C.uint64_t(syncInterval/time.Millisecond))
 	}
+	if isTiny {
+		C.ybc_config_disable_overwrite_protection(ctx)
+	}
 
 	c.ctx = ctx
 	return c
+}
+
+/*******************************************************************************
+ * Tiny Cache - cache with simplified interface.
+ ******************************************************************************/
+
+// Tiny Cache handler.
+//
+// This is a cache with simplified API comparing to Cache API.
+// TinyCache is optimized for working with small objects (up to 1Kb each).
+// The number of small objects doesn't matter.
+// Its' performance scales better on multi-CPU systems comparing to Cache.
+//
+// Consider using Cache instead of TinyCache for storing large objects such
+// as images, audio and video files, since TinyCache has much higher overhead
+// when working with large objects.
+//
+// Note that objects stored via TinyCache cannot be read via Cache
+// and vice versa.
+type TinyCache struct {
+	cache       *Cache
+	maxItemSize int
+}
+
+// Closes the cache.
+//
+// All opened caches must be closed with this call!
+// Do not close the same cache more than once.
+func (tc *TinyCache) Close() error {
+	return tc.cache.Close()
+}
+
+// Stores the given (key, value) pair with the given ttl in the cache.
+//
+// value size shouldn't exceed maxItemSize passed to Config.OpenTinyCache().
+func (tc *TinyCache) Set(key, value []byte, ttl time.Duration) error {
+	tc.cache.dg.CheckLive()
+	if len(value) > tc.maxItemSize {
+		return ErrItemTooLarge
+	}
+	var k C.struct_ybc_key
+	initKey(&k, key)
+	var v C.struct_ybc_value
+	initValue(&v, value, ttl)
+	if C.ybc_tiny_set(tc.cache.ctx(), &k, &v) == 0 {
+		return ErrNoSpace
+	}
+	return nil
+}
+
+// Returns value associated with the given key
+func (tc *TinyCache) Get(key []byte) (value []byte, err error) {
+	tc.cache.dg.CheckLive()
+	var k C.struct_ybc_key
+	initKey(&k, key)
+
+	value = make([]byte, tc.maxItemSize)
+	v := C.struct_ybc_value{
+		ptr:  unsafe.Pointer(&value[0]),
+		size: C.size_t(len(value)),
+	}
+	if C.ybc_tiny_get(tc.cache.ctx(), &k, &v) != 1 {
+		value = nil
+		err = ErrCacheMiss
+		return
+	}
+	value = value[:int(v.size)]
+	return
+}
+
+// Deletes an item associated with the given key.
+//
+// Returns true if the given item has been deleted.
+// Returns false if there were no item with such key in the cache.
+func (tc *TinyCache) Delete(key []byte) bool {
+	return tc.cache.Delete(key)
+}
+
+// Clears the cache, i.e. removes all the items stored in the cache.
+func (tc *TinyCache) Clear() {
+	tc.cache.Clear()
 }
 
 /*******************************************************************************
@@ -289,6 +417,12 @@ func (cfg *Config) internal() *configInternal {
  ******************************************************************************/
 
 // Cache handler.
+//
+// It is optimized for working with large objects (up to 2Gb each).
+// The number of large objects doesn't matter.
+//
+// Consider using TinyCache for storing small objects (up to 1Kb). It has better
+// performance scalability on multi-CPU system.
 type Cache struct {
 	dg  debugGuard
 	cg  cacheGuard
@@ -335,8 +469,8 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	}
 	value = item.Value()
 
-        // do not use defer item.Close() for performance reasons
-        item.Close()
+	// do not use defer item.Close() for performance reasons
+	item.Close()
 	return
 }
 

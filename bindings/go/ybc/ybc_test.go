@@ -101,26 +101,29 @@ func TestConfig_OpenCache_DisabledSync(t *testing.T) {
 	expectOpenCacheSuccess(config, true, t)
 }
 
-/*******************************************************************************
- * Cache
- ******************************************************************************/
-
-func newCache(t *testing.T) *Cache {
+func TestConfig_OpenTinyCache(t *testing.T) {
 	config := newConfig()
-	cache, err := config.OpenCache(true)
+	c, err := config.OpenTinyCache(1000, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cache
+	c.Close()
 }
 
-func checkValue(t *testing.T, expectedValue, actualValue []byte) {
-	if bytes.Compare(expectedValue, actualValue) != 0 {
-		t.Fatalf("unexpected value: [%s]. Expected [%s]", actualValue, expectedValue)
+/*******************************************************************************
+ * TinyCache
+ ******************************************************************************/
+
+func newTinyCache(maxItemSize int, t *testing.T) *TinyCache {
+	config := newConfig()
+	tc, err := config.OpenTinyCache(maxItemSize, true)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return tc
 }
 
-func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
+func tiny_cacher_Set_Get_Remove(cache TinyCacher, t *testing.T) {
 	defer cache.Close()
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
@@ -160,9 +163,69 @@ func cacher_Set_Get_Remove(cache Cacher, t *testing.T) {
 	}
 }
 
+func TestTinyCache_Set_Get(t *testing.T) {
+	tc := newTinyCache(1000, t)
+	tiny_cacher_Set_Get_Remove(tc, t)
+}
+
+func TestTinyCache_TooLargeItem(t *testing.T) {
+	tc := newTinyCache(5, t)
+	defer tc.Close()
+	err := tc.Set([]byte("key"), []byte("too large value"), MaxTtl)
+	if err != ErrItemTooLarge {
+		t.Fatalf("Unexpected error=[%s]. Expected ErrItemTooLarge", err)
+	}
+}
+
+func tiny_cacher_Clear(cache TinyCacher, t *testing.T) {
+	defer cache.Close()
+	for i := 0; i < 1000; i++ {
+		key := []byte(fmt.Sprintf("key_%d", i))
+		value := []byte(fmt.Sprintf("value_%d", i))
+		err := cache.Set(key, value, MaxTtl)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cache.Clear()
+
+	for i := 0; i < 1000; i++ {
+		key := []byte(fmt.Sprintf("key_%d", i))
+		_, err := cache.Get(key)
+		if err != ErrCacheMiss {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTinyCache_Clear(t *testing.T) {
+	tc := newTinyCache(1000, t)
+	tiny_cacher_Clear(tc, t)
+}
+
+/*******************************************************************************
+ * Cache
+ ******************************************************************************/
+
+func newCache(t *testing.T) *Cache {
+	config := newConfig()
+	cache, err := config.OpenCache(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cache
+}
+
+func checkValue(t *testing.T, expectedValue, actualValue []byte) {
+	if bytes.Compare(expectedValue, actualValue) != 0 {
+		t.Fatalf("unexpected value: [%s]. Expected [%s]", actualValue, expectedValue)
+	}
+}
+
 func TestCache_Set_Get_Remove(t *testing.T) {
 	cache := newCache(t)
-	cacher_Set_Get_Remove(cache, t)
+	tiny_cacher_Set_Get_Remove(cache, t)
 }
 
 func cacher_GetDe(cache Cacher, t *testing.T) {
@@ -195,31 +258,9 @@ func TestCache_GetDe(t *testing.T) {
 	cacher_GetDe(cache, t)
 }
 
-func cacher_Clear(cache Cacher, t *testing.T) {
-	defer cache.Close()
-	for i := 0; i < 1000; i++ {
-		key := []byte(fmt.Sprintf("key_%d", i))
-		value := []byte(fmt.Sprintf("value_%d", i))
-		err := cache.Set(key, value, MaxTtl)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	cache.Clear()
-
-	for i := 0; i < 1000; i++ {
-		key := []byte(fmt.Sprintf("key_%d", i))
-		_, err := cache.Get(key)
-		if err != ErrCacheMiss {
-			t.Fatal(err)
-		}
-	}
-}
-
 func TestCache_Clear(t *testing.T) {
 	cache := newCache(t)
-	cacher_Clear(cache, t)
+	tiny_cacher_Clear(cache, t)
 }
 
 func cacher_SetItem(cache Cacher, t *testing.T) {
@@ -873,7 +914,7 @@ func TestCluster_Ops(t *testing.T) {
 
 func TestCluster_Set_Get_Remove(t *testing.T) {
 	cluster := newCluster(t)
-	cacher_Set_Get_Remove(cluster, t)
+	tiny_cacher_Set_Get_Remove(cluster, t)
 }
 
 func TestCluster_GetDe(t *testing.T) {
@@ -883,7 +924,7 @@ func TestCluster_GetDe(t *testing.T) {
 
 func TestCluster_Clear(t *testing.T) {
 	cluster := newCluster(t)
-	cacher_Clear(cluster, t)
+	tiny_cacher_Clear(cluster, t)
 }
 
 func TestCluster_SetItem(t *testing.T) {
