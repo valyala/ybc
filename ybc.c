@@ -2510,7 +2510,7 @@ void ybc_cluster_clear(struct ybc_cluster *cluster)
  * Tiny API.
  ******************************************************************************/
 
-uint32_t m_tiny_crc_get(const void *const ptr, const size_t size)
+static uint32_t m_tiny_crc_get(const void *const ptr, const size_t size)
 {
   // TODO: use more appropriate functon here (for example, crc32).
   return (uint32_t)m_hash_get(0, ptr, size);
