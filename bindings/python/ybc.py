@@ -4,17 +4,12 @@ import os
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ybc = ctypes.cdll.LoadLibrary(_CURRENT_DIR + "/libybc-release.so")
 
+class Error(Exception): pass
 
-class OpenFailedError(Exception):
-  pass
-
-
-class NoSpaceError(Exception):
-  pass
-
-
-class CacheMissError(Exception):
-  pass
+class OpenFailedError(Error): pass
+class NoSpaceError(Error): pass
+class ItemTooLargeError(Error): pass
+class CacheMissError(Error): pass
 
 
 class Config(object):
@@ -69,27 +64,31 @@ class Config(object):
   def open_cache(self, force):
     return _Cache(self._buf, force)
 
+  def open_tiny_cache(self, max_item_size, force):
+    _ybc.ybc_config_disable_overwrite_protection(self._buf)
+    return _TinyCache(self._buf, max_item_size, force)
+
   def remove_cache(self):
     _ybc.ybc_remove(self._buf)
 
 
 class _Key(ctypes.Structure):
   _fields_ = (
-      ("ptr", ctypes.c_char_p),
+      ("ptr", ctypes.c_void_p),
       ("size", ctypes.c_size_t),
   )
 
   @staticmethod
   def create(s):
     v = _Key()
-    v.ptr = s
+    v.ptr = ctypes.cast(s, ctypes.c_void_p)
     v.size = len(s)
     return v
 
 
 class _Value(ctypes.Structure):
   _fields_ = (
-      ("ptr", ctypes.c_char_p),
+      ("ptr", ctypes.c_void_p),
       ("size", ctypes.c_size_t),
       ("ttl", ctypes.c_uint64),
   )
@@ -97,7 +96,7 @@ class _Value(ctypes.Structure):
   @staticmethod
   def create(s, ttl):
     v = _Value()
-    v.ptr = s
+    v.ptr = ctypes.cast(s, ctypes.c_void_p)
     v.size = len(s)
     v.ttl = ttl
     return v
@@ -105,6 +104,37 @@ class _Value(ctypes.Structure):
 
 class _Item(object):
   _BUF_SIZE = _ybc.ybc_item_get_size()
+
+
+class _TinyCache(object):
+  def __init__(self, config_buf, max_item_size, force):
+    self._cache = _Cache(config_buf, force)
+    self._max_item_size = max_item_size
+
+  def clear(self):
+    self._cache.clear()
+
+  def set(self, key, value, ttl=(1<<62)):
+    if len(value) > self._max_item_size:
+      raise ItemTooLargeError
+
+    key = _Key.create(key)
+    value = _Value.create(value, ttl)
+    if not _ybc.ybc_tiny_set(self._cache._buf, ctypes.byref(key), ctypes.byref(value)):
+      raise NoSpaceError
+
+  def get(self, key):
+    key = _Key.create(key)
+    value = _Value()
+    buf = ctypes.create_string_buffer(self._max_item_size)
+    value.ptr = ctypes.cast(buf, ctypes.c_void_p)
+    value.size = self._max_item_size
+    if _ybc.ybc_tiny_get(self._cache._buf, ctypes.byref(key), ctypes.byref(value)) != 1:
+      raise CacheMissError
+    return buf.raw[:value.size]
+
+  def remove(self, key):
+    return self._cache.remove(key)
 
 
 class _Cache(object):
@@ -161,7 +191,7 @@ class _Cache(object):
 
 def f():
   c = Config()
-  c.set_max_items_count(1000)
+  c.set_max_items_count(10000)
   c.set_data_file_size(100*1000)
   c.set_index_file("foobar.index")
   c.set_data_file("foobar.data")
@@ -169,23 +199,26 @@ def f():
   c.set_hot_data_size(1000)
   c.set_de_hashtable_size(100)
   c.set_sync_interval(10 * 1000)
-
-  cache = c.open_cache(True)
+  cache = c.open_tiny_cache(20, True)
   cache.clear()
+
+  for i in range(1000 * 1000):
+    cache.set("key_%d" % i, "value_%d" % i)
+
   cache.set("key", "value")
   v = cache.get("key")
   print "get(): v=[%s], len=%d" % (v, len(v))
-  v = cache.get_de("key", 1000)
-  print "get_de(): v=[%s], len=%d" % (v, len(v))
+#  v = cache.get_de("key", 1000)
+#  print "get_de(): v=[%s], len=%d" % (v, len(v))
   if not cache.remove("key"):
     print "cannot remove existing item"
 
-  for i in range(10):
-    try:
-      print "get_de(%d)" % i
-      cache.get_de("key", 100)
-    except CacheMissError:
-      pass
+#  for i in range(10):
+#    try:
+#      print "get_de(%d)" % i
+#      cache.get_de("key", 100)
+#    except CacheMissError:
+#      pass
 
   del cache
 
