@@ -179,7 +179,8 @@ A: Cache persistence allows skipping cache warm-up step ater the application
 
 Q: How well YBC performance scales on multiple CPUs?
 A: It scales perfectly if specially designed functions are used -
-   ybc_config_disable_overwrite_protection(), ybc_tiny_set() and ybc_tiny_get().
+   ybc_config_disable_overwrite_protection(), ybc_simple_set()
+   and ybc_simple_get().
 
 Q: Are cache files platform-neutral?
 A: No. Cache files are tightly tied to the platform they were created.

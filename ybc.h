@@ -242,7 +242,7 @@ YBC_API void ybc_config_set_sync_interval(struct ybc_config *config,
  * If protection is disabled, then items' data may be corrupted by overwriting
  * old items' data by new items' data. This mode may be useful if you'll make
  * a copy of returned items' data into your memory and then verify this data
- * before passing it further. There are ybc_tiny_set() and ybc_tiny_get()
+ * before passing it further. There are ybc_simple_set() and ybc_simple_get()
  * functions, which automatically perform items' data validation.
  *
  * This mode is safe if the folllowing conditions are met:
@@ -887,14 +887,14 @@ YBC_API void ybc_cluster_clear(struct ybc_cluster *cluster);
 
 
 /*******************************************************************************
- * Tiny API.
+ * Simple API.
  *
  * Use this API when working with small items (up to 1Kb each) and when
  * overwrite protection is disabled (see
  * ybc_config_disable_overwrite_protection() for details).
  *
  * Prefer using ybc_item_*() and ybc_set_txn_*() functions when working with
- * big items, since ybc_tiny_*() functions have too big overhead
+ * big items, since ybc_simple_*() functions have too big overhead
  * for large items.
  ******************************************************************************/
 
@@ -903,12 +903,13 @@ YBC_API void ybc_cluster_clear(struct ybc_cluster *cluster);
  *
  * Returns non-zero value on success, zero on failure.
  *
- * Values stored via ybc_tiny_set() must be obtained only via ybc_tiny_get().
+ * Values stored via ybc_simple_set() must be obtained only
+ * via ybc_simple_get().
  *
- * Use ybc_tiny_*() functions on caches with disabled items' overwrite
+ * Use ybc_simple_*() functions on caches with disabled items' overwrite
  * protection (see ybc_config_disable_overwrite_protection() for details).
   */
-YBC_API int ybc_tiny_set(struct ybc *cache, const struct ybc_key *key,
+YBC_API int ybc_simple_set(struct ybc *cache, const struct ybc_key *key,
 const struct ybc_value *value);
 
 /*
@@ -928,13 +929,13 @@ const struct ybc_value *value);
  *   * -1 if the items' size is bigger than value->size. In this case
  *     value->size is set to real item's value. It is expected that the caller
  *     will provide enough space for the item in value->ptr and call
- *     ybc_tiny_get() again. For instance:
+ *     ybc_simple_get() again. For instance:
  *
  *        int rv;
  *        value.size = 10;
  *        value.ptr = malloc(value.size);
  *        for (;;) {
- *          rv = ybc_tiny_get(cache, key, &value);
+ *          rv = ybc_simple_get(cache, key, &value);
  *          if (rv != -1) {
  *            break;
  *          }
@@ -947,10 +948,10 @@ const struct ybc_value *value);
  *        }
  *        free(value.ptr);
  *
- * Use ybc_tiny_*() functions on caches with disabled items' overwrite
+ * Use ybc_simple_*() functions on caches with disabled items' overwrite
  * protection (see ybc_config_disable_overwrite_protection() for details).
  */
-YBC_API int ybc_tiny_get(struct ybc *const cache,
+YBC_API int ybc_simple_get(struct ybc *const cache,
     const struct ybc_key *const key, struct ybc_value *const value);
 
 

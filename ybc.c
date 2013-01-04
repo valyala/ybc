@@ -2507,19 +2507,19 @@ void ybc_cluster_clear(struct ybc_cluster *cluster)
 
 
 /*******************************************************************************
- * Tiny API.
+ * Simple API.
  ******************************************************************************/
 
-static uint32_t m_tiny_crc_get(const void *const ptr, const size_t size)
+static uint32_t m_simple_crc_get(const void *const ptr, const size_t size)
 {
   // TODO: use more appropriate functon here (for example, crc32).
   return (uint32_t)m_hash_get(0, ptr, size);
 }
 
-int ybc_tiny_set(struct ybc *const cache, const struct ybc_key *const key,
+int ybc_simple_set(struct ybc *const cache, const struct ybc_key *const key,
     const struct ybc_value *const value)
 {
-  const uint32_t crc = m_tiny_crc_get(value->ptr, value->size);
+  const uint32_t crc = m_simple_crc_get(value->ptr, value->size);
   const size_t crc_size = sizeof(crc);
   if (value->size > SIZE_MAX - crc_size) {
     return 0;
@@ -2541,7 +2541,7 @@ int ybc_tiny_set(struct ybc *const cache, const struct ybc_key *const key,
   return 1;
 }
 
-int ybc_tiny_get(struct ybc *const cache, const struct ybc_key *const key,
+int ybc_simple_get(struct ybc *const cache, const struct ybc_key *const key,
     struct ybc_value *const value)
 {
   struct ybc_item item;
@@ -2569,6 +2569,6 @@ int ybc_tiny_get(struct ybc *const cache, const struct ybc_key *const key,
   ybc_item_release(&item);
   value->size = actual_size;
 
-  const uint32_t expected_crc = m_tiny_crc_get(value->ptr, actual_size);
+  const uint32_t expected_crc = m_simple_crc_get(value->ptr, actual_size);
   return (actual_crc == expected_crc);
 }

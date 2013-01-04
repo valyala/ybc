@@ -64,9 +64,9 @@ class Config(object):
   def open_cache(self, force):
     return _Cache(self._buf, force)
 
-  def open_tiny_cache(self, max_item_size, force):
+  def open_simple_cache(self, max_item_size, force):
     _ybc.ybc_config_disable_overwrite_protection(self._buf)
-    return _TinyCache(self._buf, max_item_size, force)
+    return _SimpleCache(self._buf, max_item_size, force)
 
   def remove_cache(self):
     _ybc.ybc_remove(self._buf)
@@ -106,7 +106,7 @@ class _Item(object):
   _BUF_SIZE = _ybc.ybc_item_get_size()
 
 
-class _TinyCache(object):
+class _SimpleCache(object):
   def __init__(self, config_buf, max_item_size, force):
     self._cache = _Cache(config_buf, force)
     self._max_item_size = max_item_size
@@ -120,7 +120,7 @@ class _TinyCache(object):
 
     key = _Key.create(key)
     value = _Value.create(value, ttl)
-    if not _ybc.ybc_tiny_set(self._cache._buf, ctypes.byref(key), ctypes.byref(value)):
+    if not _ybc.ybc_simple_set(self._cache._buf, ctypes.byref(key), ctypes.byref(value)):
       raise NoSpaceError
 
   def get(self, key):
@@ -129,7 +129,7 @@ class _TinyCache(object):
     buf = ctypes.create_string_buffer(self._max_item_size)
     value.ptr = ctypes.cast(buf, ctypes.c_void_p)
     value.size = self._max_item_size
-    if _ybc.ybc_tiny_get(self._cache._buf, ctypes.byref(key), ctypes.byref(value)) != 1:
+    if _ybc.ybc_simple_get(self._cache._buf, ctypes.byref(key), ctypes.byref(value)) != 1:
       raise CacheMissError
     return buf.raw[:value.size]
 
@@ -199,7 +199,7 @@ def f():
   c.set_hot_data_size(1000)
   c.set_de_hashtable_size(100)
   c.set_sync_interval(10 * 1000)
-  cache = c.open_tiny_cache(20, True)
+  cache = c.open_simple_cache(20, True)
   cache.clear()
 
   for i in range(1000 * 1000):

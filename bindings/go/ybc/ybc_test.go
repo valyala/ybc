@@ -101,9 +101,9 @@ func TestConfig_OpenCache_DisabledSync(t *testing.T) {
 	expectOpenCacheSuccess(config, true, t)
 }
 
-func TestConfig_OpenTinyCache(t *testing.T) {
+func TestConfig_OpenSimpleCache(t *testing.T) {
 	config := newConfig()
-	c, err := config.OpenTinyCache(1000, true)
+	c, err := config.OpenSimpleCache(1000, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,19 +111,19 @@ func TestConfig_OpenTinyCache(t *testing.T) {
 }
 
 /*******************************************************************************
- * TinyCache
+ * SimpleCache
  ******************************************************************************/
 
-func newTinyCache(maxItemSize int, t *testing.T) *TinyCache {
+func newSimpleCache(maxItemSize int, t *testing.T) *SimpleCache {
 	config := newConfig()
-	tc, err := config.OpenTinyCache(maxItemSize, true)
+	sc, err := config.OpenSimpleCache(maxItemSize, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tc
+	return sc
 }
 
-func tiny_cacher_Set_Get_Remove(cache TinyCacher, t *testing.T) {
+func simple_cacher_Set_Get_Remove(cache SimpleCacher, t *testing.T) {
 	defer cache.Close()
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
@@ -163,21 +163,21 @@ func tiny_cacher_Set_Get_Remove(cache TinyCacher, t *testing.T) {
 	}
 }
 
-func TestTinyCache_Set_Get(t *testing.T) {
-	tc := newTinyCache(1000, t)
-	tiny_cacher_Set_Get_Remove(tc, t)
+func TestSimpleCache_Set_Get(t *testing.T) {
+	sc := newSimpleCache(1000, t)
+	simple_cacher_Set_Get_Remove(sc, t)
 }
 
-func TestTinyCache_TooLargeItem(t *testing.T) {
-	tc := newTinyCache(5, t)
-	defer tc.Close()
-	err := tc.Set([]byte("key"), []byte("too large value"), MaxTtl)
+func TestSimpleCache_TooLargeItem(t *testing.T) {
+	sc := newSimpleCache(5, t)
+	defer sc.Close()
+	err := sc.Set([]byte("key"), []byte("too large value"), MaxTtl)
 	if err != ErrItemTooLarge {
 		t.Fatalf("Unexpected error=[%s]. Expected ErrItemTooLarge", err)
 	}
 }
 
-func tiny_cacher_Clear(cache TinyCacher, t *testing.T) {
+func simple_cacher_Clear(cache SimpleCacher, t *testing.T) {
 	defer cache.Close()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
@@ -199,9 +199,9 @@ func tiny_cacher_Clear(cache TinyCacher, t *testing.T) {
 	}
 }
 
-func TestTinyCache_Clear(t *testing.T) {
-	tc := newTinyCache(1000, t)
-	tiny_cacher_Clear(tc, t)
+func TestSimpleCache_Clear(t *testing.T) {
+	sc := newSimpleCache(1000, t)
+	simple_cacher_Clear(sc, t)
 }
 
 /*******************************************************************************
@@ -225,7 +225,7 @@ func checkValue(t *testing.T, expectedValue, actualValue []byte) {
 
 func TestCache_Set_Get_Remove(t *testing.T) {
 	cache := newCache(t)
-	tiny_cacher_Set_Get_Remove(cache, t)
+	simple_cacher_Set_Get_Remove(cache, t)
 }
 
 func cacher_GetDe(cache Cacher, t *testing.T) {
@@ -260,7 +260,7 @@ func TestCache_GetDe(t *testing.T) {
 
 func TestCache_Clear(t *testing.T) {
 	cache := newCache(t)
-	tiny_cacher_Clear(cache, t)
+	simple_cacher_Clear(cache, t)
 }
 
 func cacher_SetItem(cache Cacher, t *testing.T) {
@@ -914,7 +914,7 @@ func TestCluster_Ops(t *testing.T) {
 
 func TestCluster_Set_Get_Remove(t *testing.T) {
 	cluster := newCluster(t)
-	tiny_cacher_Set_Get_Remove(cluster, t)
+	simple_cacher_Set_Get_Remove(cluster, t)
 }
 
 func TestCluster_GetDe(t *testing.T) {
@@ -924,7 +924,7 @@ func TestCluster_GetDe(t *testing.T) {
 
 func TestCluster_Clear(t *testing.T) {
 	cluster := newCluster(t)
-	tiny_cacher_Clear(cluster, t)
+	simple_cacher_Clear(cluster, t)
 }
 
 func TestCluster_SetItem(t *testing.T) {

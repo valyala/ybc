@@ -101,8 +101,9 @@ static void simple_set(struct ybc *const cache, const size_t requests_count,
   p_free(buf);
 }
 
-static void simple_set_tiny(struct ybc *const cache, const size_t requests_count,
-    const size_t items_count, const size_t max_item_size)
+static void simple_set_simple(struct ybc *const cache,
+    const size_t requests_count, const size_t items_count,
+    const size_t max_item_size)
 {
   struct m_rand_state rand_state;
   uint64_t tmp;
@@ -126,7 +127,7 @@ static void simple_set_tiny(struct ybc *const cache, const size_t requests_count
     value.size = m_rand_next(&rand_state) % (max_item_size + 1);
     m_memset(buf, (char)value.size, value.size);
 
-    if (!ybc_tiny_set(cache, &key, &value)) {
+    if (!ybc_simple_set(cache, &key, &value)) {
       M_ERROR("Cannot store item in the cache");
     }
   }
@@ -193,7 +194,7 @@ static void simple_get_hit(struct ybc *const cache,
   }
 }
 
-static void simple_get_tiny_hit(struct ybc *const cache,
+static void simple_get_simple_hit(struct ybc *const cache,
     const size_t requests_count, const size_t items_count,
     const size_t max_item_size)
 {
@@ -214,7 +215,7 @@ static void simple_get_tiny_hit(struct ybc *const cache,
     tmp = m_rand_next(&rand_state) % items_count;
 
     value.size = max_item_size;
-    int rv = ybc_tiny_get(cache, &key, &value);
+    int rv = ybc_simple_get(cache, &key, &value);
     if (rv == 0) {
       continue;
     }
@@ -300,16 +301,16 @@ static void measure_simple_ops(struct ybc *const cache,
   ybc_clear(cache);
 
   start_time = p_get_current_time();
-  simple_set_tiny(cache, requests_count, items_count, max_item_size);
+  simple_set_simple(cache, requests_count, items_count, max_item_size);
   end_time = p_get_current_time();
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  set_tiny     : %.02f qps\n", qps);
+  printf("  set_simple     : %.02f qps\n", qps);
 
   start_time = p_get_current_time();
-  simple_get_tiny_hit(cache, requests_count, get_items_count, max_item_size);
+  simple_get_simple_hit(cache, requests_count, get_items_count, max_item_size);
   end_time = p_get_current_time();
   qps = requests_count / (end_time - start_time) * 1000;
-  printf("  get_tiny_hit : %.02f qps\n", qps);
+  printf("  get_simple_hit : %.02f qps\n", qps);
 
   ybc_close(cache);
 }
@@ -395,7 +396,7 @@ static void thread_func_set_get(void *const ctx)
   }
 }
 
-static void thread_func_set_tiny(void *const ctx)
+static void thread_func_set_simple(void *const ctx)
 {
   struct thread_task *const task = ctx;
   for (;;) {
@@ -403,12 +404,12 @@ static void thread_func_set_tiny(void *const ctx)
     if (requests_count == 0) {
       break;
     }
-    simple_set_tiny(task->cache, requests_count, task->items_count,
+    simple_set_simple(task->cache, requests_count, task->items_count,
         task->max_item_size);
   }
 }
 
-static void thread_func_get_tiny_hit(void *const ctx)
+static void thread_func_get_simple_hit(void *const ctx)
 {
   struct thread_task *const task = ctx;
   for (;;) {
@@ -416,7 +417,7 @@ static void thread_func_get_tiny_hit(void *const ctx)
     if (requests_count == 0) {
       break;
     }
-    simple_get_tiny_hit(task->cache, requests_count, task->get_items_count,
+    simple_get_simple_hit(task->cache, requests_count, task->get_items_count,
         task->max_item_size);
   }
 }
@@ -466,28 +467,30 @@ static void measure_multithreaded_ops(struct ybc *const cache,
       threads_count, has_overwrite_protection);
 
   qps = measure_qps(&task, thread_func_get_miss, threads_count, requests_count);
-  printf("  get_miss: %.2f qps\n", qps);
+  printf("  get_miss       : %.2f qps\n", qps);
 
   qps = measure_qps(&task, thread_func_set, threads_count, requests_count);
-  printf("  set     : %.2f qps\n", qps);
+  printf("  set            : %.2f qps\n", qps);
 
   if (has_overwrite_protection) {
     qps = measure_qps(&task, thread_func_get_hit, threads_count,
         requests_count);
-    printf("  get_hit : %.2f qps\n", qps);
+    printf("  get_hit        : %.2f qps\n", qps);
 
     qps = measure_qps(&task, thread_func_set_get, threads_count,
         requests_count);
-    printf("  get_set : %.2f qps\n", qps);
+    printf("  get_set        : %.2f qps\n", qps);
   }
 
   ybc_clear(cache);
 
-  qps = measure_qps(&task, thread_func_set_tiny, threads_count, requests_count);
-  printf("  set_tiny : %.2f qps\n", qps);
+  qps = measure_qps(&task, thread_func_set_simple, threads_count,
+      requests_count);
+  printf("  set_simple     : %.2f qps\n", qps);
 
-  qps = measure_qps(&task, thread_func_get_tiny_hit, threads_count, requests_count);
-  printf("  get_tiny_hit : %.2f qps\n", qps);
+  qps = measure_qps(&task, thread_func_get_simple_hit, threads_count,
+      requests_count);
+  printf("  get_simple_hit : %.2f qps\n", qps);
 
   p_lock_destroy(&task.lock);
 
