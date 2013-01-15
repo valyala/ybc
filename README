@@ -106,8 +106,8 @@ https://www.varnish-cache.org/trac/wiki/ArchitectNotes .
 FAQ.
 
 Q: Give me performance numbers!
-A: Well, it achieves 10Mqps for get() calls and 4Mqps for set() calls in one
-   thread on my not-so-fast laptop with 2.50GHz Intel i5 CPU.
+A: Well, YBC achieves 25.8 Mops/s for get() calls and 5.8 Mops/s for set() calls
+   on my not-so-fast laptop with 2.50GHz Intel i5 CPU when running in 4 threads.
 
 Q: Is this yet another boring cache implementation?
 A: No. YBC is designed for modern OSes running on modern hardware. It takes
