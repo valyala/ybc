@@ -429,6 +429,39 @@ func TestSetTxn_Commit(t *testing.T) {
 	checkValue(t, value, actualValue)
 }
 
+func TestSetTxn_CommitTruncated(t *testing.T) {
+	cache := newCache(t)
+	defer cache.Close()
+
+	key := []byte("key")
+	value := []byte("value")
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := txn.Write(value[:2])
+	if err != nil {
+		txn.Rollback()
+		t.Fatal(err)
+	}
+	if n != 2 {
+		txn.Rollback()
+		t.Fatalf("unexpected number of bytes written=%d. Expected %d", n, 2)
+	}
+
+	err = txn.CommitTruncated()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The item should appear in the cache after the commit
+	actualValue, err := cache.Get(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkValue(t, value[:2], actualValue)
+}
+
 func TestSetTxn_Commit_Partial(t *testing.T) {
 	cache := newCache(t)
 	defer cache.Close()
@@ -512,6 +545,35 @@ func TestSetTxn_CommitItem(t *testing.T) {
 	}
 	defer item.Close()
 	checkValue(t, value, item.Value())
+}
+
+func TestSetTxn_CommitItemTruncated(t *testing.T) {
+	cache := newCache(t)
+	defer cache.Close()
+
+	key := []byte("key")
+	value := []byte("value")
+
+	txn, err := cache.NewSetTxn(key, len(value), MaxTtl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := txn.Write(value[:2])
+	if err != nil {
+		txn.Rollback()
+		t.Fatal(err)
+	}
+	if n != 2 {
+		txn.Rollback()
+		t.Fatalf("unexpected number of bytes written=%d. Expected %d", n, len(value))
+	}
+
+	item, err := txn.CommitItemTruncated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer item.Close()
+	checkValue(t, value[:2], item.Value())
 }
 
 func TestSetTxn_ReadFrom(t *testing.T) {

@@ -668,6 +668,15 @@ type SetTxn struct {
 	offset         int
 }
 
+// Commits the truncated transaction.
+//
+// Truncated transaction is partially filled transaction. I.e. its' size
+// is smaller than valueSize passed to Cache.NewSetTxn()
+func (txn *SetTxn) CommitTruncated() error {
+	txn.truncateValue()
+	return txn.Commit()
+}
+
 // Commits the transaction.
 //
 // The item appears atomically in the cache after the commit.
@@ -716,6 +725,14 @@ func (txn *SetTxn) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
+// The same as SetTxn.CommitTruncated(), but additionally returns commited item.
+//
+// The returned item must be closed with item.Close() call!
+func (txn *SetTxn) CommitItemTruncated() (item *Item, err error) {
+	txn.truncateValue()
+	return txn.CommitItem()
+}
+
 // The same as SetTxn.Commit(), but additionally returns commited item.
 //
 // The returned item must be closed with item.Close() call!
@@ -732,6 +749,12 @@ func (txn *SetTxn) CommitItem() (item *Item, err error) {
 	txn.finish()
 	item.dg.Init()
 	return
+}
+
+func (txn *SetTxn) truncateValue() {
+	txn.dg.CheckLive()
+	txn.unsafeBufCache = nil
+	C.ybc_set_txn_update_value_size(txn.ctx(), C.size_t(txn.offset))
 }
 
 func (txn *SetTxn) finish() {
