@@ -676,6 +676,20 @@ static void m_storage_metadata_save(
   memcpy(ptr, key->ptr, key->size);
 }
 
+static void m_storage_metadata_update_payload_size(
+    const struct m_storage *const storage,
+    const struct m_storage_payload *const payload,
+    const size_t key_size)
+{
+  const size_t metadata_size = m_storage_metadata_get_size(key_size);
+  char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
+  assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
+  (void)metadata_size;
+
+  ptr += sizeof(storage->hash_seed) + sizeof(key_size);
+  memcpy(ptr, &payload->size, sizeof(payload->size));
+}
+
 /*
  * Checks metadata correctness for an item with the given payload.
  *
@@ -2076,13 +2090,27 @@ int ybc_set_txn_begin(struct ybc *const cache, struct ybc_set_txn *const txn,
   return 1;
 }
 
+void ybc_set_txn_update_value_size(struct ybc_set_txn *const txn,
+    const size_t value_size)
+{
+  const size_t key_size = txn->item.key_size;
+  const size_t metadata_size = m_storage_metadata_get_size(key_size);
+  struct m_storage_payload *const payload = &txn->item.payload;
+
+  assert(payload->size >= metadata_size);
+  assert(value_size <= payload->size - metadata_size);
+  payload->size = metadata_size + value_size;
+
+  m_storage_metadata_update_payload_size(&txn->item.cache->storage, payload,
+      key_size);
+}
+
 void ybc_set_txn_commit(struct ybc_set_txn *const txn)
 {
-  struct m_storage_payload payload = txn->item.payload;
   struct ybc *const cache = txn->item.cache;
 
   m_map_cache_set(&cache->index.map, &cache->index.map_cache, &txn->key_digest,
-      &payload);
+      &txn->item.payload);
 
   m_item_release(&txn->item);
 }

@@ -456,6 +456,17 @@ YBC_API int ybc_set_txn_begin(struct ybc *cache, struct ybc_set_txn *txn,
     const struct ybc_key *key, size_t value_size, uint64_t ttl);
 
 /*
+ * Updates value size for the given 'set' transaction.
+ *
+ * New value size mustn't exceed value_size passed to ybc_set_txn_begin().
+ *
+ * This function may be called only on active transactions, i.e.
+ * before ybc_set_txn_commit*() or ybc_set_txn_rollback() calls.
+ */
+YBC_API void ybc_set_txn_update_value_size(struct ybc_set_txn *const txn,
+    const size_t value_size);
+
+/*
  * Commits the given 'set' transaction.
  *
  * The corresponding item instantly appears in the cache after the commit.
