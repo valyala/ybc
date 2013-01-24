@@ -631,27 +631,22 @@ static int m_storage_payload_check(const struct m_storage *const storage,
   return 1;
 }
 
-/*
- * It is safe referencing uninitialized memory inside sizeof().
- */
-#define M_MEMBER_SIZEOF(struct_name, member_name) \
-	sizeof(((struct_name *)0)->member_name)
-
 static size_t m_storage_metadata_get_size(const size_t key_size) {
   /*
    * Payload metadata contains the following fields:
-   * - hash_seed
-   * - key size
-   * - payload size
+   * - digest (key size ^ payload size ^ hash seed)
    * - key data
    */
-  static const size_t const_metadata_size =
-      M_MEMBER_SIZEOF(struct m_storage, hash_seed) +
-      M_MEMBER_SIZEOF(struct ybc_key, size) +
-      M_MEMBER_SIZEOF(struct m_storage_payload, size);
+  static const size_t const_metadata_size = sizeof(size_t);
 
   assert(key_size <= SIZE_MAX - const_metadata_size);
   return key_size + const_metadata_size;
+}
+
+static size_t m_storage_metadata_get_digest(const uint64_t hash_seed,
+    const size_t key_size, const size_t payload_size)
+{
+  return (size_t)hash_seed ^ key_size ^ payload_size;
 }
 
 static void m_storage_metadata_save(
@@ -664,30 +659,28 @@ static void m_storage_metadata_save(
   assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
   (void)metadata_size;
 
-  memcpy(ptr, &storage->hash_seed, sizeof(storage->hash_seed));
+  const size_t digest = m_storage_metadata_get_digest(storage->hash_seed,
+      key->size, payload->size);
+  memcpy(ptr, &digest, sizeof(digest));
 
-  ptr += sizeof(storage->hash_seed);
-  memcpy(ptr, &key->size, sizeof(key->size));
-
-  ptr += sizeof(key->size);
-  memcpy(ptr, &payload->size, sizeof(payload->size));
-
-  ptr += sizeof(payload->size);
+  ptr += sizeof(digest);
   memcpy(ptr, key->ptr, key->size);
 }
 
 static void m_storage_metadata_update_payload_size(
     const struct m_storage *const storage,
     const struct m_storage_payload *const payload,
-    const size_t key_size)
+    const size_t old_payload_size, const size_t key_size)
 {
   const size_t metadata_size = m_storage_metadata_get_size(key_size);
   char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
   assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
   (void)metadata_size;
 
-  ptr += sizeof(storage->hash_seed) + sizeof(key_size);
-  memcpy(ptr, &payload->size, sizeof(payload->size));
+  size_t digest;
+  memcpy(&digest, ptr, sizeof(digest));
+  digest ^= old_payload_size ^ payload->size;
+  memcpy(ptr, &digest, sizeof(digest));
 }
 
 /*
@@ -715,24 +708,15 @@ static int m_storage_metadata_check(const struct m_storage *const storage,
   const char *ptr = m_storage_get_ptr(storage, payload->cursor.offset);
   assert(((uintptr_t)ptr) <= UINTPTR_MAX - metadata_size);
 
-  if (memcmp(ptr, &storage->hash_seed, sizeof(storage->hash_seed))) {
-    /* Invalid hash_seed. */
+  const size_t digest = m_storage_metadata_get_digest(storage->hash_seed,
+      key->size, payload->size);
+
+  if (memcmp(ptr, &digest, sizeof(digest))) {
+    /* Invalid digest. */
     return 0;
   }
 
-  ptr += sizeof(storage->hash_seed);
-  if (memcmp(ptr, &key->size, sizeof(key->size))) {
-    /* Invalid key size. */
-    return 0;
-  }
-
-  ptr += sizeof(key->size);
-  if (memcmp(ptr, &payload->size, sizeof(payload->size))) {
-    /* Invalid payload size. */
-    return 0;
-  }
-
-  ptr += sizeof(payload->size);
+  ptr += sizeof(digest);
   if (memcmp(ptr, key->ptr, key->size)) {
     /* Invalid key data. */
     return 0;
@@ -2099,10 +2083,11 @@ void ybc_set_txn_update_value_size(struct ybc_set_txn *const txn,
 
   assert(payload->size >= metadata_size);
   assert(value_size <= payload->size - metadata_size);
+  const size_t old_payload_size = payload->size;
   payload->size = metadata_size + value_size;
 
   m_storage_metadata_update_payload_size(&txn->item.cache->storage, payload,
-      key_size);
+      old_payload_size, key_size);
 }
 
 void ybc_set_txn_commit(struct ybc_set_txn *const txn)
