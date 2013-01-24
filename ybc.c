@@ -2086,8 +2086,19 @@ void ybc_set_txn_update_value_size(struct ybc_set_txn *const txn,
   const size_t old_payload_size = payload->size;
   payload->size = metadata_size + value_size;
 
-  m_storage_metadata_update_payload_size(&txn->item.cache->storage, payload,
+  struct ybc *const cache = txn->item.cache;
+
+  m_storage_metadata_update_payload_size(&cache->storage, payload,
       old_payload_size, key_size);
+
+  // move next_cursor backwards if possible in order to conserve unused space.
+  struct m_storage_cursor *const next_cursor = &cache->storage.next_cursor;
+  p_lock_lock(&cache->lock);
+  if (next_cursor->offset == payload->cursor.offset + old_payload_size &&
+      next_cursor->wrap_count == payload->cursor.wrap_count) {
+    next_cursor->offset = payload->cursor.offset + payload->size;
+  }
+  p_lock_unlock(&cache->lock);
 }
 
 void ybc_set_txn_commit(struct ybc_set_txn *const txn)
