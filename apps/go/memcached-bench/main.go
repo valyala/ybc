@@ -295,13 +295,12 @@ func precreateItemsOrg(client *memcache_org.Client) {
 	defer wg.Wait()
 
 	n := *itemsCount / *workersCount
-
 	workerFunc := func(start int) {
 		defer wg.Done()
 		item := memcache_org.Item{
 			Value: value,
 		}
-		for i := start; i < n; i++ {
+		for i := start; i < start+n; i++ {
 			item.Key = fmt.Sprintf("%s_%d", key, i)
 			if err := client.Set(&item); err != nil {
 				log.Fatalf("Error in Client.Set(): [%s]", err)
