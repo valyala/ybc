@@ -98,23 +98,24 @@ func printStats(stats []Stats) {
 		fmt.Printf("%6.6s -%6.6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
 	}
 	fmt.Printf("Mean response time: %s\n", time.Duration(meanHistogramResponseTime))
-	fmt.Printf("Max response time: %s\n", maxHistogramResponseTime)
-	fmt.Printf("Cache miss count: %d\n", totalStats.cacheMissCount)
-	fmt.Printf("Cache hit count: %d\n", totalStats.cacheHitCount)
+	fmt.Printf("Max response time:  %s\n", maxHistogramResponseTime)
+	fmt.Printf("Cache miss count: %10d\n", totalStats.cacheMissCount)
+	fmt.Printf("Cache hit count:  %10d\n", totalStats.cacheHitCount)
 
 	requestsCount := totalStats.cacheMissCount + totalStats.cacheHitCount
 	cacheMissRatio := 0.0
 	if requestsCount > 0 {
 		cacheMissRatio = float64(totalStats.cacheMissCount) / float64(requestsCount)
 	}
-	fmt.Printf("Cache miss ratio: %.3f\n", cacheMissRatio)
+	fmt.Printf("Cache miss ratio: %10.3f%%\n", cacheMissRatio*100.0)
 }
 
 func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
 	defer wg.Done()
-	keyStr := string(key)
 
 	for _ = range ch {
+		n := rand.Intn(*itemsCount)
+		keyStr := fmt.Sprintf("miss_%s_%d", key, n)
 		startTime := time.Now()
 		if _, err := client.Get(keyStr); err != memcache_org.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
@@ -127,9 +128,10 @@ func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan
 func workerGetMissNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
 	defer wg.Done()
 	var item memcache_new.Item
-	item.Key = key
 
 	for _ = range ch {
+		n := rand.Intn(*itemsCount)
+		item.Key = []byte(fmt.Sprintf("miss_%s_%d", key, n))
 		startTime := time.Now()
 		if err := client.Get(&item); err != memcache_new.ErrCacheMiss {
 			log.Fatalf("Error in Client.Get(): [%s]", err)
@@ -149,6 +151,7 @@ func workerGetHitOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 		_, err := client.Get(keyStr)
 		if err == memcache_org.ErrCacheMiss {
 			stats.cacheMissCount++
+			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 			continue
 		}
 		if err != nil {
@@ -170,6 +173,7 @@ func workerGetHitNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 		err := client.Get(&item)
 		if err == memcache_new.ErrCacheMiss {
 			stats.cacheMissCount++
+			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 			continue
 		}
 		if err != nil {
@@ -287,15 +291,25 @@ func getRandomValue(size int) []byte {
 }
 
 func precreateItemsOrg(client *memcache_org.Client) {
-	item := memcache_org.Item{
-		Value: value,
-	}
+	var wg sync.WaitGroup
+	defer wg.Wait()
 
-	for i := 0; i < *itemsCount; i++ {
-		item.Key = fmt.Sprintf("%s_%d", key, i)
-		if err := client.Set(&item); err != nil {
-			log.Fatalf("Error in Client.Set(): [%s]", err)
+	n := *itemsCount / *workersCount
+
+	workerFunc := func(start int) {
+		defer wg.Done()
+		item := memcache_org.Item{
+			Value: value,
 		}
+		for i := start; i < n; i++ {
+			item.Key = fmt.Sprintf("%s_%d", key, i)
+			if err := client.Set(&item); err != nil {
+				log.Fatalf("Error in Client.Set(): [%s]", err)
+			}
+		}
+	}
+	for i := 0; i < *workersCount; i++ {
+		go workerFunc(i * n)
 	}
 }
 
@@ -303,18 +317,14 @@ func precreateItemsNew(client memcache_new.Cacher) {
 	item := memcache_new.Item{
 		Value: value,
 	}
-
 	for i := 0; i < *itemsCount; i++ {
 		item.Key = []byte(fmt.Sprintf("%s_%d", key, i))
-		if err := client.Set(&item); err != nil {
-			log.Fatalf("Error in Client.Set(): [%s]", err)
-		}
+		client.SetNowait(&item)
 	}
 }
 
 func getWorkerOrg(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, stats *Stats) {
 	client := memcache_org.New(serverAddrs_...)
-	keyStr := string(key)
 
 	worker := workerGetMissOrg
 	switch *workerMode {
@@ -322,7 +332,6 @@ func getWorkerOrg(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 		precreateItemsOrg(client)
 		worker = workerGetHitOrg
 	case "GetMiss":
-		client.Delete(keyStr)
 		worker = workerGetMissOrg
 	case "Set":
 		worker = workerSetOrg
