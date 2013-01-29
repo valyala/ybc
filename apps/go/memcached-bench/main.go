@@ -393,7 +393,7 @@ func getWorkerNew(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 
 func main() {
 	flag.Parse()
-
+	rand.Seed(time.Now().UnixNano())
 	runtime.GOMAXPROCS(*goMaxProcs)
 
 	serverAddrs_ := strings.Split(*serverAddrs, ",")
