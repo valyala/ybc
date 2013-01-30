@@ -73,7 +73,9 @@ func dashBar(percent float64) string {
 	return strings.Repeat("#", int(percent/100.0*60.0))
 }
 
-func printStats(stats []Stats) {
+func printStats(stats []Stats, startTime *time.Time) {
+	fmt.Printf("done\n")
+	testDuration := time.Since(*startTime)
 	n := *responseTimeHistogramSize
 	var totalStats Stats
 	totalStats.responseTimeHistogram = make([]uint32, n)
@@ -94,7 +96,16 @@ func printStats(stats []Stats) {
 	for i := 0; i < n; i++ {
 		totalRequestsCount += totalStats.responseTimeHistogram[i]
 	}
-	meanResponseTime := totalStats.totalResponseTime / time.Duration(totalRequestsCount)
+
+	var avgResponseTime time.Duration
+	if totalRequestsCount > 0 {
+		avgResponseTime = totalStats.totalResponseTime / time.Duration(totalRequestsCount)
+	}
+
+	var requestsPerSecond float64
+	if testDuration > 0 {
+		requestsPerSecond = float64(totalRequestsCount) / (float64(testDuration) / float64(time.Second))
+	}
 
 	fmt.Printf("Response time histogram\n")
 	interval := *maxResponseTime / time.Duration(n)
@@ -108,18 +119,20 @@ func printStats(stats []Stats) {
 		percent *= 100.0
 		fmt.Printf("%6.6s -%6.6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
 	}
-	fmt.Printf("Mean response time: %s\n", meanResponseTime)
-	fmt.Printf("Max response time:  %s\n", totalStats.maxResponseTime)
-	fmt.Printf("Cache miss count: %10d\n", totalStats.cacheMissCount)
-	fmt.Printf("Cache hit count:  %10d\n", totalStats.cacheHitCount)
+	fmt.Printf("Requests per second: %10.0f\n", requestsPerSecond)
+	fmt.Printf("Test duration:       %10s\n", testDuration)
+	fmt.Printf("Avg response time:   %10s\n", avgResponseTime)
+	fmt.Printf("Max response time:   %10s\n", totalStats.maxResponseTime)
+	fmt.Printf("Cache miss count:    %10d\n", totalStats.cacheMissCount)
+	fmt.Printf("Cache hit count:     %10d\n", totalStats.cacheHitCount)
 
 	hitMissrequestsCount := totalStats.cacheMissCount + totalStats.cacheHitCount
 	cacheMissRatio := 0.0
 	if hitMissrequestsCount > 0 {
 		cacheMissRatio = float64(totalStats.cacheMissCount) / float64(hitMissrequestsCount)
 	}
-	fmt.Printf("Cache miss ratio: %10.3f%%\n", cacheMissRatio*100.0)
-	fmt.Printf("Errors count:     %10d\n", totalStats.errorsCount)
+	fmt.Printf("Cache miss ratio:    %10.3f%%\n", cacheMissRatio*100.0)
+	fmt.Printf("Errors count:        %10d\n", totalStats.errorsCount)
 }
 
 func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
@@ -454,11 +467,7 @@ func main() {
 	}
 
 	var startTime time.Time
-	defer func() {
-		duration := float64(time.Since(startTime)) / float64(time.Second)
-		fmt.Printf("done! %.3f seconds, %.0f qps\n", duration, float64(*requestsCount)/duration)
-		printStats(stats)
-	}()
+	defer printStats(stats, &startTime)
 
 	var worker func(wg *sync.WaitGroup, ch chan int, stats *Stats)
 	switch *clientType {
