@@ -48,9 +48,9 @@ var (
 
 type Stats struct {
 	responseTimeHistogram []uint32
-	cacheMissCount        uint64
-	cacheHitCount         uint64
-	errorsCount           uint64
+	cacheMissCount        uint32
+	cacheHitCount         uint32
+	errorsCount           uint32
 }
 
 func updateResponseTimeHistogram(responseTimeHistogram []uint32, startTime time.Time) {
@@ -85,6 +85,11 @@ func printStats(stats []Stats) {
 		totalStats.errorsCount += stats[j].errorsCount
 	}
 
+	var totalRequestsCount uint32
+	for i := 0; i < n; i++ {
+		totalRequestsCount += totalStats.responseTimeHistogram[i]
+	}
+
 	fmt.Printf("Response time histogram\n")
 	interval := *maxResponseTime / time.Duration(n)
 	var meanHistogramResponseTime float64
@@ -94,7 +99,7 @@ func printStats(stats []Stats) {
 		if i == n-1 {
 			endDuration = time.Hour
 		}
-		percent := float64(totalStats.responseTimeHistogram[i]) / float64(*requestsCount)
+		percent := float64(totalStats.responseTimeHistogram[i]) / float64(totalRequestsCount)
 		meanHistogramResponseTime += float64(startDuration+interval/2) * percent
 		percent *= 100.0
 		fmt.Printf("%6.6s -%6.6s: %8.3f%% %s\n", startDuration, endDuration, percent, dashBar(percent))
@@ -104,10 +109,10 @@ func printStats(stats []Stats) {
 	fmt.Printf("Cache miss count: %10d\n", totalStats.cacheMissCount)
 	fmt.Printf("Cache hit count:  %10d\n", totalStats.cacheHitCount)
 
-	requestsCount := totalStats.cacheMissCount + totalStats.cacheHitCount
+	hitMissrequestsCount := totalStats.cacheMissCount + totalStats.cacheHitCount
 	cacheMissRatio := 0.0
-	if requestsCount > 0 {
-		cacheMissRatio = float64(totalStats.cacheMissCount) / float64(requestsCount)
+	if hitMissrequestsCount > 0 {
+		cacheMissRatio = float64(totalStats.cacheMissCount) / float64(hitMissrequestsCount)
 	}
 	fmt.Printf("Cache miss ratio: %10.3f%%\n", cacheMissRatio*100.0)
 	fmt.Printf("Errors count:     %10d\n", totalStats.errorsCount)
@@ -122,9 +127,9 @@ func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan
 		startTime := time.Now()
 		if _, err := client.Get(keyStr); err != memcache_org.ErrCacheMiss {
 			stats.errorsCount++
-		} else {
-			stats.cacheMissCount++
+			continue
 		}
+		stats.cacheMissCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -139,9 +144,9 @@ func workerGetMissNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan 
 		startTime := time.Now()
 		if err := client.Get(&item); err != memcache_new.ErrCacheMiss {
 			stats.errorsCount++
-		} else {
-			stats.cacheMissCount++
+			continue
 		}
+		stats.cacheMissCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -156,14 +161,13 @@ func workerGetHitOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 		_, err := client.Get(keyStr)
 		if err == memcache_org.ErrCacheMiss {
 			stats.cacheMissCount++
-			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 			continue
 		}
 		if err != nil {
 			stats.errorsCount++
-		} else {
-			stats.cacheHitCount++
+			continue
 		}
+		stats.cacheHitCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -179,14 +183,13 @@ func workerGetHitNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 		err := client.Get(&item)
 		if err == memcache_new.ErrCacheMiss {
 			stats.cacheMissCount++
-			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 			continue
 		}
 		if err != nil {
 			stats.errorsCount++
-		} else {
-			stats.cacheHitCount++
+			continue
 		}
+		stats.cacheHitCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -201,6 +204,7 @@ func workerSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int
 		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
 			stats.errorsCount++
+			continue
 		}
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
@@ -216,6 +220,7 @@ func workerSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int,
 		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
 			stats.errorsCount++
+			continue
 		}
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
@@ -232,19 +237,19 @@ func workerGetSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 			_, err := client.Get(item.Key)
 			if err == memcache_org.ErrCacheMiss {
 				stats.cacheMissCount++
-				updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 				continue
 			}
 			if err != nil {
 				stats.errorsCount++
-			} else {
-				stats.cacheHitCount++
+				continue
 			}
+			stats.cacheHitCount++
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
 				stats.errorsCount++
+				continue
 			}
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		}
@@ -262,19 +267,19 @@ func workerGetSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 			err := client.Get(&item)
 			if err == memcache_new.ErrCacheMiss {
 				stats.cacheMissCount++
-				updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 				continue
 			}
 			if err != nil {
 				stats.errorsCount++
-			} else {
-				stats.cacheHitCount++
+				continue
 			}
+			stats.cacheHitCount++
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
 				stats.errorsCount++
+				continue
 			}
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		}
