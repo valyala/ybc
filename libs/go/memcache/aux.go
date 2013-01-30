@@ -103,6 +103,10 @@ func matchByte(r *bufio.Reader, ch byte) bool {
 	}
 	if c != ch {
 		log.Printf("Unexpected byte read=[%d]. Expected [%d]", c, ch)
+		buf := make([]byte, 100)
+		if readLine(r, &buf) {
+			log.Printf("End of line: [%s]", buf)
+		}
 		return false
 	}
 	return true
