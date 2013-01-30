@@ -50,6 +50,7 @@ type Stats struct {
 	responseTimeHistogram []uint32
 	cacheMissCount        uint64
 	cacheHitCount         uint64
+	errorsCount           uint64
 }
 
 func updateResponseTimeHistogram(responseTimeHistogram []uint32, startTime time.Time) {
@@ -81,6 +82,7 @@ func printStats(stats []Stats) {
 		}
 		totalStats.cacheMissCount += stats[j].cacheMissCount
 		totalStats.cacheHitCount += stats[j].cacheHitCount
+		totalStats.errorsCount += stats[j].errorsCount
 	}
 
 	fmt.Printf("Response time histogram\n")
@@ -108,6 +110,7 @@ func printStats(stats []Stats) {
 		cacheMissRatio = float64(totalStats.cacheMissCount) / float64(requestsCount)
 	}
 	fmt.Printf("Cache miss ratio: %10.3f%%\n", cacheMissRatio*100.0)
+	fmt.Printf("Errors count:     %10d\n", totalStats.errorsCount)
 }
 
 func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
@@ -118,9 +121,10 @@ func workerGetMissOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan
 		keyStr := fmt.Sprintf("miss_%s_%d", key, n)
 		startTime := time.Now()
 		if _, err := client.Get(keyStr); err != memcache_org.ErrCacheMiss {
-			log.Fatalf("Error in Client.Get(): [%s]", err)
+			stats.errorsCount++
+		} else {
+			stats.cacheMissCount++
 		}
-		stats.cacheMissCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -134,9 +138,10 @@ func workerGetMissNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan 
 		item.Key = []byte(fmt.Sprintf("miss_%s_%d", key, n))
 		startTime := time.Now()
 		if err := client.Get(&item); err != memcache_new.ErrCacheMiss {
-			log.Fatalf("Error in Client.Get(): [%s]", err)
+			stats.errorsCount++
+		} else {
+			stats.cacheMissCount++
 		}
-		stats.cacheMissCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -155,9 +160,10 @@ func workerGetHitOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 			continue
 		}
 		if err != nil {
-			log.Fatalf("Error in Client.Get(): [%s]", err)
+			stats.errorsCount++
+		} else {
+			stats.cacheHitCount++
 		}
-		stats.cacheHitCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -177,9 +183,10 @@ func workerGetHitNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 			continue
 		}
 		if err != nil {
-			log.Fatalf("Error in Client.Get(): [%s]", err)
+			stats.errorsCount++
+		} else {
+			stats.cacheHitCount++
 		}
-		stats.cacheHitCount++
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
 }
@@ -193,7 +200,7 @@ func workerSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int
 		item.Value = value
 		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
-			log.Fatalf("Error in Client.Set(): [%s]", err)
+			stats.errorsCount++
 		}
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
@@ -208,7 +215,7 @@ func workerSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int,
 		item.Value = value
 		startTime := time.Now()
 		if err := client.Set(&item); err != nil {
-			log.Fatalf("Error in Client.Set(): [%s]", err)
+			stats.errorsCount++
 		}
 		updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 	}
@@ -229,14 +236,15 @@ func workerGetSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan 
 				continue
 			}
 			if err != nil {
-				log.Fatalf("Error in Client.Get(): [%s]", err)
+				stats.errorsCount++
+			} else {
+				stats.cacheHitCount++
 			}
-			stats.cacheHitCount++
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
-				log.Fatalf("Error in Client.Set(): [%s]", err)
+				stats.errorsCount++
 			}
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		}
@@ -258,14 +266,15 @@ func workerGetSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan i
 				continue
 			}
 			if err != nil {
-				log.Fatalf("Error in Client.Get(): [%s]", err)
+				stats.errorsCount++
+			} else {
+				stats.cacheHitCount++
 			}
-			stats.cacheHitCount++
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		} else {
 			item.Value = value
 			if err := client.Set(&item); err != nil {
-				log.Fatalf("Error in Client.Set(): [%s]", err)
+				stats.errorsCount++
 			}
 			updateResponseTimeHistogram(stats.responseTimeHistogram, startTime)
 		}
