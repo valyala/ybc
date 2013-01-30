@@ -300,11 +300,8 @@ func getRandomValue(size int) []byte {
 }
 
 func precreateItemsOrg(client *memcache_org.Client) {
-	var wg sync.WaitGroup
-	defer wg.Wait()
-
 	n := *itemsCount / *workersCount
-	workerFunc := func(start int) {
+	workerFunc := func(wg *sync.WaitGroup, start int) {
 		defer wg.Done()
 		item := memcache_org.Item{
 			Value: value,
@@ -316,8 +313,12 @@ func precreateItemsOrg(client *memcache_org.Client) {
 			}
 		}
 	}
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for i := 0; i < *workersCount; i++ {
-		go workerFunc(i * n)
+		wg.Add(1)
+		go workerFunc(&wg, i*n)
 	}
 }
 
@@ -443,10 +444,8 @@ func main() {
 		stats[i].responseTimeHistogram = make([]uint32, *responseTimeHistogramSize)
 	}
 
-	wg := sync.WaitGroup{}
 	var startTime time.Time
 	defer func() {
-		wg.Wait()
 		duration := float64(time.Since(startTime)) / float64(time.Second)
 		fmt.Printf("done! %.3f seconds, %.0f qps\n", duration, float64(*requestsCount)/duration)
 		printStats(stats)
@@ -465,6 +464,9 @@ func main() {
 	fmt.Printf("done\n")
 	fmt.Printf("starting...")
 	startTime = time.Now()
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
 		go worker(&wg, ch, &stats[i])
