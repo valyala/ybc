@@ -21,10 +21,10 @@ var (
 		"'original' is https://github.com/bradfitz/gomemcache/tree/master/memcache,\n"+
 		"'new' is https://github.com/valyala/ybc/tree/master/libs/go/memcache")
 	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
-	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSetRand.\n"+
+	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSet.\n"+
 		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
 	goMaxProcs                = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
-	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set to test in 'GetSetRand' and 'Set' workerModes")
+	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set")
 	keySize                   = flag.Int("keySize", 16, "Key size in bytes")
 	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
 	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*20, "Maximum response time shown on response time histogram")
@@ -35,7 +35,7 @@ var (
 	responseTimeHistogramSize = flag.Int("responseTimeHistogramSize", 10, "The size of response time histogram")
 	serverAddrs               = flag.String("serverAddrs", "localhost:11211", "Comma-delimited addresses of memcache servers to test")
 	valueSize                 = flag.Int("valueSize", 200, "Value size in bytes")
-	workerMode                = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSetRand'")
+	workerMode                = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSet'")
 	workersCount              = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
 	writeBufferSize           = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes. Makes sense only for clientType=new")
 )
@@ -214,7 +214,7 @@ func workerSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int,
 	}
 }
 
-func workerGetSetRandOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
+func workerGetSetOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
 	defer wg.Done()
 	var item memcache_org.Item
 	for _ = range ch {
@@ -243,7 +243,7 @@ func workerGetSetRandOrg(client *memcache_org.Client, wg *sync.WaitGroup, ch <-c
 	}
 }
 
-func workerGetSetRandNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
+func workerGetSetNew(client memcache_new.Cacher, wg *sync.WaitGroup, ch <-chan int, stats *Stats) {
 	defer wg.Done()
 	var item memcache_new.Item
 	for _ = range ch {
@@ -334,9 +334,9 @@ func getWorkerOrg(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 		worker = workerGetMissOrg
 	case "Set":
 		worker = workerSetOrg
-	case "GetSetRand":
+	case "GetSet":
 		precreateItemsOrg(client)
-		worker = workerGetSetRandOrg
+		worker = workerGetSetOrg
 	default:
 		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
 	}
@@ -379,9 +379,9 @@ func getWorkerNew(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 		worker = workerGetMissNew
 	case "Set":
 		worker = workerSetNew
-	case "GetSetRand":
+	case "GetSet":
 		precreateItemsNew(client)
-		worker = workerGetSetRandNew
+		worker = workerGetSetNew
 	default:
 		log.Fatalf("Unknown workerMode=[%s]", *workerMode)
 	}
