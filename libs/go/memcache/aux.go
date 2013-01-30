@@ -354,7 +354,7 @@ func writeWs(w *bufio.Writer) bool {
 
 func writeStr(w *bufio.Writer, s []byte) bool {
 	if _, err := w.Write(s); err != nil {
-		log.Printf("Cannot write [%s] to output stream: [%s]", s, err)
+		log.Printf("Cannot write %d bytes to output stream: [%s]", len(s), err)
 		return false
 	}
 	return true
