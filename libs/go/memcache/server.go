@@ -638,25 +638,34 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	return false
 }
 
-func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup) {
+func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, scratchBuf *[]byte, flushAllTimer **time.Timer) {
 	defer conn.Close()
-	defer done.Done()
 	r := bufio.NewReaderSize(conn, readBufferSize)
 	w := bufio.NewWriterSize(conn, writeBufferSize)
 	c := bufio.NewReadWriter(r, w)
 	defer w.Flush()
-
-	flushAllTimer := time.NewTimer(0)
 	defer flushAllTimer.Stop()
 
-	scratchBuf := make([]byte, 0, 1024)
 	for {
-		if !processRequest(c, cache, &scratchBuf, &flushAllTimer) {
+		if !processRequest(c, cache, scratchBuf, flushAllTimer) {
 			break
 		}
 		if r.Buffered() == 0 {
 			w.Flush()
 		}
+	}
+}
+
+func connWorker(connChan <-chan net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup, freeWorkersCount *int32) {
+	defer done.Done()
+
+	scratchBuf := make([]byte, 0, 1024)
+	flushAllTimer := time.NewTimer(0)
+	atomic.AddInt32(freeWorkersCount, 1)
+	for conn := range connChan {
+		atomic.AddInt32(freeWorkersCount, -1)
+		handleConn(conn, cache, readBufferSize, writeBufferSize, &scratchBuf, &flushAllTimer)
+		atomic.AddInt32(freeWorkersCount, 1)
 	}
 }
 
@@ -740,8 +749,11 @@ func (s *Server) init() {
 func (s *Server) run() {
 	defer s.done.Done()
 
-	connsDone := &sync.WaitGroup{}
-	defer connsDone.Wait()
+	connChan := make(chan net.Conn)
+	var freeWorkersCount int32
+
+	var workersDone sync.WaitGroup
+	defer workersDone.Wait()
 	for {
 		conn, err := s.listenSocket.AcceptTCP()
 		if err != nil {
@@ -754,9 +766,14 @@ func (s *Server) run() {
 		if err = conn.SetWriteBuffer(s.OSWriteBufferSize); err != nil {
 			log.Fatalf("Cannot set TCP write buffer size to %d: [%s]", s.OSWriteBufferSize, err)
 		}
-		connsDone.Add(1)
-		go handleConn(conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, connsDone)
+
+		if atomic.LoadInt32(&freeWorkersCount) == 0 {
+			workersDone.Add(1)
+			go connWorker(connChan, s.Cache, s.ReadBufferSize, s.WriteBufferSize, &workersDone, &freeWorkersCount)
+		}
+		connChan <- conn
 	}
+	close(connChan)
 }
 
 // Starts the given server.
