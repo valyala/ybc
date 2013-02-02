@@ -656,13 +656,14 @@ func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize
 	}
 }
 
-func connWorker(connChan <-chan net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup, freeWorkersCount *int32) {
+func connWorker(connChan <-chan net.Conn, conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup, freeWorkersCount *int32) {
 	defer done.Done()
 
 	scratchBuf := make([]byte, 0, 1024)
 	flushAllTimer := time.NewTimer(0)
+	handleConn(conn, cache, readBufferSize, writeBufferSize, &scratchBuf, &flushAllTimer)
 	atomic.AddInt32(freeWorkersCount, 1)
-	for conn := range connChan {
+	for conn = range connChan {
 		atomic.AddInt32(freeWorkersCount, -1)
 		handleConn(conn, cache, readBufferSize, writeBufferSize, &scratchBuf, &flushAllTimer)
 		atomic.AddInt32(freeWorkersCount, 1)
@@ -749,7 +750,7 @@ func (s *Server) init() {
 func (s *Server) run() {
 	defer s.done.Done()
 
-	connChan := make(chan net.Conn)
+	connChan := make(chan net.Conn, 100)
 	var freeWorkersCount int32
 
 	var workersDone sync.WaitGroup
@@ -769,9 +770,10 @@ func (s *Server) run() {
 
 		if atomic.LoadInt32(&freeWorkersCount) == 0 {
 			workersDone.Add(1)
-			go connWorker(connChan, s.Cache, s.ReadBufferSize, s.WriteBufferSize, &workersDone, &freeWorkersCount)
+			go connWorker(connChan, conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, &workersDone, &freeWorkersCount)
+		} else {
+			connChan <- conn
 		}
-		connChan <- conn
 	}
 	close(connChan)
 }
