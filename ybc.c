@@ -1007,7 +1007,8 @@ static int m_map_lookup_slot_index(const struct m_map *const map,
   assert(map->slots_count % C_MAP_BUCKET_SIZE == 0);
   assert(map->slots_count >= C_MAP_BUCKET_SIZE);
 
-  *start_index = m_key_digest_mod(key_digest, map->slots_count) & ~M_MAP_BUCKET_MASK;
+  *start_index = (m_key_digest_mod(key_digest, map->slots_count) &
+      ~M_MAP_BUCKET_MASK);
 
   for (size_t i = 0; i < C_MAP_BUCKET_SIZE; ++i) {
     const size_t current_index = *start_index + i;
