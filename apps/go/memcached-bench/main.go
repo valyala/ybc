@@ -47,6 +47,7 @@ var (
 type Stats struct {
 	responseTimeHistogram []uint32
 	totalResponseTime     time.Duration
+	minResponseTime       time.Duration
 	maxResponseTime       time.Duration
 	cacheMissCount        uint32
 	cacheHitCount         uint32
@@ -57,6 +58,9 @@ func updateResponseTimeHistogram(stats *Stats, startTime time.Time) {
 	n := *responseTimeHistogramSize
 	t := time.Since(startTime)
 	stats.totalResponseTime += t
+	if t < stats.minResponseTime {
+		stats.minResponseTime = t
+	}
 	if t > stats.maxResponseTime {
 		stats.maxResponseTime = t
 	}
@@ -79,17 +83,22 @@ func printStats(stats []Stats, startTime *time.Time) {
 	n := *responseTimeHistogramSize
 	var totalStats Stats
 	totalStats.responseTimeHistogram = make([]uint32, n)
-	for j := 0; j < *workersCount; j++ {
-		for i := 0; i < n; i++ {
-			totalStats.responseTimeHistogram[i] += stats[j].responseTimeHistogram[i]
+	totalStats.minResponseTime = time.Hour * 24 * 365
+	for i := 0; i < *workersCount; i++ {
+		s := &stats[i]
+		for j := 0; j < n; j++ {
+			totalStats.responseTimeHistogram[j] += s.responseTimeHistogram[j]
 		}
-		totalStats.totalResponseTime += stats[j].totalResponseTime
-		if totalStats.maxResponseTime < stats[j].maxResponseTime {
-			totalStats.maxResponseTime = stats[j].maxResponseTime
+		totalStats.totalResponseTime += s.totalResponseTime
+		if totalStats.minResponseTime > s.minResponseTime {
+			totalStats.minResponseTime = s.minResponseTime
 		}
-		totalStats.cacheMissCount += stats[j].cacheMissCount
-		totalStats.cacheHitCount += stats[j].cacheHitCount
-		totalStats.errorsCount += stats[j].errorsCount
+		if totalStats.maxResponseTime < s.maxResponseTime {
+			totalStats.maxResponseTime = s.maxResponseTime
+		}
+		totalStats.cacheMissCount += s.cacheMissCount
+		totalStats.cacheHitCount += s.cacheHitCount
+		totalStats.errorsCount += s.errorsCount
 	}
 
 	var totalRequestsCount uint32
@@ -122,6 +131,7 @@ func printStats(stats []Stats, startTime *time.Time) {
 	fmt.Printf("Requests per second: %10.0f\n", requestsPerSecond)
 	fmt.Printf("Test duration:       %10s\n", testDuration)
 	fmt.Printf("Avg response time:   %10s\n", avgResponseTime)
+	fmt.Printf("Min response time:   %10s\n", totalStats.minResponseTime)
 	fmt.Printf("Max response time:   %10s\n", totalStats.maxResponseTime)
 	fmt.Printf("Cache miss count:    %10d\n", totalStats.cacheMissCount)
 	fmt.Printf("Cache hit count:     %10d\n", totalStats.cacheHitCount)
@@ -464,6 +474,7 @@ func main() {
 	stats := make([]Stats, *workersCount)
 	for i := 0; i < *workersCount; i++ {
 		stats[i].responseTimeHistogram = make([]uint32, *responseTimeHistogramSize)
+		stats[i].minResponseTime = time.Hour * 24 * 365
 	}
 
 	var startTime time.Time
