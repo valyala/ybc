@@ -187,10 +187,6 @@ struct m_storage_payload
 
   /*
    * Size of the item in the storage.
-   *
-   * Item is composed of the following parts:
-   * - key
-   * - value
    */
   size_t size;
 };
