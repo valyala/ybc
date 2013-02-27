@@ -905,7 +905,7 @@ YBC_API void ybc_cluster_clear(struct ybc_cluster *cluster);
  * ybc_config_disable_overwrite_protection() for details).
  *
  * Prefer using ybc_item_*() and ybc_set_txn_*() functions when working with
- * big items, since ybc_simple_*() functions have too big overhead
+ * big items, since ybc_simple_*() functions have too high overhead
  * for large items.
  ******************************************************************************/
 
@@ -928,6 +928,9 @@ const struct ybc_value *value);
  *
  * This function is safe to use when overwrite protection is disabled, because
  * it checks value's correctness before returning it.
+ *
+ * ybc_simple_get() can read only items stored via ybc_simple_set(). It will
+ * return 0 on items stored via other interfaces.
  *
  * The caller should initialize value->ptr and value->size before calling
  * this function:
