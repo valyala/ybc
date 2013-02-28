@@ -208,9 +208,6 @@ func handleAddr(c *Client) {
 	if err = conn.SetWriteBuffer(c.OSWriteBufferSize); err != nil {
 		log.Fatalf("Cannot set TCP write buffer size to %d: [%s]", c.OSWriteBufferSize, err)
 	}
-	if err = conn.SetNoDelay(false); err != nil {
-		log.Fatalf("Cannot disable TCP_NODELAY: [%s]", err)
-	}
 
 	r := bufio.NewReaderSize(conn, c.ReadBufferSize)
 	w := bufio.NewWriterSize(conn, c.WriteBufferSize)

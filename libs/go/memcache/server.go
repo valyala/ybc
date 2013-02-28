@@ -767,9 +767,6 @@ func (s *Server) run() {
 		if err = conn.SetWriteBuffer(s.OSWriteBufferSize); err != nil {
 			log.Fatalf("Cannot set TCP write buffer size to %d: [%s]", s.OSWriteBufferSize, err)
 		}
-		if err = conn.SetNoDelay(false); err != nil {
-			log.Fatalf("Cannot disable TCP_NODELAY: [%s]", err)
-		}
 
 		if atomic.LoadInt32(&freeWorkersCount) == 0 {
 			workersDone.Add(1)
