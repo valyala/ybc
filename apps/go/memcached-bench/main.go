@@ -20,11 +20,12 @@ var (
 	clientType = flag.String("clientType", "new", "Client type. May be 'new' or 'original'.\n"+
 		"'original' is https://github.com/bradfitz/gomemcache/tree/master/memcache,\n"+
 		"'new' is https://github.com/valyala/ybc/tree/master/libs/go/memcache")
-	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server")
+	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server. Makes sense only for clientType=new")
 	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSet.\n"+
 		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
 	goMaxProcs                = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set")
+	ioTimeout                 = flag.Duration("ioTimeout", time.Second*10, "Timeout for IO operations")
 	keySize                   = flag.Int("keySize", 16, "Key size in bytes")
 	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
 	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*20, "Maximum response time shown on response time histogram")
@@ -366,6 +367,7 @@ func precreateItemsNew(client memcache_new.Cacher) {
 
 func getWorkerOrg(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, stats *Stats) {
 	client := memcache_org.New(serverAddrs_...)
+	client.Timeout = *ioTimeout
 
 	worker := workerGetMissOrg
 	switch *workerMode {
