@@ -2128,6 +2128,17 @@ void ybc_set_txn_commit_item(struct ybc_set_txn *const txn,
 
 void ybc_set_txn_rollback(struct ybc_set_txn *const txn)
 {
+  // move next_cursor backwards if possible in order to conserve unused space.
+  struct ybc *const cache = txn->item.cache;
+  const struct m_storage_payload *const payload = &txn->item.payload;
+  struct m_storage_cursor *const next_cursor = &cache->storage.next_cursor;
+  p_lock_lock(&cache->lock);
+  if (next_cursor->offset == payload->cursor.offset + payload->size &&
+      next_cursor->wrap_count == payload->cursor.wrap_count) {
+    next_cursor->offset = payload->cursor.offset;
+  }
+  p_lock_unlock(&cache->lock);
+
   m_item_release(&txn->item);
 }
 
