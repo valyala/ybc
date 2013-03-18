@@ -26,7 +26,7 @@ var (
 	goMaxProcs                = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
 	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set")
 	ioTimeout                 = flag.Duration("ioTimeout", time.Second*10, "Timeout for IO operations")
-	keySize                   = flag.Int("keySize", 16, "Key size in bytes")
+	keySize                   = flag.Int("keySize", 30, "Key size in bytes")
 	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
 	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*20, "Maximum response time shown on response time histogram")
 	osReadBufferSize          = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
