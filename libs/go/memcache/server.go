@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"github.com/valyala/ybc/bindings/go/ybc"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -328,8 +329,13 @@ func writeSetResponse(w *bufio.Writer, noreply bool) bool {
 	return writeStr(w, strStoredCrLf)
 }
 
-func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
+func putCasidAndFlags(buf []byte, flags uint32) {
 	casid := getCasid()
+	binary.LittleEndian.PutUint64(buf[:casidSize], casid)
+	binary.LittleEndian.PutUint32(buf[casidSize:], flags)
+}
+
+func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Duration, size int) *ybc.SetTxn {
 	size += casidSize + flagsSize
 	txn, err := cache.NewSetTxn(key, size, expiration)
 	if err != nil {
@@ -338,8 +344,7 @@ func startSetTxn(cache ybc.Cacher, key []byte, flags uint32, expiration time.Dur
 	}
 
 	var buf [casidSize + flagsSize]byte
-	binary.LittleEndian.PutUint64(buf[:casidSize], casid)
-	binary.LittleEndian.PutUint32(buf[casidSize:], flags)
+	putCasidAndFlags(buf[:], flags)
 	n, err := txn.Write(buf[:])
 	if err != nil {
 		log.Fatalf("Error in SetTxn.Write(): [%s]", err)
@@ -370,6 +375,26 @@ func processSetCmd(c *bufio.ReadWriter, cache ybc.Cacher, line []byte, scratchBu
 		return false
 	}
 
+	headerSize := casidSize + flagsSize
+	keySize := len(key)
+	blobSize := size + headerSize + keySize
+	buf := *scratchBuf
+	if blobSize <= 1024 && blobSize <= cap(buf) {
+		copy(buf, key)
+		key = buf[:keySize]
+		buf = buf[keySize:blobSize]
+		putCasidAndFlags(buf[:headerSize], flags)
+		if _, err := io.ReadFull(c.Reader, buf[headerSize:]); err != nil {
+			return false
+		}
+		if !matchCrLf(c.Reader) {
+			return false
+		}
+		if err := cache.Set(key, buf, expiration); err != nil {
+			return false
+		}
+		return writeSetResponse(c.Writer, noreply)
+	}
 	txn := startSetTxn(cache, key, flags, expiration, size)
 	return readValueToTxnAndWriteResponse(c, txn, size, noreply)
 }
