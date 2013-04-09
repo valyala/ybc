@@ -34,7 +34,7 @@ func expectOpenCacheSuccess(config *Config, force bool, t *testing.T) {
 func expectOpenCacheFail(config *Config, force bool, t *testing.T) {
 	_, err := config.OpenCache(force)
 	if err != ErrOpenFailed {
-		t.Fatal("Unexpected error: [%s]", err)
+		t.Fatalf("Unexpected error: [%s]", err)
 	}
 }
 
