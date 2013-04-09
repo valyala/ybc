@@ -207,7 +207,7 @@ func nextToken(line []byte, n *int, entity string) []byte {
 func parseUint64(s []byte) (n uint64, ok bool) {
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			log.Printf("Cannot convert s=[%] to integer", s)
+			log.Printf("Cannot convert s=[%s] to integer", s)
 			ok = false
 			return
 		}
