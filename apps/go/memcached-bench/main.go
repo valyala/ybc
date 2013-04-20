@@ -17,13 +17,19 @@ import (
 )
 
 var (
+	numCpu                  = runtime.NumCPU()
+	defaultMaxProcs         = 2 * numCpu
+	defaultConnectionsCount = numCpu
+)
+
+var (
 	clientType = flag.String("clientType", "new", "Client type. May be 'new' or 'original'.\n"+
 		"'original' is https://github.com/bradfitz/gomemcache/tree/master/memcache,\n"+
 		"'new' is https://github.com/valyala/ybc/tree/master/libs/go/memcache")
-	connectionsCount = flag.Int("connectionsCount", 4, "The number of TCP connections to memcache server. Makes sense only for clientType=new")
+	connectionsCount = flag.Int("connectionsCount", defaultConnectionsCount, "The number of TCP connections to memcache server. Makes sense only for clientType=new")
 	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSet.\n"+
 		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
-	goMaxProcs                = flag.Int("goMaxProcs", 4, "The maximum number of simultaneous worker threads in go")
+	goMaxProcs                = flag.Int("goMaxProcs", defaultMaxProcs, "The maximum number of simultaneous worker threads in go")
 	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set")
 	ioTimeout                 = flag.Duration("ioTimeout", time.Second*10, "Timeout for IO operations")
 	keySize                   = flag.Int("keySize", 30, "Key size in bytes")

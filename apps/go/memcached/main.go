@@ -26,6 +26,11 @@ import (
 )
 
 var (
+	numCpu          = runtime.NumCPU()
+	defaultMaxProcs = 2 * numCpu
+)
+
+var (
 	cacheFilesPath = flag.String("cacheFilesPath", "",
 		"Path to cache file. Leave empty for anonymous non-persistent cache.\n"+
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
@@ -33,7 +38,7 @@ var (
 			"and each cache file is located on a distinct physical storage.")
 	cacheSize         = flag.Uint64("cacheSize", 100, "Total cache capacity in Megabytes")
 	deHashtableSize   = flag.Int("deHashtableSize", 16, "Dogpile effect hashtable size")
-	goMaxProcs        = flag.Int("goMaxProcs", 4, "Maximum number of simultaneous Go threads")
+	goMaxProcs        = flag.Int("goMaxProcs", defaultMaxProcs, "Maximum number of simultaneous Go threads")
 	hotDataSize       = flag.Uint64("hotDataSize", 0, "Hot data size in bytes. 0 disables hot data optimization")
 	hotItemsCount     = flag.Uint64("hotItemsCount", 0, "The number of hot items. 0 disables hot items optimization")
 	listenAddr        = flag.String("listenAddr", ":11211", "TCP address the server will listen to")
