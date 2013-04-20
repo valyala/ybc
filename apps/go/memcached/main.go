@@ -36,7 +36,7 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize         = flag.Uint64("cacheSize", 100, "Total cache capacity in Megabytes")
+	cacheSize         = flag.Uint64("cacheSize", 64, "Total cache capacity in Megabytes")
 	deHashtableSize   = flag.Int("deHashtableSize", 16, "Dogpile effect hashtable size")
 	goMaxProcs        = flag.Int("goMaxProcs", defaultMaxProcs, "Maximum number of simultaneous Go threads")
 	hotDataSize       = flag.Uint64("hotDataSize", 0, "Hot data size in bytes. 0 disables hot data optimization")
@@ -46,8 +46,8 @@ var (
 	syncInterval      = flag.Duration("syncInterval", time.Second*10, "Interval for data syncing. 0 disables data syncing")
 	osReadBufferSize  = flag.Int("osReadBufferSize", 224*1024, "Buffer size in bytes for incoming requests in OS")
 	osWriteBufferSize = flag.Int("osWriteBufferSize", 224*1024, "Buffer size in bytes for outgoing responses in OS")
-	readBufferSize    = flag.Int("readBufferSize", 4096, "Buffer size in bytes for incoming requests")
-	writeBufferSize   = flag.Int("writeBufferSize", 4096, "Buffer size in bytes for outgoing responses")
+	readBufferSize    = flag.Int("readBufferSize", 56*1024, "Buffer size in bytes for incoming requests")
+	writeBufferSize   = flag.Int("writeBufferSize", 56*1024, "Buffer size in bytes for outgoing responses")
 )
 
 func main() {

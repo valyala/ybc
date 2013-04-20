@@ -17,9 +17,12 @@ import (
 )
 
 var (
-	numCpu                  = runtime.NumCPU()
-	defaultMaxProcs         = 2 * numCpu
-	defaultConnectionsCount = numCpu
+	numCpu = runtime.NumCPU()
+
+	defaultConnectionsCount        = numCpu
+	defaultMaxProcs                = 2 * numCpu
+	defaultWorkersCount            = 1024 * numCpu
+	defaultMaxPendingRequestsCount = defaultWorkersCount
 )
 
 var (
@@ -30,21 +33,21 @@ var (
 	getRatio         = flag.Float64("getRatio", 0.9, "Ratio of 'get' requests for workerMode=GetSet.\n"+
 		"0.0 means 'no get requests'. 1.0 means 'no set requests'")
 	goMaxProcs                = flag.Int("goMaxProcs", defaultMaxProcs, "The maximum number of simultaneous worker threads in go")
-	itemsCount                = flag.Int("itemsCount", 1000*1000, "The number of items in working set")
+	itemsCount                = flag.Int("itemsCount", 100*1000, "The number of items in working set")
 	ioTimeout                 = flag.Duration("ioTimeout", time.Second*10, "Timeout for IO operations")
 	keySize                   = flag.Int("keySize", 30, "Key size in bytes")
-	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", 1024, "Maximum number of pending requests. Makes sense only for clientType=new")
+	maxPendingRequestsCount   = flag.Int("maxPendingRequestsCount", defaultMaxPendingRequestsCount, "Maximum number of pending requests. Makes sense only for clientType=new")
 	maxResponseTime           = flag.Duration("maxResponseTime", time.Millisecond*20, "Maximum response time shown on response time histogram")
 	osReadBufferSize          = flag.Int("osReadBufferSize", 224*1024, "The size of read buffer in bytes in OS. Makes sense only for clientType=new")
 	osWriteBufferSize         = flag.Int("osWriteBufferSize", 224*1024, "The size of write buffer in bytes in OS. Makes sense only for clientType=new")
 	requestsCount             = flag.Int("requestsCount", 1000*1000, "The number of requests to send to memcache")
-	readBufferSize            = flag.Int("readBufferSize", 4096, "The size of read buffer in bytes. Makes sense only for clientType=new")
+	readBufferSize            = flag.Int("readBufferSize", 56*1024, "The size of read buffer in bytes. Makes sense only for clientType=new")
 	responseTimeHistogramSize = flag.Int("responseTimeHistogramSize", 10, "The size of response time histogram")
 	serverAddrs               = flag.String("serverAddrs", "localhost:11211", "Comma-delimited addresses of memcache servers to test")
 	valueSize                 = flag.Int("valueSize", 200, "Value size in bytes")
 	workerMode                = flag.String("workerMode", "GetMiss", "Worker mode. May be 'GetMiss', 'GetHit', 'Set', 'GetSet'")
-	workersCount              = flag.Int("workersCount", 512, "The number of workers to send requests to memcache")
-	writeBufferSize           = flag.Int("writeBufferSize", 4096, "The size of write buffer in bytes. Makes sense only for clientType=new")
+	workersCount              = flag.Int("workersCount", defaultWorkersCount, "The number of workers to send requests to memcache")
+	writeBufferSize           = flag.Int("writeBufferSize", 56*1024, "The size of write buffer in bytes. Makes sense only for clientType=new")
 )
 
 var (
