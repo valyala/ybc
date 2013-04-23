@@ -742,9 +742,23 @@ func (s *Server) run() {
 
 	connsDone := &sync.WaitGroup{}
 	defer connsDone.Wait()
+	var tempDelay time.Duration
 	for {
 		conn, err := s.listenSocket.AcceptTCP()
 		if err != nil {
+			if ne, ok := e.(net.Error); ok && ne.Temporary() {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+				if max := 1 * time.Second; tempDelay > max {
+					tempDelay = max
+				}
+				log.Printf("http: Accept error: %v; retrying in %v", e, tempDelay)
+				time.Sleep(tempDelay)
+				continue
+			}
 			s.err = err
 			break
 		}
