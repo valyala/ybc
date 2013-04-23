@@ -20,7 +20,7 @@ var (
 	numCpu = runtime.NumCPU()
 
 	defaultConnectionsCount        = numCpu
-	defaultMaxProcs                = 2 * numCpu
+	defaultMaxProcs                = numCpu
 	defaultWorkersCount            = 1024 * numCpu
 	defaultMaxPendingRequestsCount = defaultWorkersCount
 )
