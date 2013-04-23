@@ -638,35 +638,25 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	return false
 }
 
-func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, scratchBuf *[]byte, flushAllTimer **time.Timer) {
+func handleConn(conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup) {
 	defer conn.Close()
+	defer done.Done()
 	r := bufio.NewReaderSize(conn, readBufferSize)
 	w := bufio.NewWriterSize(conn, writeBufferSize)
 	c := bufio.NewReadWriter(r, w)
 	defer w.Flush()
+
+	flushAllTimer := time.NewTimer(0)
 	defer flushAllTimer.Stop()
 
+	scratchBuf := make([]byte, 0, 1024)
 	for {
-		if !processRequest(c, cache, scratchBuf, flushAllTimer) {
+		if !processRequest(c, cache, &scratchBuf, &flushAllTimer) {
 			break
 		}
 		if r.Buffered() == 0 {
 			w.Flush()
 		}
-	}
-}
-
-func connWorker(connChan <-chan net.Conn, conn net.Conn, cache ybc.Cacher, readBufferSize, writeBufferSize int, done *sync.WaitGroup, freeWorkersCount *int32) {
-	defer done.Done()
-
-	scratchBuf := make([]byte, 0, 1024)
-	flushAllTimer := time.NewTimer(0)
-	handleConn(conn, cache, readBufferSize, writeBufferSize, &scratchBuf, &flushAllTimer)
-	atomic.AddInt32(freeWorkersCount, 1)
-	for conn = range connChan {
-		atomic.AddInt32(freeWorkersCount, -1)
-		handleConn(conn, cache, readBufferSize, writeBufferSize, &scratchBuf, &flushAllTimer)
-		atomic.AddInt32(freeWorkersCount, 1)
 	}
 }
 
@@ -750,11 +740,8 @@ func (s *Server) init() {
 func (s *Server) run() {
 	defer s.done.Done()
 
-	connChan := make(chan net.Conn, 100)
-	var freeWorkersCount int32
-
-	var workersDone sync.WaitGroup
-	defer workersDone.Wait()
+	connsDone := &sync.WaitGroup{}
+	defer connsDone.Wait()
 	for {
 		conn, err := s.listenSocket.AcceptTCP()
 		if err != nil {
@@ -767,15 +754,9 @@ func (s *Server) run() {
 		if err = conn.SetWriteBuffer(s.OSWriteBufferSize); err != nil {
 			log.Fatalf("Cannot set TCP write buffer size to %d: [%s]", s.OSWriteBufferSize, err)
 		}
-
-		if atomic.LoadInt32(&freeWorkersCount) == 0 {
-			workersDone.Add(1)
-			go connWorker(connChan, conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, &workersDone, &freeWorkersCount)
-		} else {
-			connChan <- conn
-		}
+		connsDone.Add(1)
+		go handleConn(conn, s.Cache, s.ReadBufferSize, s.WriteBufferSize, connsDone)
 	}
-	close(connChan)
 }
 
 // Starts the given server.
