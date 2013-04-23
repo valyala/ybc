@@ -746,7 +746,7 @@ func (s *Server) run() {
 	for {
 		conn, err := s.listenSocket.AcceptTCP()
 		if err != nil {
-			if ne, ok := e.(net.Error); ok && ne.Temporary() {
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
 					tempDelay = 5 * time.Millisecond
 				} else {
@@ -755,7 +755,7 @@ func (s *Server) run() {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				log.Printf("http: Accept error: %v; retrying in %v", e, tempDelay)
+				log.Printf("http: Accept error: %v; retrying in %v", err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
