@@ -133,11 +133,8 @@ static int m_file_open_or_create(struct p_file *const file,
   p_file_get_size(file, &actual_file_size);
   if (actual_file_size != expected_file_size) {
     if (!force) {
+      assert(!*is_file_created);
       p_file_close(file);
-      if (*is_file_created) {
-        m_file_remove_if_exists(filename);
-        *is_file_created = 0;
-      }
       return 0;
     }
 
