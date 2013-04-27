@@ -195,7 +195,7 @@ struct m_storage_payload
  * of the storage. Items added into the storage become immutable until the next
  * storage wrap.
  *
- * This layout results in high write speeds on both HDDs and SSDs.
+ * This layout should result in high write speeds on both HDDs and SSDs.
  */
 struct m_storage
 {
@@ -448,7 +448,8 @@ static int m_storage_open(struct m_storage *const storage,
    *   process termination.
    *
    * Library users can verify data correctness by embedding and verifiyng
-   * checksums into item's values.
+   * checksums into item's values (see ybc_simple_set() / ybc_simple_get()
+   * for example).
    */
 
   return 1;
@@ -572,6 +573,16 @@ static int m_storage_allocate(struct m_storage *const storage,
   assert(next_cursor.offset <= storage_size - item_size);
   next_cursor.offset += item_size;
   storage->next_cursor = next_cursor;
+
+
+  /*
+   * Optimization trick: touch the first byte of the item in the allocated space
+   * under the cache->lock, so the OS pre-fetches this memory
+   * from the underlying file in-order.
+   */
+  char *const ptr = m_storage_get_ptr(storage, item->payload.cursor.offset);
+  assert(ptr < storage->data + storage_size);
+  ptr[0] = 0;
 
   return 1;
 }
