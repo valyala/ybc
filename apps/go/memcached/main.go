@@ -26,8 +26,7 @@ import (
 )
 
 var (
-	numCpu          = runtime.NumCPU()
-	defaultMaxProcs = 2 * numCpu
+	defaultMaxProcs = runtime.NumCPU()
 )
 
 var (
