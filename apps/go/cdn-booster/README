@@ -1,0 +1,28 @@
+CDN booster
+
+This is a dumb HTTP proxy, which caches files obtained from upstreamHost.
+
+Currently go-cdn-booster has the following limitations:
+  * Supports only GET requests.
+  * Doesn't respect HTTP headers received from both the client and
+    the upstream host.
+  * Optimized for small static files aka images, js and css with sizes
+    not exceeding few Mb each.
+  * It caches all files without expiration time.
+    Actually this is a feature :)
+
+Thanks to YBC it has the following features:
+  * Should be extremely fast.
+  * Cached items survive CDN booster restart if backed by cacheFilesPath.
+  * Cache size isn't limited by RAM size.
+  * Optimized for SSDs and HDDs.
+  * Performance shouldn't depend on the number of cached items.
+  * It is deadly simple in configuration and maintenance.
+
+------------------------
+How to build and run it?
+
+$ sudo apt-get install golang
+$ go get -u -a github.com/valyala/ybc/apps/go/cdn-booster
+$ go build -tags release github.com/valyala/ybc/apps/go/cdn-booster
+$ ./cdn-booster -help
