@@ -10,6 +10,7 @@ Currently go-cdn-booster has the following limitations:
     not exceeding few Mb each.
   * It caches all files without expiration time.
     Actually this is a feature :)
+  * It caches only responses with 200 status codes.
 
 Thanks to YBC it has the following features:
   * Should be extremely fast.
@@ -18,6 +19,18 @@ Thanks to YBC it has the following features:
   * Optimized for SSDs and HDDs.
   * Performance shouldn't depend on the number of cached items.
   * It is deadly simple in configuration and maintenance.
+
+Thanks to Go it has the following features:
+  * Scales automatically on multiple CPUs.
+  * Handles large number of concurrent connections with minimum performance
+    loss.
+  * Supports keep-alive connections to upstream servers out-of-the-box.
+  * Has clear, easy-to-read-and-hack code.
+
+Use cases:
+  * Substitution for Nginx, Varnish, etc. in front of large and/or slow
+    file servers.
+  * Poor-man DIY geographically distributed CDN.
 
 ------------------------
 How to build and run it?
