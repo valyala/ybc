@@ -72,11 +72,11 @@ func main() {
 
 	cacheFilesPath_ := strings.Split(*cacheFilesPath, ",")
 	cacheFilesCount := len(cacheFilesPath_)
-	log.Printf("Opening data files. This can take a while for the first time if files are big")
+	log.Printf("Opening data files. This can take a while for the first time if files are big\n")
 	if cacheFilesCount < 2 {
 		if cacheFilesPath_[0] != "" {
-			config.DataFile = cacheFilesPath_[0] + ".data"
-			config.IndexFile = cacheFilesPath_[0] + ".index"
+			config.DataFile = cacheFilesPath_[0] + ".go-memcached.data"
+			config.IndexFile = cacheFilesPath_[0] + ".go-memcached.index"
 		}
 		cache, err = config.OpenCache(true)
 		if err != nil {
@@ -89,8 +89,8 @@ func main() {
 		configs = make([]*ybc.Config, cacheFilesCount)
 		for i := 0; i < cacheFilesCount; i++ {
 			cfg := config
-			cfg.DataFile = cacheFilesPath_[i] + ".data"
-			cfg.IndexFile = cacheFilesPath_[i] + ".index"
+			cfg.DataFile = cacheFilesPath_[i] + ".go-memcached.data"
+			cfg.IndexFile = cacheFilesPath_[i] + ".go-memcached.index"
 			configs[i] = &cfg
 		}
 		cache, err = configs.OpenCluster(true)
@@ -99,6 +99,7 @@ func main() {
 		}
 	}
 	defer cache.Close()
+	log.Printf("Data files have been opened\n")
 
 	s := memcache.Server{
 		Cache:             cache,
