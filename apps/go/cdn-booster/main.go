@@ -117,7 +117,7 @@ func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost str
 	itemSize := len(body) + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
 	if err != nil {
-		log.Printf("Error=[%s] when starting set txn for key=[%s]. itemSize=[%d]: [%s]\n", err, key, itemSize)
+		log.Printf("Error=[%s] when starting set txn for key=[%s]. itemSize=[%d]\n", err, key, itemSize)
 		return nil
 	}
 
@@ -226,6 +226,6 @@ func main() {
 		Cache:        cache,
 	}
 	if err := http.ListenAndServe(*listenAddr, h); err != nil {
-		log.Fatalf("Cannot start proxy at listenAddr=[%s]: [%s]\n", *listenAddr)
+		log.Fatalf("Error=[%s] when starting proxy at listenAddr=[%s]\n", err, *listenAddr)
 	}
 }
