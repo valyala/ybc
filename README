@@ -134,6 +134,9 @@ A:   1. Investigate API provided by YBC at ybc.h . See tests/ folder
      * libs/ folder contains additional libraries built on top of YBC.
      * apps/ folder contains applications built on top of YBC. Currently
        there are two apps here with self-describing names:
+         * cdn-booster - caching HTTP proxy implementation on top
+           of Go bindings.
+         * cdn-booster-bench - benchmark tool for HTTP/1.1-compliant servers.
          * memcached - memcache server implementation on top of Go bindings
            for YBC. Unlike the original memcache server, it supports cache
            sizes exceeding available RAM by multiple orders of magnitude.

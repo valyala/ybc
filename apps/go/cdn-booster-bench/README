@@ -1,0 +1,24 @@
+Benchmark tool for go-cdn-booster or any other http/1.1 server.
+
+This tool is similar to the well known 'ab' tool. The main difference
+is that this tool issues HTTP/1.1 'Connection: Keep-Alive' requests
+over the limited number of open connections. The number of such connections
+is equivalent to workersCount.
+
+Known limitations:
+  * It cannot test HTTP servers without HTTP/1.1 keep-alive connections
+    support.
+  * It doesn't parse server responses and so doesn't gather stats regarding
+    response status codes.
+  * Currently it shows only the following stats:
+        * time taken for the test
+        * qps - average queries per second
+        * Kbps - average Kbytes per second received from the server.
+
+------------------------
+How to build and run it?
+
+$ sudo apt-get install golang
+$ go get -u -a github.com/valyala/ybc/apps/go/cdn-booster-bench
+$ go build -tags release github.com/valyala/ybc/apps/go/cdn-booster-bench
+$ ./cdn-booster-bench -help

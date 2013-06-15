@@ -128,6 +128,9 @@ go-perftests: go-perftests-bindings go-perftests-memcache
 go-cdn-booster:
 	$(GOCC) build -o go-cdn-booster -a -tags release ./apps/go/cdn-booster
 
+go-cdn-booster-bench:
+	$(GOCC) build -o go-cdn-booster-bench -a -tags release ./apps/go/cdn-booster-bench
+
 go-memcached:
 	$(GOCC) build -o go-memcached -a -tags release ./apps/go/memcached
 
@@ -138,6 +141,7 @@ go-update:
 	$(GOCC) get -u -a github.com/valyala/ybc/bindings/go/ybc
 	$(GOCC) get -u -a github.com/valyala/ybc/libs/go/memcache
 	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/cdn-booster
+	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/cdn-booster-bench
 	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached
 	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached-bench
 
@@ -159,5 +163,6 @@ clean:
 	rm -f tests/performance-32-debug
 	rm -f tests/performance-64-debug
 	rm -f go-cdn-booster
+	rm -f go-cdn-booster-bench
 	rm -f go-memcached
 	rm -f go-memcached-bench
