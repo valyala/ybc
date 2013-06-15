@@ -83,9 +83,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	h.Set("Cache-Control", "public, max-age=31536000")
 	h.Set("Expires", (time.Now().Add(time.Hour * 24 * 365)).Format(time.RFC1123))
 	h.Set("Content-Length", fmt.Sprintf("%d", item.Available()))
-	if contentType != "" {
-		h.Set("Content-Type", contentType)
-	}
+	h.Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	if _, err = io.Copy(w, item); err != nil {
 		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
@@ -113,6 +111,9 @@ func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost str
 	}
 
 	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
 	itemSize := len(body) + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
 	if err != nil {
@@ -153,9 +154,6 @@ func storeContentType(w io.Writer, contentType string) (err error) {
 		log.Printf("Error=[%s] when storing content-type length\n", err)
 		return
 	}
-	if strSize == 0 {
-		return
-	}
 	if _, err = w.Write(strBuf); err != nil {
 		log.Printf("Error=[%s] when writing content-type string with length=%d\n", err, strSize)
 		return
@@ -170,9 +168,6 @@ func loadContentType(r io.Reader) (contentType string, err error) {
 		return
 	}
 	strSize := int(sizeBuf[0])
-	if strSize == 0 {
-		return
-	}
 	strBuf := make([]byte, strSize)
 	if _, err = r.Read(strBuf); err != nil {
 		log.Printf("Error=[%s] when extracting content-type string with length=%d\n", err, strSize)
