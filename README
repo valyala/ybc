@@ -133,7 +133,7 @@ A:   1. Investigate API provided by YBC at ybc.h . See tests/ folder
    Other folders also worth investigation:
      * libs/ folder contains additional libraries built on top of YBC.
      * apps/ folder contains applications built on top of YBC. Currently
-       there are two apps here with self-describing names:
+       there are the following apps here with self-describing names:
          * cdn-booster - caching HTTP proxy implementation on top
            of Go bindings.
          * cdn-booster-bench - benchmark tool for HTTP/1.1-compliant servers.
