@@ -59,7 +59,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	key := []byte(req.RequestURI)
-	item, err := ph.Cache.GetItem(key)
+	item, err := ph.Cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
 			log.Fatalf("Unexpeced error=[%s] when obtaining cache value by key=[%s]\n", err, key)
