@@ -34,7 +34,7 @@ Thanks to Go it has the following features:
 Use cases:
   * Substitution for Nginx, Varnish, etc. in front of large and/or slow
     file servers.
-  * Poor-man DIY geographically distributed CDN.
+  * Poor-man's DIY geographically distributed CDN.
 
 ------------------------
 How to build and run it?
