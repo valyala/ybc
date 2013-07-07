@@ -26,10 +26,10 @@ import (
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -104,9 +104,14 @@ func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost str
 		return nil
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength == "" {
+		log.Printf("Cannot cache response for requestUrl=[%s] without content-length\n", requestUrl)
+		return nil
+	}
+	contentLengthN, err := strconv.Atoi(contentLength)
 	if err != nil {
-		log.Printf("Error=[%s] when reading body for request %s\n", err, requestUrl)
+		log.Printf("Error=[%s] when parsing contentLength=[%s] for request to [%s]\n", err, contentLength, requestUrl)
 		return nil
 	}
 
@@ -114,7 +119,7 @@ func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost str
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	itemSize := len(body) + len(contentType) + 1
+	itemSize := contentLengthN + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
 	if err != nil {
 		log.Printf("Error=[%s] when starting set txn for key=[%s]. itemSize=[%d]\n", err, key, itemSize)
@@ -127,8 +132,14 @@ func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost str
 		return nil
 	}
 
-	if _, err = txn.Write(body); err != nil {
-		log.Printf("Error=[%s] when copying body with size=%d to cache. key=[%s]\n", err, len(body), key)
+	n, err := txn.ReadFrom(resp.Body)
+	if err != nil {
+		log.Printf("Error=[%s] when copying body with size=%d to cache. key=[%s]\n", err, contentLengthN, key)
+		txn.Rollback()
+		return nil
+	}
+	if n != int64(contentLengthN) {
+		log.Printf("Unexpected number of bytes copied=%d from response to requestUrl=[%s]. Expected %d\n", n, requestUrl, contentLengthN)
 		txn.Rollback()
 		return nil
 	}
