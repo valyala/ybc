@@ -11,6 +11,7 @@ Currently go-cdn-booster has the following limitations:
   * It caches all files without expiration time.
     Actually this is a feature :)
   * It caches only responses with 200 status codes.
+  * It caches only responses with excplicitly set Content-Length.
 
 Thanks to YBC it has the following features:
   * Should be extremely fast.
@@ -18,6 +19,7 @@ Thanks to YBC it has the following features:
   * Cache size isn't limited by RAM size.
   * Optimized for SSDs and HDDs.
   * Performance shouldn't depend on the number of cached items.
+  * It has protection agains dogpile effect (aka "thundering herd").
   * It is deadly simple in configuration and maintenance. There is no need
     in running 'cleaners', 'watchdogs' or other similar tools. There is no
     need in setting up third-party libraries and/or tools. There is no
@@ -34,7 +36,7 @@ Thanks to Go it has the following features:
 Use cases:
   * Substitution for Nginx, Varnish, etc. in front of large and/or slow
     file servers.
-  * Poor-man DIY geographically distributed CDN.
+  * Poor-man's DIY geographically distributed CDN.
 
 ------------------------
 How to build and run it?
