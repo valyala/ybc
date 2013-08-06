@@ -57,6 +57,10 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	if req.Header.Get("If-Modified-Since") != "" {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 
 	key := []byte(req.RequestURI)
 	item, err := ph.Cache.GetDeItem(key, time.Second)
@@ -82,8 +86,11 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	h := w.Header()
 	h.Set("Cache-Control", "public, max-age=31536000")
 	h.Set("Expires", (time.Now().Add(time.Hour * 24 * 365)).Format(time.RFC1123))
+	h.Set("Last-Modified", "Fri, 07 Jun 2013 00:22:59 GMT")
 	h.Set("Content-Length", fmt.Sprintf("%d", item.Available()))
 	h.Set("Content-Type", contentType)
+	h.Set("Server", "go-cdn-booster")
+	h.Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	if _, err = io.Copy(w, item); err != nil {
 		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
