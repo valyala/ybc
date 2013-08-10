@@ -707,7 +707,7 @@ type Server struct {
 	OSWriteBufferSize int
 
 	listenSocket *net.TCPListener
-	done         *sync.WaitGroup
+	done         sync.WaitGroup
 	err          error
 }
 
@@ -733,7 +733,6 @@ func (s *Server) init() {
 	if err != nil {
 		log.Fatalf("Cannot listen for ListenAddr=[%s]: [%s]", listenAddr, err)
 	}
-	s.done = &sync.WaitGroup{}
 	s.done.Add(1)
 }
 
@@ -777,7 +776,7 @@ func (s *Server) run() {
 //
 // No longer needed servers must be stopped via Server.Stop() call.
 func (s *Server) Start() {
-	if s.listenSocket != nil || s.done != nil {
+	if s.listenSocket != nil {
 		panic("Did you forgot calling Server.Stop() before calling Server.Start()?")
 	}
 	s.init()
@@ -805,5 +804,4 @@ func (s *Server) Stop() {
 	s.listenSocket.Close()
 	s.Wait()
 	s.listenSocket = nil
-	s.done = nil
 }

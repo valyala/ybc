@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
+	"sync"
 	"testing"
 	"time"
 )
@@ -67,12 +68,49 @@ func TestServer_Serve(t *testing.T) {
 func TestServer_Wait(t *testing.T) {
 	s, cache := newServerCache(t)
 	defer cache.Close()
+	s.Start()
 	go func() {
 		time.Sleep(time.Millisecond * time.Duration(100))
 		s.Stop()
 	}()
-	s.Start()
 	s.Wait()
+}
+
+func TestServer_StopBeforeWait(t *testing.T) {
+	s, cache := newServerCache(t)
+	defer cache.Close()
+	s.Start()
+	s.Stop()
+	s.Wait()
+}
+
+func TestServer_MultipleWait(t *testing.T) {
+	s, cache := newServerCache(t)
+	defer cache.Close()
+	s.Start()
+	s.Stop()
+	for i := 0; i < 10; i++ {
+		s.Wait()
+	}
+}
+
+func TestServer_ConcurrentWait(t *testing.T) {
+	s, cache := newServerCache(t)
+	defer cache.Close()
+	s.Start()
+	go func() {
+		time.Sleep(time.Millisecond * time.Duration(100))
+		s.Stop()
+	}()
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			s.Wait()
+			wg.Done()
+		}()
+	}
+	wg.Wait()
 }
 
 func newClientServerCache(t *testing.T) (c *Client, s *Server, cache *ybc.Cache) {
