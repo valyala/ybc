@@ -47,12 +47,23 @@ var (
 	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
 
+var (
+	gmtLocation = time.FixedZone("GMT", 0)
+)
+
 type ProxyHandler struct {
 	UpstreamHost string
 	Cache        ybc.Cacher
 }
 
 func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	h := w.Header()
+	h.Set("Server", "go-cdn-booster")
+	h.Set("Connection", "keep-alive")
+	h.Set("Cache-Control", "public, max-age=31536000")
+	h.Set("Expires", (time.Now().In(gmtLocation).Add(time.Hour * 24 * 365)).Format(time.RFC1123))
+	h.Set("Last-Modified", "Fri, 07 Jun 2013 00:22:59 GMT")
+
 	if req.Method != "GET" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -83,14 +94,8 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	h := w.Header()
-	h.Set("Cache-Control", "public, max-age=31536000")
-	h.Set("Expires", (time.Now().Add(time.Hour * 24 * 365)).Format(time.RFC1123))
-	h.Set("Last-Modified", "Fri, 07 Jun 2013 00:22:59 GMT")
 	h.Set("Content-Length", fmt.Sprintf("%d", item.Available()))
 	h.Set("Content-Type", contentType)
-	h.Set("Server", "go-cdn-booster")
-	h.Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	if _, err = io.Copy(w, item); err != nil {
 		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
