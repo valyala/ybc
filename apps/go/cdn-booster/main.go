@@ -55,7 +55,6 @@ type ProxyHandler struct {
 func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	respH := w.Header()
 	respH.Set("Server", "go-cdn-booster")
-	respH.Set("ETag", "W/\"CacheForever\"")
 
 	if req.Method != "GET" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -64,6 +63,11 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	reqH := req.Header
 	if reqH.Get("If-None-Match") != "" {
+		respH.Set("ETag", "W/\"CacheForever\"")
+
+		// Set content-length as a workaround for https://code.google.com/p/go/issues/detail?id=6157
+		respH.Set("Content-Length", "123")
+
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -92,6 +96,7 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	respH.Set("Cache-Control", "public, max-age=31536000")
 	respH.Set("Content-Length", fmt.Sprintf("%d", item.Available()))
 	respH.Set("Content-Type", contentType)
+	respH.Set("ETag", "W/\"CacheForever\"")
 	w.WriteHeader(http.StatusOK)
 	if _, err = io.Copy(w, item); err != nil {
 		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
