@@ -253,6 +253,15 @@ static void test_set_txn_update_value_size(struct ybc *const cache,
   expect_item_hit(cache, key, value);
 }
 
+static void test_set_txn_commit_all(struct ybc *const cache,
+    struct ybc_set_txn *const txn, const struct ybc_key *const key,
+    const struct ybc_value *const value)
+{
+  test_set_txn_commit(cache, txn, key, value);
+  test_set_txn_commit_item(cache, txn, key, value);
+  test_set_txn_update_value_size(cache, txn, key, value);
+}
+
 static void test_set_txn_failure(struct ybc *const cache,
     struct ybc_set_txn *const txn, const struct ybc_key *const key,
     const size_t value_size)
@@ -282,21 +291,15 @@ static void test_set_txn_ops(struct ybc *const cache)
 
   test_set_txn_rollback(cache, txn, &key, value.size);
 
-  test_set_txn_commit(cache, txn, &key, &value);
-  test_set_txn_commit_item(cache, txn, &key, &value);
-  test_set_txn_update_value_size(cache, txn, &key, &value);
+  test_set_txn_commit_all(cache, txn, &key, &value);
 
   /* Test zero-length key. */
   key.size = 0;
-  test_set_txn_commit(cache, txn, &key, &value);
-  test_set_txn_commit_item(cache, txn, &key, &value);
-  test_set_txn_update_value_size(cache, txn, &key, &value);
+  test_set_txn_commit_all(cache, txn, &key, &value);
 
   /* Test zero-length value. */
   value.size = 0;
-  test_set_txn_commit(cache, txn, &key, &value);
-  test_set_txn_commit_item(cache, txn, &key, &value);
-  test_set_txn_update_value_size(cache, txn, &key, &value);
+  test_set_txn_commit_all(cache, txn, &key, &value);
 
   /* Test too large key. */
   value.size = 6;
