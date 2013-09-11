@@ -12,11 +12,59 @@
 // YBC is optimized for both HDDs and SSDs.
 package ybc
 
-// #cgo release CFLAGS: -O2 -DNDEBUG
-// #cgo linux CFLAGS: -std=gnu99 -DYBC_PLATFORM_LINUX
-// #cgo linux LDFLAGS: -lrt
-// #include "ybc.h"
-// #include <stdlib.h> // free
+/*
+#cgo release CFLAGS: -O2 -DNDEBUG
+#cgo linux CFLAGS: -std=gnu99 -DYBC_PLATFORM_LINUX
+#cgo linux LDFLAGS: -lrt
+#include "ybc.h"
+#include <stdlib.h> // free
+
+static int go_get_item_and_value(struct ybc *const cache,
+    struct ybc_item *const item, struct ybc_value *const value,
+    const struct ybc_key *const key)
+{
+  const int rv = ybc_item_get(cache, item, key);
+  if (rv == 0) {
+    return 0;
+  }
+  ybc_item_get_value(item, value);
+  return rv;
+}
+
+static enum ybc_de_status go_get_item_and_value_de_async(
+    struct ybc *const cache,
+    struct ybc_item *const item, struct ybc_value *const value,
+    const struct ybc_key *const key, const uint64_t grace_ttl)
+{
+  const enum ybc_de_status rv = ybc_item_get_de_async(cache, item, key,
+      grace_ttl);
+  if (rv != YBC_DE_SUCCESS) {
+    return rv;
+  }
+  ybc_item_get_value(item, value);
+  return rv;
+}
+
+static int go_set_item_and_value(struct ybc *const cache,
+    struct ybc_item *const item, const struct ybc_key *const key,
+    struct ybc_value *const value)
+{
+  const int rv = ybc_item_set_item(cache, item, key, value);
+  if (rv == 0) {
+    return 0;
+  }
+  ybc_item_get_value(item, value);
+  return rv;
+}
+
+static void go_commit_item_and_value(struct ybc_set_txn *const txn,
+    struct ybc_item *const item, struct ybc_value *const value)
+{
+  ybc_set_txn_commit_item(txn, item);
+  ybc_item_get_value(item, value);
+}
+
+*/
 import "C"
 
 import (
@@ -535,9 +583,8 @@ func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *
 	item = acquireItem()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	var v C.struct_ybc_value
-	initValue(&v, value, ttl)
-	if C.ybc_item_set_item(cache.ctx(), item.ctx(), &k, &v) == 0 {
+	initValue(&item.value, value, ttl)
+	if C.go_set_item_and_value(cache.ctx(), item.ctx(), &k, &item.value) == 0 {
 		releaseItem(item)
 		err = ErrNoSpace
 		return
@@ -559,7 +606,7 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	item = acquireItem()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	if C.ybc_item_get(cache.ctx(), item.ctx(), &k) == 0 {
+	if C.go_get_item_and_value(cache.ctx(), item.ctx(), &item.value, &k) == 0 {
 		releaseItem(item)
 		err = ErrCacheMiss
 		return
@@ -601,7 +648,7 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceDuration time.Duration) (ite
 	var k C.struct_ybc_key
 	initKey(&k, key)
 	mGraceTtl := C.uint64_t(graceDuration / time.Millisecond)
-	switch C.ybc_item_get_de_async(cache.ctx(), item.ctx(), &k, mGraceTtl) {
+	switch C.go_get_item_and_value_de_async(cache.ctx(), item.ctx(), &item.value, &k, mGraceTtl) {
 	case C.YBC_DE_WOULDBLOCK:
 		releaseItem(item)
 		err = ErrWouldBlock
@@ -745,7 +792,7 @@ func (txn *SetTxn) CommitItem() (item *Item, err error) {
 		return
 	}
 	item = acquireItem()
-	C.ybc_set_txn_commit_item(txn.ctx(), item.ctx())
+	C.go_commit_item_and_value(txn.ctx(), item.ctx(), &item.value)
 	txn.finish()
 	item.dg.Init()
 	return
@@ -785,7 +832,7 @@ func (txn *SetTxn) ctx() *C.struct_ybc_set_txn {
 type Item struct {
 	dg         debugGuard
 	buf        []byte
-	valueCache C.struct_ybc_value
+	value      C.struct_ybc_value
 	offset     int
 }
 
@@ -795,7 +842,8 @@ type Item struct {
 func (item *Item) Close() error {
 	item.dg.Close()
 	C.ybc_item_release(item.ctx())
-	item.valueCache.ptr = nil
+	item.value.ptr = nil
+	item.value.size = 0
 	item.offset = 0
 	releaseItem(item)
 	return nil
@@ -807,14 +855,13 @@ func (item *Item) Close() error {
 // use io.* interface implementations provided by the Item instead.
 func (item *Item) Value() []byte {
 	item.dg.CheckLive()
-	mValue := item.value()
+	mValue := &item.value
 	return C.GoBytes(mValue.ptr, C.int(mValue.size))
 }
 
 // Returns the size of value associated with the item.
 func (item *Item) Size() int {
-	mValue := item.value()
-	return int(mValue.size)
+	return int(item.value.size)
 }
 
 // Returns the number of bytes remaining to read from the item.
@@ -825,7 +872,7 @@ func (item *Item) Available() int {
 // Returns remaining ttl for the item.
 func (item *Item) Ttl() time.Duration {
 	item.dg.CheckLive()
-	return time.Duration(item.value().ttl) * time.Millisecond
+	return time.Duration(item.value.ttl) * time.Millisecond
 }
 
 // io.Seeker interface implementation
@@ -900,15 +947,8 @@ func (item *Item) WriteTo(w io.Writer) (n int64, err error) {
 
 func (item *Item) unsafeBuf() []byte {
 	item.dg.CheckLive()
-	mValue := item.value()
+	mValue := &item.value
 	return newUnsafeSlice(mValue.ptr, int(mValue.size))
-}
-
-func (item *Item) value() *C.struct_ybc_value {
-	if item.valueCache.ptr == nil {
-		C.ybc_item_get_value(item.ctx(), &item.valueCache)
-	}
-	return &item.valueCache
 }
 
 func (item *Item) ctx() *C.struct_ybc_item {
