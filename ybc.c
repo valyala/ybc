@@ -411,12 +411,12 @@ static void m_storage_fix_size(size_t *const size)
 }
 
 static int m_storage_open(struct m_storage *const storage,
+    struct p_file *const storage_file,
     const char *const filename, const int force, int *const is_file_created)
 {
-  struct p_file file;
   void *ptr;
 
-  if (!m_file_open_or_create(&file, filename, storage->size, force,
+  if (!m_file_open_or_create(storage_file, filename, storage->size, force,
       is_file_created)) {
     return 0;
   }
@@ -427,14 +427,8 @@ static int m_storage_open(struct m_storage *const storage,
    * caching.
    */
 
-  p_memory_map(&ptr, &file, storage->size);
+  p_memory_map(&ptr, storage_file, storage->size);
   assert((uintptr_t)storage->size <= UINTPTR_MAX - (uintptr_t)ptr);
-
-  /*
-   * It is assumed that memory mapping of the file remains active after the file
-   * is closed.
-   */
-  p_file_close(&file);
 
   storage->data = ptr;
 
@@ -455,9 +449,11 @@ static int m_storage_open(struct m_storage *const storage,
   return 1;
 }
 
-static void m_storage_close(struct m_storage *const storage)
+static void m_storage_close(struct m_storage *const storage,
+    struct p_file *const storage_file)
 {
   p_memory_unmap(storage->data, storage->size);
+  p_file_close(storage_file);
 }
 
 static void *m_storage_get_ptr(const struct m_storage *const storage,
@@ -1287,16 +1283,16 @@ static size_t m_index_get_file_size(const size_t slots_count)
 }
 
 static int m_index_open(struct m_index *const index,
+    struct p_file *const index_file,
     const size_t map_slots_count, const size_t map_cache_slots_count,
     const char *const filename, const int force, int *const is_file_created,
     struct m_storage_cursor **const next_cursor)
 {
-  struct p_file file;
   void *ptr;
 
   const size_t file_size = m_index_get_file_size(map_slots_count);
 
-  if (!m_file_open_or_create(&file, filename, file_size, force,
+  if (!m_file_open_or_create(index_file, filename, file_size, force,
       is_file_created)) {
     return 0;
   }
@@ -1313,21 +1309,15 @@ static int m_index_open(struct m_index *const index,
    * at creation time.
    * See m_file_open_or_create() for details.
    */
-  p_file_cache_in_ram(&file, file_size);
+  p_file_cache_in_ram(index_file, file_size);
 
   /*
    * Hint the OS about random access pattern to index file contents.
    */
-  p_file_advise_random_access(&file, file_size);
+  p_file_advise_random_access(index_file, file_size);
 
-  p_memory_map(&ptr, &file, file_size);
+  p_memory_map(&ptr, index_file, file_size);
   assert((uintptr_t)file_size <= UINTPTR_MAX - (uintptr_t)ptr);
-
-  /*
-   * It is assumed that memory mapping of the file remains active after the file
-   * is closed.
-   */
-  p_file_close(&file);
 
   /*
    * Key digests must be aligned to CPU cache line size for faster lookups.
@@ -1357,7 +1347,8 @@ static int m_index_open(struct m_index *const index,
   return 1;
 }
 
-static void m_index_close(struct m_index *const index)
+static void m_index_close(struct m_index *const index,
+    struct p_file *const index_file)
 {
   m_map_cache_destroy(&index->map_cache);
 
@@ -1365,6 +1356,7 @@ static void m_index_close(struct m_index *const index)
   p_memory_unmap(index->map.key_digests, file_size);
 
   m_map_destroy(&index->map);
+  p_file_close(index_file);
 }
 
 /*******************************************************************************
@@ -1844,6 +1836,8 @@ void ybc_config_disable_overwrite_protection(struct ybc_config *const config)
 struct ybc
 {
   struct p_lock lock;
+  struct p_file index_file;
+  struct p_file storage_file;
   struct m_index index;
   struct m_storage storage;
   struct m_sync sc;
@@ -1872,8 +1866,9 @@ static int m_open(struct ybc *const cache,
   size_t map_cache_slots_count = config->map_cache_slots_count;
   m_map_cache_fix_slots_count(&map_cache_slots_count, map_slots_count);
 
-  if (!m_index_open(&cache->index, map_slots_count, map_cache_slots_count,
-      config->index_file, force, &is_index_file_created, &next_cursor)) {
+  if (!m_index_open(&cache->index, &cache->index_file, map_slots_count,
+      map_cache_slots_count, config->index_file, force, &is_index_file_created,
+      &next_cursor)) {
     return 0;
   }
   if (next_cursor->offset > cache->storage.size) {
@@ -1883,9 +1878,9 @@ static int m_open(struct ybc *const cache,
   cache->storage.next_cursor = *next_cursor;
   cache->storage.hash_seed = *cache->index.hash_seed_ptr;
 
-  if (!m_storage_open(&cache->storage, config->data_file, force,
-      &is_storage_file_created)) {
-    m_index_close(&cache->index);
+  if (!m_storage_open(&cache->storage, &cache->storage_file, config->data_file,
+      force, &is_storage_file_created)) {
+    m_index_close(&cache->index, &cache->index_file);
     if (is_index_file_created) {
       m_file_remove_if_exists(config->index_file);
     }
@@ -1942,9 +1937,9 @@ void ybc_close(struct ybc *const cache)
 
   p_lock_destroy(&cache->lock);
 
-  m_storage_close(&cache->storage);
+  m_storage_close(&cache->storage, &cache->storage_file);
 
-  m_index_close(&cache->index);
+  m_index_close(&cache->index, &cache->index_file);
 }
 
 void ybc_clear(struct ybc *const cache)
@@ -1974,15 +1969,13 @@ struct ybc_set_txn
   struct ybc_item item;
 };
 
-static void *m_item_get_value_ptr(const struct ybc_item *const item)
+static size_t m_item_get_offset(const struct ybc_item *const item)
 {
   const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
   assert(item->payload.size >= metadata_size);
-
-  char *const ptr = m_storage_get_ptr(&item->cache->storage,
-      item->payload.cursor.offset);
-  assert((uintptr_t)ptr <= UINTPTR_MAX - metadata_size);
-  return ptr + metadata_size;
+  const size_t offset = item->payload.cursor.offset;
+  assert(offset <= SIZE_MAX - metadata_size);
+  return offset + metadata_size;
 }
 
 static size_t m_item_get_size(const struct ybc_item *const item)
@@ -1990,6 +1983,12 @@ static size_t m_item_get_size(const struct ybc_item *const item)
   const size_t metadata_size = m_storage_metadata_get_size(item->key_size);
   assert(item->payload.size >= metadata_size);
   return item->payload.size - metadata_size;
+}
+
+static void *m_item_get_value_ptr(const struct ybc_item *const item)
+{
+  const size_t offset = m_item_get_offset(item);
+  return m_storage_get_ptr(&item->cache->storage, offset);
 }
 
 static uint64_t m_item_get_ttl(const struct ybc_item *const item)
