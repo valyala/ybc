@@ -233,9 +233,9 @@ static void simple_get_simple_hit(struct ybc *const cache,
   p_free((void *)value.ptr);
 }
 
-static void m_open(struct ybc *const cache, const size_t items_count,
-    const size_t hot_items_count, const size_t max_item_size,
-    const int has_overwrite_protection)
+static void m_open(struct ybc *const cache, const int use_shm,
+    const size_t items_count, const size_t hot_items_count,
+    const size_t max_item_size, const int has_overwrite_protection)
 {
   char config_buf[ybc_config_get_size()];
   struct ybc_config *const config = (struct ybc_config *)config_buf;
@@ -244,6 +244,10 @@ static void m_open(struct ybc *const cache, const size_t items_count,
   const size_t hot_data_size = max_item_size * hot_items_count;
 
   ybc_config_init(config);
+  if (use_shm) {
+      ybc_config_set_data_file(config, "/dev/shm/ybc-perftest-cache.data");
+      ybc_config_set_index_file(config, "/dev/shm/ybc-perftest-cache.index");
+  }
   ybc_config_set_max_items_count(config, items_count);
   ybc_config_set_hot_items_count(config, hot_items_count);
   ybc_config_set_data_file_size(config, data_file_size);
@@ -259,7 +263,24 @@ static void m_open(struct ybc *const cache, const size_t items_count,
   ybc_config_destroy(config);
 }
 
-static void measure_simple_ops(struct ybc *const cache,
+static void m_close(struct ybc *const cache, const int use_shm)
+{
+  ybc_close(cache);
+  if (!use_shm) {
+      return;
+  }
+
+  char config_buf[ybc_config_get_size()];
+  struct ybc_config *const config = (struct ybc_config *)config_buf;
+
+  ybc_config_init(config);
+  ybc_config_set_data_file(config, "/dev/shm/ybc-perftest-cache.data");
+  ybc_config_set_index_file(config, "/dev/shm/ybc-perftest-cache.index");
+  ybc_remove(config);
+  ybc_config_destroy(config);
+}
+
+static void measure_simple_ops(struct ybc *const cache, const int use_shm,
     const size_t requests_count, const size_t items_count,
     const size_t hot_items_count, const size_t max_item_size,
     const int has_overwrite_protection)
@@ -267,13 +288,13 @@ static void measure_simple_ops(struct ybc *const cache,
   double start_time, end_time;
   double qps;
 
-  m_open(cache, items_count, hot_items_count, max_item_size,
+  m_open(cache, use_shm, items_count, hot_items_count, max_item_size,
       has_overwrite_protection);
 
   printf("simple_ops(requests=%zu, items=%zu, "
-      "hot_items=%zu, max_item_size=%zu, has_overwrite_protection=%d)\n",
+      "hot_items=%zu, max_item_size=%zu, has_overwrite_protection=%d, use_shm=%d)\n",
       requests_count, items_count, hot_items_count, max_item_size,
-      has_overwrite_protection);
+      has_overwrite_protection, use_shm);
 
   start_time = p_get_current_time();
   simple_get_miss(cache, requests_count, items_count);
@@ -312,7 +333,7 @@ static void measure_simple_ops(struct ybc *const cache,
   qps = requests_count / (end_time - start_time) * 1000;
   printf("  get_simple_hit : %.02f qps\n", qps);
 
-  ybc_close(cache);
+  m_close(cache, use_shm);
 }
 
 struct thread_task
@@ -443,13 +464,14 @@ static double measure_qps(struct thread_task *const task,
 }
 
 static void measure_multithreaded_ops(struct ybc *const cache,
+    const int use_shm,
     const size_t threads_count, const size_t requests_count,
     const size_t items_count, const size_t hot_items_count,
     const size_t max_item_size, const int has_overwrite_protection)
 {
   double qps;
 
-  m_open(cache, items_count, hot_items_count, max_item_size,
+  m_open(cache, use_shm, items_count, hot_items_count, max_item_size,
       has_overwrite_protection);
 
   struct thread_task task = {
@@ -462,9 +484,9 @@ static void measure_multithreaded_ops(struct ybc *const cache,
   p_lock_init(&task.lock);
 
   printf("multithreaded_ops(requests=%zu, items=%zu, hot_items=%zu, "
-      "max_item_size=%zu, threads=%zu, has_overwrite_protection=%d)\n",
+      "max_item_size=%zu, threads=%zu, has_overwrite_protection=%d, use_shm=%d)\n",
       requests_count, items_count, hot_items_count, max_item_size,
-      threads_count, has_overwrite_protection);
+      threads_count, has_overwrite_protection, use_shm);
 
   qps = measure_qps(&task, thread_func_get_miss, threads_count, requests_count);
   printf("  get_miss       : %.2f qps\n", qps);
@@ -494,7 +516,7 @@ static void measure_multithreaded_ops(struct ybc *const cache,
 
   p_lock_destroy(&task.lock);
 
-  ybc_close(cache);
+  m_close(cache, use_shm);
 }
 
 int main(void)
@@ -506,21 +528,23 @@ int main(void)
   const size_t items_count = 200 * 1000;
 
   for (size_t max_item_size = 8; max_item_size <= 4096; max_item_size *= 2) {
-    measure_simple_ops(cache, requests_count, items_count, 0, max_item_size, 0);
-    measure_simple_ops(cache, requests_count, items_count, 0, max_item_size, 1);
+    measure_simple_ops(cache, 0, requests_count, items_count, 0, max_item_size, 0);
+    measure_simple_ops(cache, 0, requests_count, items_count, 0, max_item_size, 1);
+    measure_simple_ops(cache, 1, requests_count, items_count, 0, max_item_size, 0);
+    measure_simple_ops(cache, 1, requests_count, items_count, 0, max_item_size, 1);
     for (size_t hot_items_count = 1000; hot_items_count <= items_count;
         hot_items_count *= 10) {
-      measure_simple_ops(cache, requests_count, items_count, hot_items_count,
-          max_item_size, 0);
-      measure_simple_ops(cache, requests_count, items_count, hot_items_count,
-          max_item_size, 1);
+      measure_simple_ops(cache, 0, requests_count, items_count, hot_items_count, max_item_size, 0);
+      measure_simple_ops(cache, 0, requests_count, items_count, hot_items_count, max_item_size, 1);
+      measure_simple_ops(cache, 1, requests_count, items_count, hot_items_count, max_item_size, 0);
+      measure_simple_ops(cache, 1, requests_count, items_count, hot_items_count, max_item_size, 1);
     }
 
     for (size_t threads_count = 1; threads_count <= 16; threads_count *= 2) {
-      measure_multithreaded_ops(cache, threads_count, requests_count,
-          items_count, 10 * 1000, max_item_size, 0);
-      measure_multithreaded_ops(cache, threads_count, requests_count,
-          items_count, 10 * 1000, max_item_size, 1);
+      measure_multithreaded_ops(cache, 0, threads_count, requests_count, items_count, 10 * 1000, max_item_size, 0);
+      measure_multithreaded_ops(cache, 0, threads_count, requests_count, items_count, 10 * 1000, max_item_size, 1);
+      measure_multithreaded_ops(cache, 1, threads_count, requests_count, items_count, 10 * 1000, max_item_size, 0);
+      measure_multithreaded_ops(cache, 1, threads_count, requests_count, items_count, 10 * 1000, max_item_size, 1);
     }
   }
 
