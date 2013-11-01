@@ -109,6 +109,11 @@ Q: Give me performance numbers!
 A: Well, YBC achieves 25.8 Mops/s for get() calls and 5.8 Mops/s for set() calls
    on my not-so-fast laptop with 2.50GHz Intel i5 CPU when running in 4 threads.
 
+Q: Does YBC work with /dev/shm/ ?
+A: Yes. Just create data and index files on /dev/shm . This will completely
+   eliminate page swapping at the cost of potential data loss on power failure
+   or computer reboot.
+
 Q: Is this yet another boring cache implementation?
 A: No. YBC is designed for modern OSes running on modern hardware. It takes
    advantage of OS's and computer's hardware features, while simultaneouly
