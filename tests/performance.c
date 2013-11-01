@@ -261,6 +261,10 @@ static void m_open(struct ybc *const cache, const int use_shm,
   }
 
   ybc_config_destroy(config);
+
+  if (use_shm) {
+      ybc_clear(cache);
+  }
 }
 
 static void m_close(struct ybc *const cache, const int use_shm)
