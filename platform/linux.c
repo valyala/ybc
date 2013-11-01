@@ -467,6 +467,13 @@ static void p_file_cache_in_ram(const struct p_file *const file,
    * so don't handle this case.
    */
   if (readahead(file->fd, 0, size) == -1) {
+    if (errno == EINVAL) {
+        /*
+         * it looks like file is created on device such as /dev/shm/,
+         * which doensn't support readahead(). Do nothing in this case.
+         */
+        return;
+    }
     error(EXIT_FAILURE, errno, "readahead(fd=%d, size=%zu)", file->fd, size);
   }
 }
