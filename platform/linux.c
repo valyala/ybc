@@ -14,6 +14,8 @@
  *   + It may help dumb compilers with 'constant propagation' optimizations.
  ******************************************************************************/
 
+#define _GNU_SOURCE
+
 #include <assert.h>     /* assert */
 #include <errno.h>      /* errno */
 #include <error.h>      /* error */
