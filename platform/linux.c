@@ -33,6 +33,10 @@
 #include <time.h>       /* clock_gettime, timespec, nanosleep */
 #include <unistd.h>     /* close, fstat, access, unlink, dup, fcntl, sysconf */
 
+#ifndef O_CLOEXEC
+  #define O_CLOEXEC 0
+#endif
+
 
 static void *p_malloc(const size_t size)
 {
