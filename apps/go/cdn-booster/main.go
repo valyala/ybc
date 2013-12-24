@@ -44,7 +44,7 @@ var (
 	goMaxProcs              = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
 	listenAddr              = flag.String("listenAddr", ":8098", "TCP address to listen to")
 	maxItemsCount           = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	maxRequestReadTimeout   = flag.Duration("maxRequestReadTimeout", 30*time.Second, "The maximum timeout for request reading. Anti-DoS parameter")
+	maxRequestReadTimeout   = flag.Duration("maxRequestReadTimeout", 5*time.Second, "The maximum timeout for request reading. Anti-DoS parameter")
 	maxResponseWriteTimeout = flag.Duration("maxResponseWriteTimeout", 30*time.Second, "The maximum timeout for response writing. Anti-DoS parameter")
 	upstreamHost            = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
