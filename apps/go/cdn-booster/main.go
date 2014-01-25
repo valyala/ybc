@@ -40,11 +40,13 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize     = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
-	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
-	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
-	maxItemsCount = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
+	cacheSize               = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
+	goMaxProcs              = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
+	listenAddr              = flag.String("listenAddr", ":8098", "TCP address to listen to")
+	maxItemsCount           = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	maxRequestReadTimeout   = flag.Duration("maxRequestReadTimeout", 5*time.Second, "The maximum timeout for request reading. Anti-DoS parameter")
+	maxResponseWriteTimeout = flag.Duration("maxResponseWriteTimeout", 30*time.Second, "The maximum timeout for response writing. Anti-DoS parameter")
+	upstreamHost            = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
 
 type ProxyHandler struct {
@@ -245,11 +247,16 @@ func main() {
 	defer cache.Close()
 	log.Printf("Data files have been opened\n")
 
-	h := &ProxyHandler{
-		UpstreamHost: *upstreamHost,
-		Cache:        cache,
+	s := http.Server{
+		Addr: *listenAddr,
+		Handler: &ProxyHandler{
+			UpstreamHost: *upstreamHost,
+			Cache:        cache,
+		},
+		ReadTimeout:  *maxRequestReadTimeout,
+		WriteTimeout: *maxResponseWriteTimeout,
 	}
-	if err := http.ListenAndServe(*listenAddr, h); err != nil {
+	if err := s.ListenAndServe(); err != nil {
 		log.Fatalf("Error=[%s] when starting proxy at listenAddr=[%s]\n", err, *listenAddr)
 	}
 }
