@@ -48,7 +48,7 @@ func main() {
 		log.Fatalf("Error=[%s] when parsing testUrl=[%s]\n", err, *testUrl)
 	}
 
-	ch := make(chan int, *requestsCount)
+	ch := make(chan int, 100000)
 	bytesRead := make([]int64, *workersCount)
 	wg := &sync.WaitGroup{}
 
