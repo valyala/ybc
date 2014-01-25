@@ -476,12 +476,6 @@ func main() {
 	key = getRandomKey(*keySize)
 	value = getRandomValue(*valueSize)
 
-	ch := make(chan int, *requestsCount)
-	for i := 0; i < *requestsCount; i++ {
-		ch <- i
-	}
-	close(ch)
-
 	stats := make([]Stats, *workersCount)
 	for i := 0; i < *workersCount; i++ {
 		stats[i].responseTimeHistogram = make([]uint32, *responseTimeHistogramSize)
@@ -505,10 +499,16 @@ func main() {
 	fmt.Printf("starting...")
 	startTime = time.Now()
 
+	ch := make(chan int, 1000000)
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for i := 0; i < *workersCount; i++ {
 		wg.Add(1)
 		go worker(&wg, ch, &stats[i])
 	}
+
+	for i := 0; i < *requestsCount; i++ {
+		ch <- i
+	}
+	close(ch)
 }
