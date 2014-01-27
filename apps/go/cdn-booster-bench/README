@@ -22,3 +22,14 @@ $ sudo apt-get install golang
 $ go get -u -a github.com/valyala/ybc/apps/go/cdn-booster-bench
 $ go build -tags release github.com/valyala/ybc/apps/go/cdn-booster-bench
 $ ./cdn-booster-bench -help
+
+
+-------------------------
+How to test nginx performance with go-cdn-booster-bench?
+
+1. Set temporarily keepalive_requests in nginx config to 10000000
+2. Run cdn-booster-bench -testUrl=http://nginx-host/path_to_test
+3. Return back keepalive_requests to old value.
+
+Currently go-cdn-booster outperforms nginx by ~2x on my laptop - 58Kqps vs
+32Kqps with 12Kb file.
