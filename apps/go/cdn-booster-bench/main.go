@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/url"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -81,9 +82,14 @@ func main() {
 func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int64) {
 	defer wg.Done()
 
-	conn, err := net.Dial("tcp", testUri.Host)
+	hostPort := testUri.Host
+	if !strings.Contains(hostPort, ":") {
+		hostPort = net.JoinHostPort(hostPort, "80")
+	}
+
+	conn, err := net.Dial("tcp", hostPort)
 	if err != nil {
-		log.Fatalf("Error=[%s] when connecting to [%s]\n", err, testUri.Host)
+		log.Fatalf("Error=[%s] when connecting to [%s]\n", err, hostPort)
 	}
 	defer conn.Close()
 
