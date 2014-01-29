@@ -446,31 +446,16 @@ func getWorkerNew(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 
 func main() {
 	flag.Parse()
+	fmt.Printf("Config:\n")
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Printf("%s=%v\n", f.Name, f.Value)
+	})
+	fmt.Printf("\n")
+
 	rand.Seed(time.Now().UnixNano())
 	runtime.GOMAXPROCS(*goMaxProcs)
 
 	serverAddrs_ := strings.Split(*serverAddrs, ",")
-
-	fmt.Printf("Config:\n")
-	fmt.Printf("clientType=[%s]\n", *clientType)
-	fmt.Printf("connectionsCount=[%d]\n", *connectionsCount)
-	fmt.Printf("getRatio=[%f]\n", *getRatio)
-	fmt.Printf("goMaxProcs=[%d]\n", *goMaxProcs)
-	fmt.Printf("itemsCount=[%d]\n", *itemsCount)
-	fmt.Printf("keySize=[%d]\n", *keySize)
-	fmt.Printf("maxPendingRequestsCount=[%d]\n", *maxPendingRequestsCount)
-	fmt.Printf("maxResponseTime=[%s]\n", *maxResponseTime)
-	fmt.Printf("osReadBufferSize=[%d]\n", *osReadBufferSize)
-	fmt.Printf("osWriteBufferSize=[%d]\n", *osWriteBufferSize)
-	fmt.Printf("requestsCount=[%d]\n", *requestsCount)
-	fmt.Printf("readBufferSize=[%d]\n", *readBufferSize)
-	fmt.Printf("responseTimeHistogramSize=[%d]\n", *responseTimeHistogramSize)
-	fmt.Printf("serverAddrs=[%s]\n", *serverAddrs)
-	fmt.Printf("valueSize=[%d]\n", *valueSize)
-	fmt.Printf("workerMode=[%s]\n", *workerMode)
-	fmt.Printf("workersCount=[%d]\n", *workersCount)
-	fmt.Printf("writeBufferSize=[%d]\n", *writeBufferSize)
-	fmt.Printf("\n")
 
 	fmt.Printf("Preparing...")
 	key = getRandomKey(*keySize)
