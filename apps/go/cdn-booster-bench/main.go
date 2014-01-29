@@ -41,6 +41,9 @@ var (
 
 func main() {
 	flag.Parse()
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Printf("%s=%v\n", f.Name, f.Value)
+	})
 
 	runtime.GOMAXPROCS(*goMaxProcs)
 
