@@ -22,11 +22,13 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -40,13 +42,19 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize               = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
-	goMaxProcs              = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
-	listenAddr              = flag.String("listenAddr", ":8098", "TCP address to listen to")
-	maxItemsCount           = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	maxRequestReadTimeout   = flag.Duration("maxRequestReadTimeout", 5*time.Second, "The maximum timeout for request reading. Anti-DoS parameter")
-	maxResponseWriteTimeout = flag.Duration("maxResponseWriteTimeout", 30*time.Second, "The maximum timeout for response writing. Anti-DoS parameter")
-	upstreamHost            = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
+	cacheSize     = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
+	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
+	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
+	maxItemsCount = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
+)
+
+var (
+	ifNoneMatchResponseHeader         = []byte("HTTP/1.1 304 Not Modified\nServer: go-cdn-booster\nEtag: W/\"CacheForever\"\n\n")
+	internalServerErrorResponseHeader = []byte("HTTP/1.1 500 Internal Server Error\nServer: go-cdn-booster\n\n")
+	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\nServer: go-cdn-booster\n\n")
+	okResponseHeader                  = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nCache-Control: public, max-age=31536000\nETag: W/\"CacheForever\"\n")
+	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\nServer: go-cdn-booster\n\n")
 )
 
 type ProxyHandler struct {
@@ -54,24 +62,16 @@ type ProxyHandler struct {
 	Cache        ybc.Cacher
 }
 
-func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	respH := w.Header()
-	respH.Set("Server", "go-cdn-booster")
-
+func (ph *ProxyHandler) handleRequest(req *http.Request, w io.Writer) bool {
 	if req.Method != "GET" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
+		w.Write(notAllowedResponseHeader)
+		return false
 	}
 
 	reqH := req.Header
 	if reqH.Get("If-None-Match") != "" {
-		respH.Set("ETag", "W/\"CacheForever\"")
-
-		// Set content-length as a workaround for https://code.google.com/p/go/issues/detail?id=6157
-		respH.Set("Content-Length", "123")
-
-		w.WriteHeader(http.StatusNotModified)
-		return
+		_, err := w.Write(ifNoneMatchResponseHeader)
+		return err == nil
 	}
 
 	key := []byte(req.RequestURI)
@@ -81,31 +81,33 @@ func (ph *ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.Fatalf("Unexpeced error=[%s] when obtaining cache value by key=[%s]\n", err, key)
 		}
 
-		item = fetchFromUpstream(ph.Cache, w, ph.UpstreamHost, key)
+		item = fetchFromUpstream(ph.Cache, ph.UpstreamHost, key)
 		if item == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+			w.Write(serviceUnavailableResponseHeader)
+			return false
 		}
 	}
 	defer item.Close()
 
 	contentType, err := loadContentType(item)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		w.Write(internalServerErrorResponseHeader)
+		return false
 	}
 
-	respH.Set("Cache-Control", "public, max-age=31536000")
-	respH.Set("Content-Length", fmt.Sprintf("%d", item.Available()))
-	respH.Set("Content-Type", contentType)
-	respH.Set("ETag", "W/\"CacheForever\"")
-	w.WriteHeader(http.StatusOK)
+	if _, err = w.Write(okResponseHeader); err != nil {
+		return false
+	}
+	if _, err = fmt.Fprintf(w, "Content-Type: %s\nContent-Length: %d\n\n", contentType, item.Available()); err != nil {
+		return false
+	}
 	if _, err = io.Copy(w, item); err != nil {
 		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
+		return false
 	}
+	return true
 }
-
-func fetchFromUpstream(cache ybc.Cacher, w http.ResponseWriter, upstreamHost string, key []byte) *ybc.Item {
+func fetchFromUpstream(cache ybc.Cacher, upstreamHost string, key []byte) *ybc.Item {
 	requestUrl := fmt.Sprintf("http://%s%s", upstreamHost, key)
 	resp, err := http.Get(requestUrl)
 	if err != nil {
@@ -226,7 +228,7 @@ func main() {
 		}
 		cache, err = config.OpenCache(true)
 		if err != nil {
-			log.Fatalf("Cannot open cache: [%s]", err)
+			log.Fatalf("Cannot open cache: [%s]\n", err)
 		}
 	} else if cacheFilesCount > 1 {
 		config.MaxItemsCount /= ybc.SizeT(cacheFilesCount)
@@ -241,22 +243,60 @@ func main() {
 		}
 		cache, err = configs.OpenCluster(true)
 		if err != nil {
-			log.Fatalf("Cannot open cache cluster: [%s]", err)
+			log.Fatalf("Cannot open cache cluster: [%s]\n", err)
 		}
 	}
 	defer cache.Close()
 	log.Printf("Data files have been opened\n")
 
-	s := http.Server{
-		Addr: *listenAddr,
-		Handler: &ProxyHandler{
-			UpstreamHost: *upstreamHost,
-			Cache:        cache,
-		},
-		ReadTimeout:  *maxRequestReadTimeout,
-		WriteTimeout: *maxResponseWriteTimeout,
+	ph := &ProxyHandler{
+		UpstreamHost: *upstreamHost,
+		Cache:        cache,
 	}
-	if err := s.ListenAndServe(); err != nil {
-		log.Fatalf("Error=[%s] when starting proxy at listenAddr=[%s]\n", err, *listenAddr)
+
+	listenAndServe(*listenAddr, ph)
+}
+
+func listenAndServe(listenAddr string, ph *ProxyHandler) {
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		log.Fatalf("Cannot listen [%s]: [%s]\n", listenAddr, err)
 	}
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				log.Printf("Cannot accept connections due temporary network error: [%s]\n", err)
+				time.Sleep(time.Second)
+			}
+			log.Fatalf("Cannot accept connections due permanent error: [%s]\n", err)
+		}
+		go handleConnection(conn, ph)
+	}
+}
+
+func handleConnection(rw io.ReadWriteCloser, ph *ProxyHandler) {
+	defer rw.Close()
+	r := bufio.NewReader(rw)
+	w := bufio.NewWriter(rw)
+	for {
+		req, err := http.ReadRequest(r)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error when reading http request: [%s]\n", err)
+			}
+			return
+		}
+		if !handleBufferedRequest(req, w, ph) {
+			return
+		}
+		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
+			return
+		}
+	}
+}
+
+func handleBufferedRequest(req *http.Request, w *bufio.Writer, ph *ProxyHandler) bool {
+	defer w.Flush()
+	return ph.handleRequest(req, w)
 }
