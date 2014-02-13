@@ -33,6 +33,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,7 @@ var (
 	cacheSize     = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
 	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
 	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
+	maxConnsPerIp = flag.Int("maxConnsPerIp", 20, "The maximum number of concurrent connections from a single ip")
 	maxItemsCount = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
 	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
@@ -57,12 +59,119 @@ var (
 	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\nServer: go-cdn-booster\n\n")
 )
 
-type ProxyHandler struct {
-	UpstreamHost string
-	Cache        ybc.Cacher
+var (
+	cache            ybc.Cacher
+	perIpConnTracker = createPerIpConnTracker()
+)
+
+func main() {
+	flag.Parse()
+
+	runtime.GOMAXPROCS(*goMaxProcs)
+
+	cache = createCache()
+	defer cache.Close()
+
+	listenAndServe()
 }
 
-func (ph *ProxyHandler) handleRequest(req *http.Request, w io.Writer) bool {
+func createCache() ybc.Cacher {
+	config := ybc.Config{
+		MaxItemsCount: ybc.SizeT(*maxItemsCount),
+		DataFileSize:  ybc.SizeT(*cacheSize),
+	}
+
+	var err error
+	var cache ybc.Cacher
+
+	cacheFilesPath_ := strings.Split(*cacheFilesPath, ",")
+	cacheFilesCount := len(cacheFilesPath_)
+	log.Printf("Opening data files. This can take a while for the first time if files are big\n")
+	if cacheFilesCount < 2 {
+		if cacheFilesPath_[0] != "" {
+			config.DataFile = cacheFilesPath_[0] + ".cdn-booster.data"
+			config.IndexFile = cacheFilesPath_[0] + ".cdn-booster.index"
+		}
+		cache, err = config.OpenCache(true)
+		if err != nil {
+			log.Fatalf("Cannot open cache: [%s]\n", err)
+		}
+	} else if cacheFilesCount > 1 {
+		config.MaxItemsCount /= ybc.SizeT(cacheFilesCount)
+		config.DataFileSize /= ybc.SizeT(cacheFilesCount)
+		var configs ybc.ClusterConfig
+		configs = make([]*ybc.Config, cacheFilesCount)
+		for i := 0; i < cacheFilesCount; i++ {
+			cfg := config
+			cfg.DataFile = cacheFilesPath_[i] + ".cdn-booster.data"
+			cfg.IndexFile = cacheFilesPath_[i] + ".cdn-booster.index"
+			configs[i] = &cfg
+		}
+		cache, err = configs.OpenCluster(true)
+		if err != nil {
+			log.Fatalf("Cannot open cache cluster: [%s]\n", err)
+		}
+	}
+	log.Printf("Data files have been opened\n")
+	return cache
+}
+
+func listenAndServe() {
+	ln, err := net.Listen("tcp4", *listenAddr)
+	if err != nil {
+		log.Fatalf("Cannot listen [%s]: [%s]\n", *listenAddr, err)
+	}
+	log.Printf("Listening on [%s]\n", *listenAddr)
+	for {
+		conn, err := ln.Accept()
+		ip4 := conn.RemoteAddr().(*net.TCPAddr).IP.To4()
+		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				log.Printf("Cannot accept connections due temporary network error: [%s]\n", err)
+				time.Sleep(time.Second)
+			}
+			log.Fatalf("Cannot accept connections due permanent error: [%s]\n", err)
+		}
+		go handleConnection(conn, ip4)
+	}
+}
+
+func handleConnection(rw io.ReadWriteCloser, ip4 net.IP) {
+	defer rw.Close()
+
+	ipUint32 := ip4ToUint32(ip4)
+	if perIpConnTracker.registerIp(ipUint32) > *maxConnsPerIp {
+		log.Printf("Too many concurrent connections (more than %d) from ip=%s. Denying new connection from the ip\n", *maxConnsPerIp, ip4)
+		perIpConnTracker.unregisterIp(ipUint32)
+		return
+	}
+	defer perIpConnTracker.unregisterIp(ipUint32)
+
+	r := bufio.NewReader(rw)
+	w := bufio.NewWriter(rw)
+	for {
+		req, err := http.ReadRequest(r)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("Error when reading http request: [%s]\n", err)
+			}
+			return
+		}
+		if !handleBufferedRequest(req, w) {
+			return
+		}
+		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
+			return
+		}
+	}
+}
+
+func handleBufferedRequest(req *http.Request, w *bufio.Writer) bool {
+	defer w.Flush()
+	return handleRequest(req, w)
+}
+
+func handleRequest(req *http.Request, w io.Writer) bool {
 	if req.Method != "GET" {
 		w.Write(notAllowedResponseHeader)
 		return false
@@ -75,13 +184,13 @@ func (ph *ProxyHandler) handleRequest(req *http.Request, w io.Writer) bool {
 	}
 
 	key := []byte(req.RequestURI)
-	item, err := ph.Cache.GetDeItem(key, time.Second)
+	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
 			log.Fatalf("Unexpeced error=[%s] when obtaining cache value by key=[%s]\n", err, key)
 		}
 
-		item = fetchFromUpstream(ph.Cache, ph.UpstreamHost, key)
+		item = fetchFromUpstream(cache, *upstreamHost, key)
 		if item == nil {
 			w.Write(serviceUnavailableResponseHeader)
 			return false
@@ -107,6 +216,7 @@ func (ph *ProxyHandler) handleRequest(req *http.Request, w io.Writer) bool {
 	}
 	return true
 }
+
 func fetchFromUpstream(cache ybc.Cacher, upstreamHost string, key []byte) *ybc.Item {
 	requestUrl := fmt.Sprintf("http://%s%s", upstreamHost, key)
 	resp, err := http.Get(requestUrl)
@@ -205,98 +315,31 @@ func loadContentType(r io.Reader) (contentType string, err error) {
 	return
 }
 
-func main() {
-	flag.Parse()
-
-	runtime.GOMAXPROCS(*goMaxProcs)
-
-	config := ybc.Config{
-		MaxItemsCount: ybc.SizeT(*maxItemsCount),
-		DataFileSize:  ybc.SizeT(*cacheSize),
-	}
-
-	var cache ybc.Cacher
-	var err error
-
-	cacheFilesPath_ := strings.Split(*cacheFilesPath, ",")
-	cacheFilesCount := len(cacheFilesPath_)
-	log.Printf("Opening data files. This can take a while for the first time if files are big\n")
-	if cacheFilesCount < 2 {
-		if cacheFilesPath_[0] != "" {
-			config.DataFile = cacheFilesPath_[0] + ".cdn-booster.data"
-			config.IndexFile = cacheFilesPath_[0] + ".cdn-booster.index"
-		}
-		cache, err = config.OpenCache(true)
-		if err != nil {
-			log.Fatalf("Cannot open cache: [%s]\n", err)
-		}
-	} else if cacheFilesCount > 1 {
-		config.MaxItemsCount /= ybc.SizeT(cacheFilesCount)
-		config.DataFileSize /= ybc.SizeT(cacheFilesCount)
-		var configs ybc.ClusterConfig
-		configs = make([]*ybc.Config, cacheFilesCount)
-		for i := 0; i < cacheFilesCount; i++ {
-			cfg := config
-			cfg.DataFile = cacheFilesPath_[i] + ".cdn-booster.data"
-			cfg.IndexFile = cacheFilesPath_[i] + ".cdn-booster.index"
-			configs[i] = &cfg
-		}
-		cache, err = configs.OpenCluster(true)
-		if err != nil {
-			log.Fatalf("Cannot open cache cluster: [%s]\n", err)
-		}
-	}
-	defer cache.Close()
-	log.Printf("Data files have been opened\n")
-
-	ph := &ProxyHandler{
-		UpstreamHost: *upstreamHost,
-		Cache:        cache,
-	}
-
-	listenAndServe(*listenAddr, ph)
+func ip4ToUint32(ip4 net.IP) uint32 {
+	return (uint32(ip4[0]) << 24) | (uint32(ip4[1]) << 16) | (uint32(ip4[2]) << 8) | uint32(ip4[3])
 }
 
-func listenAndServe(listenAddr string, ph *ProxyHandler) {
-	ln, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		log.Fatalf("Cannot listen [%s]: [%s]\n", listenAddr, err)
-	}
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				log.Printf("Cannot accept connections due temporary network error: [%s]\n", err)
-				time.Sleep(time.Second)
-			}
-			log.Fatalf("Cannot accept connections due permanent error: [%s]\n", err)
-		}
-		go handleConnection(conn, ph)
-	}
+type PerIpConnTracker struct {
+	mutex          sync.Mutex
+	perIpConnCount map[uint32]int
 }
 
-func handleConnection(rw io.ReadWriteCloser, ph *ProxyHandler) {
-	defer rw.Close()
-	r := bufio.NewReader(rw)
-	w := bufio.NewWriter(rw)
-	for {
-		req, err := http.ReadRequest(r)
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error when reading http request: [%s]\n", err)
-			}
-			return
-		}
-		if !handleBufferedRequest(req, w, ph) {
-			return
-		}
-		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
-			return
-		}
-	}
+func (ct *PerIpConnTracker) registerIp(ipUint32 uint32) int {
+	ct.mutex.Lock()
+	ct.perIpConnCount[ipUint32] += 1
+	connCount := ct.perIpConnCount[ipUint32]
+	ct.mutex.Unlock()
+	return connCount
 }
 
-func handleBufferedRequest(req *http.Request, w *bufio.Writer, ph *ProxyHandler) bool {
-	defer w.Flush()
-	return ph.handleRequest(req, w)
+func (ct *PerIpConnTracker) unregisterIp(ipUint32 uint32) {
+	ct.mutex.Lock()
+	ct.perIpConnCount[ipUint32] -= 1
+	ct.mutex.Unlock()
+}
+
+func createPerIpConnTracker() *PerIpConnTracker {
+	return &PerIpConnTracker{
+		perIpConnCount: make(map[uint32]int),
+	}
 }
