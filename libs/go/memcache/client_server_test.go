@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
+	"io"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +39,30 @@ func newServerCacheWithAddr(listenAddr string, t *testing.T) (s *Server, cache *
 
 func newServerCache(t *testing.T) (s *Server, cache *ybc.Cache) {
 	return newServerCacheWithAddr(testAddr, t)
+}
+
+func TestServer_Quit(t *testing.T) {
+	s, cache := newServerCache(t)
+	defer cache.Close()
+
+	s.Start()
+	defer s.Stop()
+	conn, err := net.Dial("tcp", testAddr)
+	if err != nil {
+		t.Fatalf("Cannot connect to test server at %s: [%s]\n", testAddr, err)
+	}
+	if _, err = conn.Write([]byte("quit\r\n")); err != nil {
+		t.Fatalf("error when sending 'quit' command to the server: [%s]\n", err)
+	}
+	buf := make([]byte, 1)
+	n, err := conn.Read(buf)
+	if err != io.EOF {
+		t.Fatalf("Unexpected error returned from the server after 'quit' command: [%s]\n", err)
+	}
+	if n != 0 {
+		t.Fatalf("Unexpected data returned from the server after 'quit' command. n=%d\n", n)
+	}
+	conn.Close()
 }
 
 func TestServer_StartStop(t *testing.T) {

@@ -55,6 +55,7 @@ var (
 	strNotStored           = []byte("NOT_STORED")
 	strNotStoredCrLf       = []byte("NOT_STORED\r\n")
 	strOkCrLf              = []byte("OK\r\n")
+	strQuit                = []byte("quit")
 	strSet                 = []byte("set ")
 	strStored              = []byte("STORED")
 	strStoredCrLf          = []byte("STORED\r\n")

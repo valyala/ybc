@@ -634,6 +634,9 @@ func processRequest(c *bufio.ReadWriter, cache ybc.Cacher, scratchBuf *[]byte, f
 	if bytes.HasPrefix(line, strFlushAll) {
 		return processFlushAllCmd(c, cache, line[len(strFlushAll):], flushAllTimer)
 	}
+	if bytes.HasPrefix(line, strQuit) {
+		return false
+	}
 	log.Printf("Unrecognized command=[%s]", line)
 	return false
 }
