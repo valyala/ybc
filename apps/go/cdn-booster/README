@@ -18,7 +18,7 @@ Thanks to YBC it has the following features:
     line arguments to it and enjoy!
 
 Thanks to Go it has the following features:
-  * Scales automatically on multiple CPUs.
+  * Scales automatically to multiple CPUs.
   * Handles large number of concurrent connections with minimum performance
     loss and minimum memory usage.
   * Supports keep-alive connections to upstream servers out-of-the-box.
