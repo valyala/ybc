@@ -124,21 +124,22 @@ func listenAndServe() {
 	log.Printf("Listening on [%s]\n", *listenAddr)
 	for {
 		conn, err := ln.Accept()
-		ip4 := conn.RemoteAddr().(*net.TCPAddr).IP.To4()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				log.Printf("Cannot accept connections due temporary network error: [%s]\n", err)
 				time.Sleep(time.Second)
+				continue
 			}
 			log.Fatalf("Cannot accept connections due permanent error: [%s]\n", err)
 		}
-		go handleConnection(conn, ip4)
+		go handleConnection(conn)
 	}
 }
 
-func handleConnection(rw io.ReadWriteCloser, ip4 net.IP) {
-	defer rw.Close()
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
 
+	ip4 := conn.RemoteAddr().(*net.TCPAddr).IP.To4()
 	ipUint32 := ip4ToUint32(ip4)
 	if perIpConnTracker.registerIp(ipUint32) > *maxConnsPerIp {
 		log.Printf("Too many concurrent connections (more than %d) from ip=%s. Denying new connection from the ip\n", *maxConnsPerIp, ip4)
@@ -147,8 +148,8 @@ func handleConnection(rw io.ReadWriteCloser, ip4 net.IP) {
 	}
 	defer perIpConnTracker.unregisterIp(ipUint32)
 
-	r := bufio.NewReader(rw)
-	w := bufio.NewWriter(rw)
+	r := bufio.NewReader(conn)
+	w := bufio.NewWriter(conn)
 	for {
 		req, err := http.ReadRequest(r)
 		if err != nil {
