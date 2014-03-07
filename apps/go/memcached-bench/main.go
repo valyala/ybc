@@ -115,6 +115,10 @@ func printStats(stats []Stats, startTime *time.Time) {
 	for i := 0; i < n; i++ {
 		totalRequestsCount += totalStats.responseTimeHistogram[i]
 	}
+	if totalRequestsCount == 0 {
+		fmt.Printf("There are no successful requests performed\n")
+		return
+	}
 
 	var avgResponseTime time.Duration
 	if totalRequestsCount > 0 {
