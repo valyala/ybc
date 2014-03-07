@@ -43,7 +43,7 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize     = flag.Int("cacheSize", 100*1000*1000, "The total cache size in bytes")
+	cacheSize     = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
 	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
 	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
 	maxConnsPerIp = flag.Int("maxConnsPerIp", 20, "The maximum number of concurrent connections from a single ip")
@@ -78,7 +78,7 @@ func main() {
 func createCache() ybc.Cacher {
 	config := ybc.Config{
 		MaxItemsCount: ybc.SizeT(*maxItemsCount),
-		DataFileSize:  ybc.SizeT(*cacheSize),
+		DataFileSize:  ybc.SizeT(*cacheSize) * ybc.SizeT(1024*1024),
 	}
 
 	var err error
