@@ -46,7 +46,7 @@ var (
 	cacheSize     = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
 	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
 	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
-	maxConnsPerIp = flag.Int("maxConnsPerIp", 20, "The maximum number of concurrent connections from a single ip")
+	maxConnsPerIp = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
 	maxItemsCount = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
 	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
