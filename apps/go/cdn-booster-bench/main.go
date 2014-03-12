@@ -21,7 +21,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"net/url"
 	"runtime"
@@ -33,8 +35,9 @@ import (
 var (
 	numCpu = runtime.NumCPU()
 
+	filesCount    = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
 	goMaxProcs    = flag.Int("goMaxProcs", numCpu, "The number of go procs")
-	requestsCount = flag.Int("requestsCount", 10000, "The number of requests to perform")
+	requestsCount = flag.Int("requestsCount", 100000, "The number of requests to perform")
 	testUrl       = flag.String("testUrl", "http://localhost:8098/", "Url to test")
 	workersCount  = flag.Int("workersCount", 8*numCpu, "The number of workers")
 )
@@ -109,8 +112,9 @@ func requestsWriter(conn *net.TCPConn, ch <-chan int, testUri *url.URL) {
 	defer conn.CloseWrite()
 	w := bufio.NewWriter(conn)
 	defer w.Flush()
-	requestStr := []byte(fmt.Sprintf("GET %s HTTP/1.1\nHost: %s\n\n", testUri.RequestURI(), testUri.Host))
+	requestUri := testUri.RequestURI()
 	for n := range ch {
+		requestStr := []byte(fmt.Sprintf("GET %s?%d HTTP/1.1\nHost: %s\n\n", requestUri, rand.Intn(*filesCount), testUri.Host))
 		if _, err := w.Write(requestStr); err != nil {
 			log.Fatalf("Error=[%s] when writing HTTP request [%d] to connection\n", err, n)
 		}
@@ -119,17 +123,9 @@ func requestsWriter(conn *net.TCPConn, ch <-chan int, testUri *url.URL) {
 
 func responsesReader(r io.Reader, bytesReadChan chan<- int64) {
 	var bytesRead int64
+	var err error
 	defer func() { bytesReadChan <- bytesRead }()
-
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatalf("Error when reading HTTP response: [%s]", err)
-		}
-		bytesRead += int64(n)
+	if bytesRead, err = io.Copy(ioutil.Discard, r); err != nil {
+		log.Fatalf("Error when reading HTTP response: [%s]\n", err)
 	}
 }
