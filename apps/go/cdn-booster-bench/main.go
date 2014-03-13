@@ -18,6 +18,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -40,6 +41,12 @@ var (
 	requestsCount = flag.Int("requestsCount", 100000, "The number of requests to perform")
 	testUrl       = flag.String("testUrl", "http://localhost:8098/", "Url to test")
 	workersCount  = flag.Int("workersCount", 8*numCpu, "The number of workers")
+)
+
+var (
+	tlsConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
 )
 
 func main() {
@@ -90,7 +97,11 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 
 	hostPort := testUri.Host
 	if !strings.Contains(hostPort, ":") {
-		hostPort = net.JoinHostPort(hostPort, "80")
+		port := "80"
+		if testUri.Scheme == "https" {
+			port = "443"
+		}
+		hostPort = net.JoinHostPort(hostPort, port)
 	}
 
 	conn, err := net.Dial("tcp", hostPort)
@@ -99,17 +110,24 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 	}
 	defer conn.Close()
 
-	tcpConn := conn.(*net.TCPConn)
 	bytesReadChan := make(chan int64)
 	defer func() { *bytesRead = <-bytesReadChan }()
 
-	go responsesReader(tcpConn, bytesReadChan)
+	tcpConn := conn.(*net.TCPConn)
+	if testUri.Scheme == "https" {
+		conn = tls.Client(conn, tlsConfig)
+		if err = conn.(*tls.Conn).Handshake(); err != nil {
+			log.Fatalf("Error during tls handshake: [%s]\n", err)
+		}
+	}
 
-	requestsWriter(tcpConn, ch, testUri)
+	go responsesReader(conn, bytesReadChan)
+
+	requestsWriter(tcpConn, conn, ch, testUri)
 }
 
-func requestsWriter(conn *net.TCPConn, ch <-chan int, testUri *url.URL) {
-	defer conn.CloseWrite()
+func requestsWriter(tcpConn *net.TCPConn, conn net.Conn, ch <-chan int, testUri *url.URL) {
+	defer tcpConn.CloseWrite()
 	w := bufio.NewWriter(conn)
 	defer w.Flush()
 	requestUri := testUri.RequestURI()
