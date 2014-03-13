@@ -26,6 +26,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
@@ -85,11 +86,12 @@ func main() {
 	for i := 0; i < *workersCount; i++ {
 		totalBytesRead += bytesRead[i]
 	}
+	kbytesRead := float64(totalBytesRead) / float64(1000)
 	qps := float64(*requestsCount) / seconds
-	kbps := float64(totalBytesRead) / seconds / float64(1000)
+	kbps := kbytesRead / seconds
 	log.Printf("Done\n")
 	log.Printf("%d requests from %d workers in %s\n", *requestsCount, *workersCount, duration)
-	log.Printf("%.0f qps, %.0f Kbps\n", qps, kbps)
+	log.Printf("%.0f Kbytes read, %.0f qps, %.0f Kbps\n", kbytesRead, qps, kbps)
 }
 
 func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int64) {
@@ -110,9 +112,6 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 	}
 	defer conn.Close()
 
-	bytesReadChan := make(chan int64)
-	defer func() { *bytesRead = <-bytesReadChan }()
-
 	tcpConn := conn.(*net.TCPConn)
 	if testUri.Scheme == "https" {
 		conn = tls.Client(conn, tlsConfig)
@@ -121,29 +120,54 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 		}
 	}
 
-	go responsesReader(conn, bytesReadChan)
-
-	requestsWriter(tcpConn, conn, ch, testUri)
+	statsChan := make(chan int64, 2)
+	go readResponses(conn, statsChan)
+	requestsWritten := writeRequests(conn, ch, testUri)
+	tcpConn.CloseWrite()
+	responsesRead := <-statsChan
+	if responsesRead != requestsWritten {
+		log.Fatalf("Unexpected number of responses read: %d. Expected %d\n", responsesRead, requestsWritten)
+	}
+	*bytesRead = <-statsChan
 }
 
-func requestsWriter(tcpConn *net.TCPConn, conn net.Conn, ch <-chan int, testUri *url.URL) {
-	defer tcpConn.CloseWrite()
+func writeRequests(conn net.Conn, ch <-chan int, testUri *url.URL) int64 {
+	var requestsWritten int64
 	w := bufio.NewWriter(conn)
-	defer w.Flush()
 	requestUri := testUri.RequestURI()
-	for n := range ch {
+	for _ = range ch {
 		requestStr := []byte(fmt.Sprintf("GET %s?%d HTTP/1.1\nHost: %s\n\n", requestUri, rand.Intn(*filesCount), testUri.Host))
 		if _, err := w.Write(requestStr); err != nil {
-			log.Fatalf("Error=[%s] when writing HTTP request [%d] to connection\n", err, n)
+			log.Fatalf("Error=[%s] when writing HTTP request [%d] to connection\n", err, requestsWritten)
 		}
+		requestsWritten += 1
 	}
+	if err := w.Flush(); err != nil {
+		log.Fatalf("Error when flushing requests' buffer: [%s]\n", err)
+	}
+	return requestsWritten
 }
 
-func responsesReader(r io.Reader, bytesReadChan chan<- int64) {
+func readResponses(r io.Reader, statsChan chan<- int64) {
 	var bytesRead int64
-	var err error
-	defer func() { bytesReadChan <- bytesRead }()
-	if bytesRead, err = io.Copy(ioutil.Discard, r); err != nil {
-		log.Fatalf("Error when reading HTTP response: [%s]\n", err)
+	var responsesRead int64
+	rb := bufio.NewReader(r)
+	for {
+		resp, err := http.ReadResponse(rb, nil)
+		if err != nil {
+			if err == io.ErrUnexpectedEOF {
+				break
+			}
+			log.Fatalf("Error when reading response: [%s]\n", err)
+		}
+		n, err := io.Copy(ioutil.Discard, resp.Body)
+		if err != nil {
+			log.Fatalf("Error when reading response body: [%s]\n", err)
+		}
+		bytesRead += int64(n)
+		resp.Body.Close()
+		responsesRead += 1
 	}
+	statsChan <- responsesRead
+	statsChan <- bytesRead
 }
