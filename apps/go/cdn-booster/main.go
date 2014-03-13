@@ -23,6 +23,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
@@ -45,7 +46,10 @@ var (
 			"and each cache file is located on a distinct physical storage.")
 	cacheSize            = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
 	goMaxProcs           = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
-	listenAddr           = flag.String("listenAddr", ":8098", "TCP address to listen to")
+	httpsCertFile        = flag.String("httpsCertFile", "/etc/ssl/certs/ssl-cert-snakeoil.pem", "Path to HTTPS server certificate. Used only if listenHttpsAddr is set")
+	httpsKeyFile         = flag.String("httpsKeyFile", "/etc/ssl/private/ssl-cert-snakeoil.key", "Path to HTTPS server key. Used only if listenHttpsAddr is set")
+	httpsListenAddrs     = flag.String("httpsListenAddrs", "", "A list of TCP addresses to listen to HTTPS requests. Leave empty if you don't need https")
+	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
 	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
 	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 20, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
@@ -79,7 +83,16 @@ func main() {
 		},
 	}
 
-	listenAndServe()
+	var addr string
+	for _, addr = range strings.Split(*httpsListenAddrs, ",") {
+		go serveHttps(addr)
+	}
+	for _, addr = range strings.Split(*listenAddrs, ",") {
+		go serveHttp(addr)
+	}
+
+	waitForeverCh := make(chan int)
+	<-waitForeverCh
 }
 
 func createCache() ybc.Cacher {
@@ -123,12 +136,34 @@ func createCache() ybc.Cacher {
 	return cache
 }
 
-func listenAndServe() {
-	ln, err := net.Listen("tcp4", *listenAddr)
+func serveHttps(addr string) {
+	cert, err := tls.LoadX509KeyPair(*httpsCertFile, *httpsKeyFile)
 	if err != nil {
-		log.Fatalf("Cannot listen [%s]: [%s]\n", *listenAddr, err)
+		log.Fatalf("Cannot load certificate: [%s]\n", err)
 	}
-	log.Printf("Listening on [%s]\n", *listenAddr)
+	c := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+	ln := tls.NewListener(listen(addr), c)
+	log.Printf("Listening https on [%s]\n", addr)
+	serve(ln)
+}
+
+func serveHttp(addr string) {
+	ln := listen(addr)
+	log.Printf("Listening http on [%s]\n", addr)
+	serve(ln)
+}
+
+func listen(addr string) net.Listener {
+	ln, err := net.Listen("tcp4", addr)
+	if err != nil {
+		log.Fatalf("Cannot listen [%s]: [%s]\n", addr, err)
+	}
+	return ln
+}
+
+func serve(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
