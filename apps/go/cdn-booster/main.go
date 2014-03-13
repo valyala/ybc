@@ -43,12 +43,13 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize     = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
-	goMaxProcs    = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
-	listenAddr    = flag.String("listenAddr", ":8098", "TCP address to listen to")
-	maxConnsPerIp = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
-	maxItemsCount = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	upstreamHost  = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
+	cacheSize            = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
+	goMaxProcs           = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
+	listenAddr           = flag.String("listenAddr", ":8098", "TCP address to listen to")
+	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
+	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 20, "The maximum idle connections to upstream host")
+	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
 
 var (
@@ -61,6 +62,7 @@ var (
 
 var (
 	cache            ybc.Cacher
+	client           http.Client
 	perIpConnTracker = createPerIpConnTracker()
 )
 
@@ -71,6 +73,11 @@ func main() {
 
 	cache = createCache()
 	defer cache.Close()
+	client = http.Client{
+		Transport: &http.Transport{
+			MaxIdleConnsPerHost: *maxIdleUpstreamConns,
+		},
+	}
 
 	listenAndServe()
 }
@@ -191,7 +198,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 			log.Fatalf("Unexpeced error=[%s] when obtaining cache value by key=[%s]\n", err, key)
 		}
 
-		item = fetchFromUpstream(cache, *upstreamHost, key)
+		item = fetchFromUpstream(key)
 		if item == nil {
 			w.Write(serviceUnavailableResponseHeader)
 			return false
@@ -218,9 +225,9 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	return true
 }
 
-func fetchFromUpstream(cache ybc.Cacher, upstreamHost string, key []byte) *ybc.Item {
-	requestUrl := fmt.Sprintf("http://%s%s", upstreamHost, key)
-	resp, err := http.Get(requestUrl)
+func fetchFromUpstream(key []byte) *ybc.Item {
+	requestUrl := fmt.Sprintf("http://%s%s", *upstreamHost, key)
+	resp, err := client.Get(requestUrl)
 	if err != nil {
 		log.Printf("Error=[%s] when doing request to %s\n", err, requestUrl)
 		return nil
