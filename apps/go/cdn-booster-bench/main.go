@@ -36,11 +36,12 @@ import (
 var (
 	numCpu = runtime.NumCPU()
 
-	filesCount    = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
-	goMaxProcs    = flag.Int("goMaxProcs", numCpu, "The number of go procs")
-	requestsCount = flag.Int("requestsCount", 100000, "The number of requests to perform")
-	testUrl       = flag.String("testUrl", "http://localhost:8098/", "Url to test")
-	workersCount  = flag.Int("workersCount", 8*numCpu, "The number of workers")
+	filesCount                 = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
+	goMaxProcs                 = flag.Int("goMaxProcs", numCpu, "The number of go procs")
+	requestsCount              = flag.Int("requestsCount", 100000, "The number of requests to perform")
+	requestsPerConnectionCount = flag.Int("requestsPerConnectionCount", 1000, "The maximum number of requests per established connection to the testUrl")
+	testUrl                    = flag.String("testUrl", "http://localhost:8098/", "Url to test")
+	workersCount               = flag.Int("workersCount", 8*numCpu, "The number of workers")
 )
 
 var (
@@ -74,7 +75,7 @@ func main() {
 	log.Printf("Test started\n")
 	startTime := time.Now()
 	for i := 0; i < *requestsCount; i++ {
-		ch <- i
+		ch <- 1
 	}
 	close(ch)
 	wg.Wait()
@@ -105,6 +106,16 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 		hostPort = net.JoinHostPort(hostPort, port)
 	}
 
+	for {
+		n := issueRequestsPerConnection(ch, hostPort, testUri)
+		if n == 0 {
+			break
+		}
+		*bytesRead += n
+	}
+}
+
+func issueRequestsPerConnection(ch <-chan int, hostPort string, testUri *url.URL) int64 {
 	conn, err := net.Dial("tcp", hostPort)
 	if err != nil {
 		log.Fatalf("Error=[%s] when connecting to [%s]\n", err, hostPort)
@@ -123,7 +134,7 @@ func worker(ch <-chan int, wg *sync.WaitGroup, testUri *url.URL, bytesRead *int6
 	go readResponses(conn, statsChan, requestsChan)
 	writeRequests(conn, ch, requestsChan, testUri)
 	close(requestsChan)
-	*bytesRead = <-statsChan
+	return <-statsChan
 }
 
 func writeRequests(conn net.Conn, ch <-chan int, requestsChan chan<- int, testUri *url.URL) {
@@ -137,6 +148,9 @@ func writeRequests(conn net.Conn, ch <-chan int, requestsChan chan<- int, testUr
 		}
 		requestsWritten += 1
 		requestsChan <- requestsWritten
+		if requestsWritten == *requestsPerConnectionCount {
+			break
+		}
 	}
 	if err := w.Flush(); err != nil {
 		log.Fatalf("Error when flushing requests' buffer: [%s]\n", err)
