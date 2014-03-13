@@ -26,7 +26,8 @@ $ ./cdn-booster-bench -help
 -------------------------
 How to test nginx performance with go-cdn-booster-bench?
 
-1. Set temporarily keepalive_requests in nginx config to 10000000
+1. Set temporarily requestsPerConnectionCount to keepalive_requests value
+   in nginx config (100 by default).
 2. Run cdn-booster-bench -testUrl=http://nginx-host/path_to_test
 3. Return back keepalive_requests to old value.
 

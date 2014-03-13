@@ -39,7 +39,7 @@ var (
 	filesCount                 = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
 	goMaxProcs                 = flag.Int("goMaxProcs", numCpu, "The number of go procs")
 	requestsCount              = flag.Int("requestsCount", 100000, "The number of requests to perform")
-	requestsPerConnectionCount = flag.Int("requestsPerConnectionCount", 1000, "The maximum number of requests per established connection to the testUrl")
+	requestsPerConnectionCount = flag.Int("requestsPerConnectionCount", 100, "The maximum number of requests per established connection to the testUrl")
 	testUrl                    = flag.String("testUrl", "http://localhost:8098/", "Url to test")
 	workersCount               = flag.Int("workersCount", 8*numCpu, "The number of workers")
 )
