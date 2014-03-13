@@ -8,10 +8,9 @@ is equivalent to workersCount.
 Known limitations:
   * It cannot test HTTP servers without HTTP/1.1 keep-alive connections
     support.
-  * It doesn't parse server responses and so doesn't gather stats regarding
-    response status codes.
   * Currently it shows only the following stats:
         * time taken for the test
+        * Kbytes read - total Kbytes read from responses' bodies
         * qps - average queries per second
         * Kbps - average Kbytes per second received from the server.
 
