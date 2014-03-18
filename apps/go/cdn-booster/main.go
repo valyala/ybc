@@ -137,6 +137,9 @@ func createCache() ybc.Cacher {
 }
 
 func serveHttps(addr string) {
+	if addr == "" {
+		return
+	}
 	cert, err := tls.LoadX509KeyPair(*httpsCertFile, *httpsKeyFile)
 	if err != nil {
 		log.Fatalf("Cannot load certificate: [%s]\n", err)
@@ -150,6 +153,9 @@ func serveHttps(addr string) {
 }
 
 func serveHttp(addr string) {
+	if addr == "" {
+		return
+	}
 	ln := listen(addr)
 	log.Printf("Listening http on [%s]\n", addr)
 	serve(ln)
