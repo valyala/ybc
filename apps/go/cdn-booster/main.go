@@ -51,7 +51,7 @@ var (
 	httpsListenAddrs     = flag.String("httpsListenAddrs", "", "A list of TCP addresses to listen to HTTPS requests. Leave empty if you don't need https")
 	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
 	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
-	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 20, "The maximum idle connections to upstream host")
+	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
