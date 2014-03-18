@@ -106,7 +106,7 @@ func createCache() ybc.Cacher {
 
 	cacheFilesPath_ := strings.Split(*cacheFilesPath, ",")
 	cacheFilesCount := len(cacheFilesPath_)
-	log.Printf("Opening data files. This can take a while for the first time if files are big\n")
+	logMessage("Opening data files. This can take a while for the first time if files are big")
 	if cacheFilesCount < 2 {
 		if cacheFilesPath_[0] != "" {
 			config.DataFile = cacheFilesPath_[0] + ".cdn-booster.data"
@@ -114,7 +114,7 @@ func createCache() ybc.Cacher {
 		}
 		cache, err = config.OpenCache(true)
 		if err != nil {
-			log.Fatalf("Cannot open cache: [%s]\n", err)
+			logFatal("Cannot open cache: [%s]", err)
 		}
 	} else if cacheFilesCount > 1 {
 		config.MaxItemsCount /= ybc.SizeT(cacheFilesCount)
@@ -129,10 +129,10 @@ func createCache() ybc.Cacher {
 		}
 		cache, err = configs.OpenCluster(true)
 		if err != nil {
-			log.Fatalf("Cannot open cache cluster: [%s]\n", err)
+			logFatal("Cannot open cache cluster: [%s]", err)
 		}
 	}
-	log.Printf("Data files have been opened\n")
+	logMessage("Data files have been opened")
 	return cache
 }
 
@@ -142,13 +142,13 @@ func serveHttps(addr string) {
 	}
 	cert, err := tls.LoadX509KeyPair(*httpsCertFile, *httpsKeyFile)
 	if err != nil {
-		log.Fatalf("Cannot load certificate: [%s]\n", err)
+		logFatal("Cannot load certificate: [%s]", err)
 	}
 	c := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
 	ln := tls.NewListener(listen(addr), c)
-	log.Printf("Listening https on [%s]\n", addr)
+	logMessage("Listening https on [%s]", addr)
 	serve(ln)
 }
 
@@ -157,14 +157,14 @@ func serveHttp(addr string) {
 		return
 	}
 	ln := listen(addr)
-	log.Printf("Listening http on [%s]\n", addr)
+	logMessage("Listening http on [%s]", addr)
 	serve(ln)
 }
 
 func listen(addr string) net.Listener {
 	ln, err := net.Listen("tcp4", addr)
 	if err != nil {
-		log.Fatalf("Cannot listen [%s]: [%s]\n", addr, err)
+		logFatal("Cannot listen [%s]: [%s]", addr, err)
 	}
 	return ln
 }
@@ -174,11 +174,11 @@ func serve(ln net.Listener) {
 		conn, err := ln.Accept()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				log.Printf("Cannot accept connections due temporary network error: [%s]\n", err)
+				logMessage("Cannot accept connections due temporary network error: [%s]", err)
 				time.Sleep(time.Second)
 				continue
 			}
-			log.Fatalf("Cannot accept connections due permanent error: [%s]\n", err)
+			logFatal("Cannot accept connections due permanent error: [%s]", err)
 		}
 		go handleConnection(conn)
 	}
@@ -187,10 +187,10 @@ func serve(ln net.Listener) {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	ip4 := conn.RemoteAddr().(*net.TCPAddr).IP.To4()
-	ipUint32 := ip4ToUint32(ip4)
+	clientAddr := conn.RemoteAddr().(*net.TCPAddr).IP.To4()
+	ipUint32 := ip4ToUint32(clientAddr)
 	if perIpConnTracker.registerIp(ipUint32) > *maxConnsPerIp {
-		log.Printf("Too many concurrent connections (more than %d) from ip=%s. Denying new connection from the ip\n", *maxConnsPerIp, ip4)
+		logMessage("Too many concurrent connections (more than %d) from ip=%s. Denying new connection from the ip", *maxConnsPerIp, clientAddr)
 		perIpConnTracker.unregisterIp(ipUint32)
 		return
 	}
@@ -198,14 +198,16 @@ func handleConnection(conn net.Conn) {
 
 	r := bufio.NewReader(conn)
 	w := bufio.NewWriter(conn)
+	clientAddrStr := clientAddr.String()
 	for {
 		req, err := http.ReadRequest(r)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("Error when reading http request: [%s]\n", err)
+				logMessage("Error when reading http request from ip=%s: [%s]", clientAddr, err)
 			}
 			return
 		}
+		req.RemoteAddr = clientAddrStr
 		if !handleBufferedRequest(req, w) {
 			return
 		}
@@ -236,10 +238,10 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
-			log.Fatalf("Unexpeced error=[%s] when obtaining cache value by key=[%s]\n", err, key)
+			logFatal("Unexpeced error when obtaining cache value by key=[%s]: [%s]", key, err)
 		}
 
-		item = fetchFromUpstream(key)
+		item = fetchFromUpstream(req, key)
 		if item == nil {
 			w.Write(serviceUnavailableResponseHeader)
 			return false
@@ -247,7 +249,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	}
 	defer item.Close()
 
-	contentType, err := loadContentType(item)
+	contentType, err := loadContentType(req, item)
 	if err != nil {
 		w.Write(internalServerErrorResponseHeader)
 		return false
@@ -260,34 +262,34 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 		return false
 	}
 	if _, err = io.Copy(w, item); err != nil {
-		log.Printf("Error=[%s] when sending value for key=[%s] to client\n", err, key)
+		logRequestError(req, "Cannot send file with key=[%s] to client: %s", key, err)
 		return false
 	}
 	return true
 }
 
-func fetchFromUpstream(key []byte) *ybc.Item {
+func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 	requestUrl := fmt.Sprintf("http://%s%s", *upstreamHost, key)
 	resp, err := client.Get(requestUrl)
 	if err != nil {
-		log.Printf("Error=[%s] when doing request to %s\n", err, requestUrl)
+		logRequestError(req, "Cannot fetch data from [%s]: [%s]", requestUrl, err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Unexpected status code=[%d]. request to %s\n", resp.StatusCode, requestUrl)
+		logRequestError(req, "Unexpected status code=%d for the response [%s]", resp.StatusCode, requestUrl)
 		return nil
 	}
 
 	contentLength := resp.Header.Get("Content-Length")
 	if contentLength == "" {
-		log.Printf("Cannot cache response for requestUrl=[%s] without content-length\n", requestUrl)
+		logRequestError(req, "Cannot cache response [%s] without content-length", requestUrl)
 		return nil
 	}
 	contentLengthN, err := strconv.Atoi(contentLength)
 	if err != nil {
-		log.Printf("Error=[%s] when parsing contentLength=[%s] for request to [%s]\n", err, contentLength, requestUrl)
+		logRequestError(req, "Cannot parse contentLength=[%s] for response [%s]: [%s]", contentLength, requestUrl, err)
 		return nil
 	}
 
@@ -298,70 +300,84 @@ func fetchFromUpstream(key []byte) *ybc.Item {
 	itemSize := contentLengthN + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
 	if err != nil {
-		log.Printf("Error=[%s] when starting set txn for key=[%s]. itemSize=[%d]\n", err, key, itemSize)
+		logRequestError(req, "Cannot start set txn for response [%s], key=[%s], itemSize=%d: [%s]", requestUrl, key, itemSize, err)
 		return nil
 	}
 
-	if err = storeContentType(txn, contentType); err != nil {
-		log.Printf("Cannot store content-type for key=[%s] in cache\n", key)
+	if err = storeContentType(req, txn, contentType); err != nil {
 		txn.Rollback()
 		return nil
 	}
 
 	n, err := txn.ReadFrom(resp.Body)
 	if err != nil {
-		log.Printf("Error=[%s] when copying body with size=%d to cache. key=[%s]\n", err, contentLengthN, key)
+		logRequestError(req, "Cannot read response [%s] body with size=%d to cache, key=[%s]: [%s]", requestUrl, contentLengthN, key, err)
 		txn.Rollback()
 		return nil
 	}
 	if n != int64(contentLengthN) {
-		log.Printf("Unexpected number of bytes copied=%d from response to requestUrl=[%s]. Expected %d\n", n, requestUrl, contentLengthN)
+		logRequestError(req, "Unexpected number of bytes copied=%d from response [%s], key=[%s] to cache. Expected %d", n, requestUrl, key, contentLengthN)
 		txn.Rollback()
 		return nil
 	}
 	item, err := txn.CommitItem()
 	if err != nil {
-		log.Printf("Error=[%s] when commiting set txn for key=[%s]\n", err, key)
+		logRequestError(req, "Cannot commit set txn for response [%s], key=[%s], size=%d: [%s]", requestUrl, key, contentLengthN, err)
 		return nil
 	}
 	return item
 }
 
-func storeContentType(w io.Writer, contentType string) (err error) {
+func storeContentType(req *http.Request, w io.Writer, contentType string) (err error) {
 	strBuf := []byte(contentType)
 	strSize := len(strBuf)
 	if strSize > 255 {
-		log.Printf("Too long content-type=[%s]. Its length=%d should fit one byte\n", contentType, strSize)
+		logRequestError(req, "Too long content-type=[%s]. Its' length=%d should fit one byte", contentType, strSize)
 		err = fmt.Errorf("Too long content-type")
 		return
 	}
 	var sizeBuf [1]byte
 	sizeBuf[0] = byte(strSize)
 	if _, err = w.Write(sizeBuf[:]); err != nil {
-		log.Printf("Error=[%s] when storing content-type length\n", err)
+		logRequestError(req, "Cannot store content-type length in cache: [%s]", err)
 		return
 	}
 	if _, err = w.Write(strBuf); err != nil {
-		log.Printf("Error=[%s] when writing content-type string with length=%d\n", err, strSize)
+		logRequestError(req, "Cannot store content-type string with length=%d in cache: [%s]", strSize, err)
 		return
 	}
 	return
 }
 
-func loadContentType(r io.Reader) (contentType string, err error) {
+func loadContentType(req *http.Request, r io.Reader) (contentType string, err error) {
 	var sizeBuf [1]byte
 	if _, err = r.Read(sizeBuf[:]); err != nil {
-		log.Printf("Error=[%s] when extracting content-type length\n", err)
+		logRequestError(req, "Cannot read content-type length from cache: [%s]", err)
 		return
 	}
 	strSize := int(sizeBuf[0])
 	strBuf := make([]byte, strSize)
 	if _, err = r.Read(strBuf); err != nil {
-		log.Printf("Error=[%s] when extracting content-type string with length=%d\n", err, strSize)
+		logRequestError(req, "Cannot read content-type string with length=%d from cache: [%s]", strSize, err)
 		return
 	}
 	contentType = string(strBuf)
 	return
+}
+
+func logRequestError(req *http.Request, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	logMessage("%s - %s - %s - %s. %s", req.RemoteAddr, req.RequestURI, req.Referer(), req.UserAgent(), msg)
+}
+
+func logMessage(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Printf("%s\n", msg)
+}
+
+func logFatal(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	log.Fatalf("%s\n", msg)
 }
 
 func ip4ToUint32(ip4 net.IP) uint32 {
