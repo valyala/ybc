@@ -233,6 +233,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	reqH := req.Header
 	if reqH.Get("If-None-Match") != "" {
 		_, err := w.Write(ifNoneMatchResponseHeader)
+		stats.IfNoneMatchHitsCount++
 		return err == nil
 	}
 
@@ -421,18 +422,20 @@ func createPerIpConnTracker() *PerIpConnTracker {
 type Stats struct {
 	CacheHitsCount        int64
 	CacheMissesCount      int64
+	IfNoneMatchHitsCount  int64
 	BytesReadFromUpstream int64
 	BytesSentToClients    int64
 }
 
 func (s *Stats) WriteTo(w io.Writer) {
-	requestsCount := s.CacheHitsCount + s.CacheMissesCount
+	requestsCount := s.CacheHitsCount + s.CacheMissesCount + s.IfNoneMatchHitsCount
 	var cacheHitRatio float64
 	if requestsCount > 0 {
-		cacheHitRatio = float64(s.CacheHitsCount) / float64(requestsCount) * 100.0
+		cacheHitRatio = float64(s.CacheHitsCount+s.IfNoneMatchHitsCount) / float64(requestsCount) * 100.0
 	}
 	fmt.Fprintf(w, "Requests count: %d, cache hit ratio: %.3f%%\n", requestsCount, cacheHitRatio)
 	fmt.Fprintf(w, "Cache hits: %d, cache misses: %d\n", s.CacheHitsCount, s.CacheMissesCount)
+	fmt.Fprintf(w, "If-None-Match hits: %d\n", s.IfNoneMatchHitsCount)
 	fmt.Fprintf(w, "Read from upstream: %.3fMBytes\n", float64(s.BytesReadFromUpstream)/1000000)
 	fmt.Fprintf(w, "Sent to clients: %.3fMBytes\n", float64(s.BytesSentToClients)/1000000)
 	fmt.Fprintf(w, "Upstream traffic saved: %.3fMBytes\n", float64(s.BytesSentToClients-s.BytesReadFromUpstream)/1000000)
