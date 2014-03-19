@@ -56,7 +56,7 @@ var (
 	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
 	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
-	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for outgoing connections")
+	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for incoming connections")
 )
 
 var (
