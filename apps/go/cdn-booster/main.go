@@ -66,7 +66,7 @@ var (
 
 var (
 	cache            ybc.Cacher
-	client           http.Client
+	upstreamClient   http.Client
 	perIpConnTracker = createPerIpConnTracker()
 )
 
@@ -77,7 +77,7 @@ func main() {
 
 	cache = createCache()
 	defer cache.Close()
-	client = http.Client{
+	upstreamClient = http.Client{
 		Transport: &http.Transport{
 			MaxIdleConnsPerHost: *maxIdleUpstreamConns,
 		},
@@ -270,7 +270,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 
 func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 	requestUrl := fmt.Sprintf("http://%s%s", *upstreamHost, key)
-	resp, err := client.Get(requestUrl)
+	resp, err := upstreamClient.Get(requestUrl)
 	if err != nil {
 		logRequestError(req, "Cannot fetch data from [%s]: [%s]", requestUrl, err)
 		return nil
