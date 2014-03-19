@@ -53,8 +53,10 @@ var (
 	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
 	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
 	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
+	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for outgoing connections")
 )
 
 var (
@@ -199,7 +201,8 @@ func handleConnection(conn net.Conn) {
 	}
 	defer perIpConnTracker.unregisterIp(ipUint32)
 
-	r := bufio.NewReader(conn)
+	r := bufio.NewReaderSize(conn, *readBufferSize)
+	w := bufio.NewWriterSize(conn, *writeBufferSize)
 	clientAddrStr := clientAddr.String()
 	for {
 		req, err := http.ReadRequest(r)
@@ -210,7 +213,9 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 		req.RemoteAddr = clientAddrStr
-		if !handleRequest(req, conn) {
+		ok := handleRequest(req, w)
+		w.Flush()
+		if !ok {
 			return
 		}
 		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
@@ -268,7 +273,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 		return false
 	}
 	var bytesSent int64
-	if bytesSent, err = io.Copy(w, item); err != nil {
+	if bytesSent, err = item.WriteTo(w); err != nil {
 		logRequestError(req, "Cannot send file with key=[%s] to client: %s", key, err)
 		return false
 	}
