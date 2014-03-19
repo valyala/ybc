@@ -431,13 +431,9 @@ func (s *Stats) WriteTo(w io.Writer) {
 	if requestsCount > 0 {
 		cacheHitRatio = float64(s.CacheHitsCount) / float64(requestsCount) * 100.0
 	}
-	var upstreamTrafficSaved float64
-	if s.BytesSentToClients > 0 {
-		upstreamTrafficSaved = 100.0 - float64(s.BytesReadFromUpstream)/float64(s.BytesSentToClients)*100.0
-	}
 	fmt.Fprintf(w, "Requests count: %d, cache hit ratio: %.3f%%\n", requestsCount, cacheHitRatio)
 	fmt.Fprintf(w, "Cache hits: %d, cache misses: %d\n", s.CacheHitsCount, s.CacheMissesCount)
-	fmt.Fprintf(w, "MBytes read from upstream: %.3f\n", float64(s.BytesReadFromUpstream)/1000000)
-	fmt.Fprintf(w, "MBytes sent to clients: %.3f\n", float64(s.BytesSentToClients)/1000000)
-	fmt.Fprintf(w, "Upstream traffic saved: %.3f%%\n", upstreamTrafficSaved)
+	fmt.Fprintf(w, "Read from upstream: %.3fMBytes\n", float64(s.BytesReadFromUpstream)/1000000)
+	fmt.Fprintf(w, "Sent to clients: %.3fMBytes\n", float64(s.BytesSentToClients)/1000000)
+	fmt.Fprintf(w, "Upstream traffic saved: %.3fMBytes\n", float64(s.BytesSentToClients-s.BytesReadFromUpstream)/1000000)
 }
