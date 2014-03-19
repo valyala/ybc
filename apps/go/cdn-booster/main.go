@@ -53,6 +53,7 @@ var (
 	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
 	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
 )
 
@@ -62,12 +63,14 @@ var (
 	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\nServer: go-cdn-booster\n\n")
 	okResponseHeader                  = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nCache-Control: public, max-age=31536000\nETag: W/\"CacheForever\"\n")
 	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\nServer: go-cdn-booster\n\n")
+	statsResponseHeader               = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nContent-Type: text/plain\nConnection: close\n\n")
 )
 
 var (
 	cache            ybc.Cacher
-	upstreamClient   http.Client
 	perIpConnTracker = createPerIpConnTracker()
+	stats            Stats
+	upstreamClient   http.Client
 )
 
 func main() {
@@ -197,7 +200,6 @@ func handleConnection(conn net.Conn) {
 	defer perIpConnTracker.unregisterIp(ipUint32)
 
 	r := bufio.NewReader(conn)
-	w := bufio.NewWriter(conn)
 	clientAddrStr := clientAddr.String()
 	for {
 		req, err := http.ReadRequest(r)
@@ -208,18 +210,13 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 		req.RemoteAddr = clientAddrStr
-		if !handleBufferedRequest(req, w) {
+		if !handleRequest(req, conn) {
 			return
 		}
 		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
 			return
 		}
 	}
-}
-
-func handleBufferedRequest(req *http.Request, w *bufio.Writer) bool {
-	defer w.Flush()
-	return handleRequest(req, w)
 }
 
 func handleRequest(req *http.Request, w io.Writer) bool {
@@ -234,6 +231,12 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 		return err == nil
 	}
 
+	if req.RequestURI == *statsRequestPath {
+		w.Write(statsResponseHeader)
+		stats.WriteTo(w)
+		return false
+	}
+
 	key := []byte(req.RequestURI)
 	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
@@ -241,11 +244,14 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 			logFatal("Unexpeced error when obtaining cache value by key=[%s]: [%s]", key, err)
 		}
 
+		stats.CacheMissesCount++
 		item = fetchFromUpstream(req, key)
 		if item == nil {
 			w.Write(serviceUnavailableResponseHeader)
 			return false
 		}
+	} else {
+		stats.CacheHitsCount++
 	}
 	defer item.Close()
 
@@ -261,10 +267,12 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	if _, err = fmt.Fprintf(w, "Content-Type: %s\nContent-Length: %d\n\n", contentType, item.Available()); err != nil {
 		return false
 	}
-	if _, err = io.Copy(w, item); err != nil {
+	var bytesSent int64
+	if bytesSent, err = io.Copy(w, item); err != nil {
 		logRequestError(req, "Cannot send file with key=[%s] to client: %s", key, err)
 		return false
 	}
+	stats.BytesSentToClients += bytesSent
 	return true
 }
 
@@ -325,6 +333,7 @@ func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 		logRequestError(req, "Cannot commit set txn for response [%s], key=[%s], size=%d: [%s]", requestUrl, key, contentLengthN, err)
 		return nil
 	}
+	stats.BytesReadFromUpstream += n
 	return item
 }
 
@@ -407,4 +416,28 @@ func createPerIpConnTracker() *PerIpConnTracker {
 	return &PerIpConnTracker{
 		perIpConnCount: make(map[uint32]int),
 	}
+}
+
+type Stats struct {
+	CacheHitsCount        int64
+	CacheMissesCount      int64
+	BytesReadFromUpstream int64
+	BytesSentToClients    int64
+}
+
+func (s *Stats) WriteTo(w io.Writer) {
+	requestsCount := s.CacheHitsCount + s.CacheMissesCount
+	var cacheHitRatio float64
+	if requestsCount > 0 {
+		cacheHitRatio = float64(s.CacheHitsCount) / float64(requestsCount) * 100.0
+	}
+	var upstreamTrafficSaved float64
+	if s.BytesSentToClients > 0 {
+		upstreamTrafficSaved = 100.0 - float64(s.BytesReadFromUpstream)/float64(s.BytesSentToClients)*100.0
+	}
+	fmt.Fprintf(w, "Requests count: %d, cache hit ratio: %.3f%%\n", requestsCount, cacheHitRatio)
+	fmt.Fprintf(w, "Cache hits: %d, cache misses: %d\n", s.CacheHitsCount, s.CacheMissesCount)
+	fmt.Fprintf(w, "MBytes read from upstream: %.3f\n", float64(s.BytesReadFromUpstream)/1000000)
+	fmt.Fprintf(w, "MBytes sent to clients: %.3f\n", float64(s.BytesSentToClients)/1000000)
+	fmt.Fprintf(w, "Upstream traffic saved: %.3f%%\n", upstreamTrafficSaved)
 }
