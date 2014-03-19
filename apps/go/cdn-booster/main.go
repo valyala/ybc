@@ -28,11 +28,11 @@ import (
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -294,15 +294,9 @@ func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 		logRequestError(req, "Unexpected status code=%d for the response [%s]", resp.StatusCode, requestUrl)
 		return nil
 	}
-
-	contentLength := resp.Header.Get("Content-Length")
-	if contentLength == "" {
-		logRequestError(req, "Cannot cache response [%s] without content-length", requestUrl)
-		return nil
-	}
-	contentLengthN, err := strconv.Atoi(contentLength)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		logRequestError(req, "Cannot parse contentLength=[%s] for response [%s]: [%s]", contentLength, requestUrl, err)
+		logRequestError(req, "Cannot read response [%s] from upstream server: [%s]", requestUrl, err)
 		return nil
 	}
 
@@ -310,10 +304,11 @@ func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	itemSize := contentLengthN + len(contentType) + 1
+	contentLength := len(body)
+	itemSize := contentLength + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
 	if err != nil {
-		logRequestError(req, "Cannot start set txn for response [%s], key=[%s], itemSize=%d: [%s]", requestUrl, key, itemSize, err)
+		logRequestError(req, "Cannot start set txn for response [%s], itemSize=%d: [%s]", key, itemSize, err)
 		return nil
 	}
 
@@ -322,23 +317,23 @@ func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 		return nil
 	}
 
-	n, err := txn.ReadFrom(resp.Body)
+	n, err := txn.Write(body)
 	if err != nil {
-		logRequestError(req, "Cannot read response [%s] body with size=%d to cache, key=[%s]: [%s]", requestUrl, contentLengthN, key, err)
+		logRequestError(req, "Cannot read response [%s] body with size=%d to cache: [%s]", key, contentLength, err)
 		txn.Rollback()
 		return nil
 	}
-	if n != int64(contentLengthN) {
-		logRequestError(req, "Unexpected number of bytes copied=%d from response [%s], key=[%s] to cache. Expected %d", n, requestUrl, key, contentLengthN)
+	if n != contentLength {
+		logRequestError(req, "Unexpected number of bytes copied=%d from response [%s] to cache. Expected %d", n, key, contentLength)
 		txn.Rollback()
 		return nil
 	}
 	item, err := txn.CommitItem()
 	if err != nil {
-		logRequestError(req, "Cannot commit set txn for response [%s], key=[%s], size=%d: [%s]", requestUrl, key, contentLengthN, err)
+		logRequestError(req, "Cannot commit set txn for response [%s], size=%d: [%s]", key, contentLength, err)
 		return nil
 	}
-	stats.BytesReadFromUpstream += n
+	stats.BytesReadFromUpstream += int64(n)
 	return item
 }
 
