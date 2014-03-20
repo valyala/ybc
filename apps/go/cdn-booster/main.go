@@ -425,7 +425,7 @@ type Stats struct {
 }
 
 func (s *Stats) WriteTo(w io.Writer) {
-	fmt.Fprintf(w, "Command-line flags")
+	fmt.Fprintf(w, "Command-line flags\n")
 	flag.VisitAll(func(f *flag.Flag) {
 		fmt.Fprintf(w, "%s=%v\n", f.Name, f.Value)
 	})
