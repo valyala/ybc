@@ -65,7 +65,7 @@ var (
 	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\nServer: go-cdn-booster\n\n")
 	okResponseHeader                  = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nCache-Control: public, max-age=31536000\nETag: W/\"CacheForever\"\n")
 	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\nServer: go-cdn-booster\n\n")
-	statsResponseHeader               = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nContent-Type: text/plain\nConnection: close\n\n")
+	statsResponseHeader               = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nContent-Type: text/plain\n\n")
 )
 
 var (
@@ -215,10 +215,7 @@ func handleConnection(conn net.Conn) {
 		req.RemoteAddr = clientAddrStr
 		ok := handleRequest(req, w)
 		w.Flush()
-		if !ok {
-			return
-		}
-		if !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
+		if !ok || !req.ProtoAtLeast(1, 1) || req.Header.Get("Connection") == "close" {
 			return
 		}
 	}
@@ -428,15 +425,24 @@ type Stats struct {
 }
 
 func (s *Stats) WriteTo(w io.Writer) {
+	fmt.Fprintf(w, "Command-line flags")
+	flag.VisitAll(func(f *flag.Flag) {
+		fmt.Fprintf(w, "%s=%v\n", f.Name, f.Value)
+	})
+	fmt.Fprintf(w, "\n")
+
 	requestsCount := s.CacheHitsCount + s.CacheMissesCount + s.IfNoneMatchHitsCount
 	var cacheHitRatio float64
 	if requestsCount > 0 {
 		cacheHitRatio = float64(s.CacheHitsCount+s.IfNoneMatchHitsCount) / float64(requestsCount) * 100.0
 	}
-	fmt.Fprintf(w, "Requests count: %d, cache hit ratio: %.3f%%\n", requestsCount, cacheHitRatio)
-	fmt.Fprintf(w, "Cache hits: %d, cache misses: %d\n", s.CacheHitsCount, s.CacheMissesCount)
+	fmt.Fprintf(w, "Requests count: %d\n", requestsCount)
+	fmt.Fprintf(w, "Cache hit ratio: %.3f%%\n", cacheHitRatio)
+	fmt.Fprintf(w, "Cache hits: %d\n", s.CacheHitsCount)
+	fmt.Fprintf(w, "Cache misses: %d\n", s.CacheMissesCount)
 	fmt.Fprintf(w, "If-None-Match hits: %d\n", s.IfNoneMatchHitsCount)
 	fmt.Fprintf(w, "Read from upstream: %.3fMBytes\n", float64(s.BytesReadFromUpstream)/1000000)
 	fmt.Fprintf(w, "Sent to clients: %.3fMBytes\n", float64(s.BytesSentToClients)/1000000)
+	fmt.Fprintf(w, "Upstream requests saved: %d\n", s.CacheHitsCount+s.IfNoneMatchHitsCount)
 	fmt.Fprintf(w, "Upstream traffic saved: %.3fMBytes\n", float64(s.BytesSentToClients-s.BytesReadFromUpstream)/1000000)
 }
