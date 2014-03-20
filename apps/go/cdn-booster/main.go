@@ -441,8 +441,8 @@ func (s *Stats) WriteTo(w io.Writer) {
 	fmt.Fprintf(w, "Cache hits: %d\n", s.CacheHitsCount)
 	fmt.Fprintf(w, "Cache misses: %d\n", s.CacheMissesCount)
 	fmt.Fprintf(w, "If-None-Match hits: %d\n", s.IfNoneMatchHitsCount)
-	fmt.Fprintf(w, "Read from upstream: %.3fMBytes\n", float64(s.BytesReadFromUpstream)/1000000)
-	fmt.Fprintf(w, "Sent to clients: %.3fMBytes\n", float64(s.BytesSentToClients)/1000000)
+	fmt.Fprintf(w, "Read from upstream: %.3f MBytes\n", float64(s.BytesReadFromUpstream)/1000000)
+	fmt.Fprintf(w, "Sent to clients: %.3f MBytes\n", float64(s.BytesSentToClients)/1000000)
+	fmt.Fprintf(w, "Upstream traffic saved: %.3f MBytes\n", float64(s.BytesSentToClients-s.BytesReadFromUpstream)/1000000)
 	fmt.Fprintf(w, "Upstream requests saved: %d\n", s.CacheHitsCount+s.IfNoneMatchHitsCount)
-	fmt.Fprintf(w, "Upstream traffic saved: %.3fMBytes\n", float64(s.BytesSentToClients-s.BytesReadFromUpstream)/1000000)
 }
