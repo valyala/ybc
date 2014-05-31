@@ -43,24 +43,25 @@ static uint64_t m_hash_get(const uint64_t seed, const void *const ptr,
     const size_t size)
 {
   /*
-   * FNV hash.
-   *
-   * http://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function .
-   *
-   * TODO: use Jenkin's hash instead? It could be faster and have better
-   * output distribution.
+   * Simple Jenkin's hash.
    * See http://en.wikipedia.org/wiki/Jenkins_hash_function .
+   *
+   * TODO: use SpookyHash instead. It could be faster and have better
+   * output distribution.
+   * See http://www.burtleburtle.net/bob/hash/spooky.html .
    */
 
-  const uint64_t offset_basis = 14695981039346656037UL;
-  const uint64_t prime = 1099511628211UL;
   const unsigned char *const v = ptr;
-  uint64_t hash = offset_basis ^ seed;
+  uint64_t hash = seed;
 
   for (size_t i = 0; i < size; ++i) {
-    hash *= prime;
-    hash ^= v[i];
+    hash += v[i];
+    hash += (hash << 10);
+    hash ^= (hash >> 6);
   }
+  hash += (hash << 3);
+  hash ^= (hash >> 11);
+  hash += (hash << 15);
 
   return hash;
 }
