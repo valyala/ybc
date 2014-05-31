@@ -12,7 +12,7 @@ The model is built using the following rules.
 import random
 
 # The maximum number of slots per bucket.
-SLOTS_PER_BUCKET = 8
+SLOTS_PER_BUCKET = 16
 
 def GetEvictionRate(buckets, slots_to_add):
   """ Returns eviction rate when filling additional slots_to_add in buckets.

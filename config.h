@@ -46,12 +46,12 @@
  * because all keys in a bucket may be accessed during each lookup operation.
  *
  * Cache's eviction rate depends on the number of slots per bucket.
- * For instance, 8 slots per bucket result in ~5% eviction rate for half-full
+ * For instance, 16 slots per bucket result in ~0.9% eviction rate for half-full
  * cache - quite cool number ;).
  * See tests/eviction_rate_estimator.py for details.
  * C_MAP_BUCKET_SIZE must be a power of 2.
  */
-#define C_MAP_BUCKET_SIZE 8
+#define C_MAP_BUCKET_SIZE 16
 
 /*
  * Optimal fill ratio for map slots.
@@ -60,10 +60,10 @@
  * 1.0 means the map performs best when all slots are full.
  * 0.1 means the map performs best when only 10% of slots are full.
  *
- * 50% fill ratio results in 5% eviction rate for C_MAP_BUCKET_SIZE = 8.
+ * 40% fill ratio results in 0.1% eviction rate for C_MAP_BUCKET_SIZE = 16.
  * See tests/eviction_rate_estimator.py for details.
  */
-#define C_MAP_OPTIMAL_FILL_RATIO 0.5
+#define C_MAP_OPTIMAL_FILL_RATIO 0.4
 
 /*
  * Minimum size of storage file in bytes.
