@@ -182,11 +182,11 @@ func TestClient_StartStop_Multi(t *testing.T) {
 func expectPanic(t *testing.T, f func()) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatalf("unexpected empty panic message for the function [%s]", f)
+			t.Fatalf("unexpected empty panic message for the function [%v]", f)
 		}
 	}()
 	f()
-	t.Fatalf("the function [%s] must panic!", f)
+	t.Fatalf("the function [%v] must panic!", f)
 }
 
 func cacher_StopWithoutStart(c Cacher, t *testing.T) {
@@ -423,7 +423,7 @@ func cacher_Cget(c Cacher, t *testing.T) {
 		t.Fatalf("Unexpected error returned from Client.Cget(): [%s]", err)
 	}
 	if item.Flags != flags {
-		t.Fatalf("Unexpected flags=[%d] returned from Client.Cget(). Expected [%s]", item.Flags, flags)
+		t.Fatalf("Unexpected flags=[%d] returned from Client.Cget(). Expected [%d]", item.Flags, flags)
 	}
 	if item.Casid != casid {
 		t.Fatalf("Unexpected casid=[%d] returned from Client.Cget(). Expected [%d]", item.Casid, casid)
@@ -745,7 +745,7 @@ func cacher_EmptyValue(c Cacher, t *testing.T) {
 		t.Fatalf("Unexpected value obtained=[%s]. Expected empty value", item.Value)
 	}
 	if item.Flags != flags {
-		t.Fatalf("Unexpected Flags obtained=[%s]. Expected [%d]", item.Flags, flags)
+		t.Fatalf("Unexpected Flags obtained=[%d]. Expected [%d]", item.Flags, flags)
 	}
 }
 
