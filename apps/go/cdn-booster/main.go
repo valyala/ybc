@@ -179,11 +179,11 @@ func serve(ln net.Listener) {
 		conn, err := ln.Accept()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				logMessage("Cannot accept connections due temporary network error: [%s]", err)
+				logMessage("Cannot accept connections due to temporary network error: [%s]", err)
 				time.Sleep(time.Second)
 				continue
 			}
-			logFatal("Cannot accept connections due permanent error: [%s]", err)
+			logFatal("Cannot accept connections due to permanent error: [%s]", err)
 		}
 		go handleConnection(conn)
 	}
