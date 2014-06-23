@@ -41,7 +41,7 @@ var (
 	requestsCount              = flag.Int("requestsCount", 100000, "The number of requests to perform")
 	requestsPerConnectionCount = flag.Int("requestsPerConnectionCount", 100, "The maximum number of requests per established connection to the testUrl")
 	testUrl                    = flag.String("testUrl", "http://localhost:8098/", "Url to test")
-	workersCount               = flag.Int("workersCount", 8*numCpu, "The number of workers")
+	workersCount               = flag.Int("workersCount", 4*numCpu, "The number of workers")
 )
 
 var (
