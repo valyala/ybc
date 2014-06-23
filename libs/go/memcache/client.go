@@ -678,7 +678,6 @@ func (c *Client) CgetDe(item *Item, graceDuration time.Duration) error {
 		}
 		return nil
 	}
-	panic("unreachable")
 }
 
 type taskGetDe struct {
@@ -737,7 +736,6 @@ func (c *Client) GetDe(item *Item, graceDuration time.Duration) error {
 		}
 		return nil
 	}
-	panic("unreachable")
 }
 
 type taskSet struct {

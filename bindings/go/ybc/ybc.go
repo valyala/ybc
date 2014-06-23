@@ -584,7 +584,6 @@ func (cache *Cache) GetDeItem(key []byte, graceDuration time.Duration) (item *It
 		}
 		return
 	}
-	panic("not reachable")
 }
 
 // The same as Cache.GetDeAsync(), but returns item instead of item's value.
@@ -1122,7 +1121,6 @@ func acquireSetTxn() *SetTxn {
 			buf: make([]byte, addTxnSize),
 		}
 	}
-	panic("unreachable")
 }
 
 func releaseSetTxn(txn *SetTxn) {
@@ -1145,7 +1143,6 @@ func acquireItem() *Item {
 			buf: make([]byte, itemSize),
 		}
 	}
-	panic("unreachable")
 }
 
 func releaseItem(item *Item) {

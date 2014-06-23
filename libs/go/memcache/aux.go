@@ -136,7 +136,6 @@ func matchCrLf(r *bufio.Reader) bool {
 	default:
 		return false
 	}
-	panic("unreachable")
 }
 
 func readBytesUntil(r *bufio.Reader, endCh byte, lineBuf *[]byte) bool {
