@@ -32,9 +32,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,19 +46,21 @@ var (
 			"Enumerate multiple files delimited by comma for creating a cluster of caches.\n"+
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
-	cacheSize            = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
-	goMaxProcs           = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
-	httpsCertFile        = flag.String("httpsCertFile", "/etc/ssl/certs/ssl-cert-snakeoil.pem", "Path to HTTPS server certificate. Used only if listenHttpsAddr is set")
-	httpsKeyFile         = flag.String("httpsKeyFile", "/etc/ssl/private/ssl-cert-snakeoil.key", "Path to HTTPS server key. Used only if listenHttpsAddr is set")
-	httpsListenAddrs     = flag.String("httpsListenAddrs", "", "A list of TCP addresses to listen to HTTPS requests. Leave empty if you don't need https")
-	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
-	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
-	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
-	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
-	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
-	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from")
-	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for incoming connections")
+	cacheSize                = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
+	goMaxProcs               = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
+	httpsCertFile            = flag.String("httpsCertFile", "/etc/ssl/certs/ssl-cert-snakeoil.pem", "Path to HTTPS server certificate. Used only if listenHttpsAddr is set")
+	httpsKeyFile             = flag.String("httpsKeyFile", "/etc/ssl/private/ssl-cert-snakeoil.key", "Path to HTTPS server key. Used only if listenHttpsAddr is set")
+	httpsListenAddrs         = flag.String("httpsListenAddrs", "", "A list of TCP addresses to listen to HTTPS requests. Leave empty if you don't need https")
+	listenAddrs              = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
+	maxConnsPerIp            = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
+	maxItemsCount            = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
+	maxRedirectsCount        = flag.Int("maxRedirectsCount", 3, "The maximum number of redirects upstream server may initiate per request")
+	maxUpstreamFetchAttempts = flag.Int("maxUpstreamFetchAttempts", 3, "The maximum number of attempts for fetching resource from upstream")
+	readBufferSize           = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
+	statsRequestPath         = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
+	upstreamHost             = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from. May include port in the form 'host:port'")
+	useClientRequestHost     = flag.Bool("useClientRequestHost", false, "If set to true, then use 'Host' header from client requests in requests to upstream host. Otherwise use upstreamHost as a 'Host' header in upstream requests")
+	writeBufferSize          = flag.Int("writeBufferSize", 4096, "The size of write buffer for incoming connections")
 )
 
 var (
@@ -72,21 +76,23 @@ var (
 	cache            ybc.Cacher
 	perIpConnTracker = createPerIpConnTracker()
 	stats            Stats
-	upstreamClient   http.Client
+	upstreamClient   UpstreamClient
+	upstreamHostPort string
 )
 
 func main() {
 	flag.Parse()
 
+	upstreamHostPort = *upstreamHost
+	hostPort := strings.Split(upstreamHostPort, ":")
+	if len(hostPort) == 1 {
+		upstreamHostPort += ":80"
+	}
+
 	runtime.GOMAXPROCS(*goMaxProcs)
 
 	cache = createCache()
 	defer cache.Close()
-	upstreamClient = http.Client{
-		Transport: &http.Transport{
-			MaxIdleConnsPerHost: *maxIdleUpstreamConns,
-		},
-	}
 
 	var addr string
 	for _, addr = range strings.Split(*httpsListenAddrs, ",") {
@@ -230,31 +236,31 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	reqH := req.Header
 	if reqH.Get("If-None-Match") != "" {
 		_, err := w.Write(ifNoneMatchResponseHeader)
-		stats.IfNoneMatchHitsCount++
+		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
 		return err == nil
 	}
 
 	if req.RequestURI == *statsRequestPath {
 		w.Write(statsResponseHeader)
-		stats.WriteTo(w)
+		stats.WriteToStream(w)
 		return false
 	}
 
-	key := []byte(req.RequestURI)
+	key := append([]byte(getRequestHost(req)), []byte(req.RequestURI)...)
 	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
 			logFatal("Unexpeced error when obtaining cache value by key=[%s]: [%s]", key, err)
 		}
 
-		stats.CacheMissesCount++
+		atomic.AddInt64(&stats.CacheMissesCount, 1)
 		item = fetchFromUpstream(req, key)
 		if item == nil {
 			w.Write(serviceUnavailableResponseHeader)
 			return false
 		}
 	} else {
-		stats.CacheHitsCount++
+		atomic.AddInt64(&stats.CacheHitsCount, 1)
 	}
 	defer item.Close()
 
@@ -275,26 +281,19 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 		logRequestError(req, "Cannot send file with key=[%s] to client: %s", key, err)
 		return false
 	}
-	stats.BytesSentToClients += bytesSent
+	atomic.AddInt64(&stats.BytesSentToClients, bytesSent)
 	return true
 }
 
 func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
-	requestUrl := fmt.Sprintf("http://%s%s", *upstreamHost, key)
-	resp, err := upstreamClient.Get(requestUrl)
+	resp, body, err := upstreamClient.GetResponseAndBody(getRequestHost(req), req.RequestURI)
 	if err != nil {
-		logRequestError(req, "Cannot fetch data from [%s]: [%s]", requestUrl, err)
+		logRequestError(req, "Cannot fetch data for [%s]: [%s]", key, err)
 		return nil
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logRequestError(req, "Unexpected status code=%d for the response [%s]", resp.StatusCode, requestUrl)
-		return nil
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		logRequestError(req, "Cannot read response [%s] from upstream server: [%s]", requestUrl, err)
+		logRequestError(req, "Unexpected status code=%d for the response [%s]", resp.StatusCode, key)
 		return nil
 	}
 
@@ -331,7 +330,7 @@ func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
 		logRequestError(req, "Cannot commit set txn for response [%s], size=%d: [%s]", key, contentLength, err)
 		return nil
 	}
-	stats.BytesReadFromUpstream += int64(n)
+	atomic.AddInt64(&stats.BytesReadFromUpstream, int64(n))
 	return item
 }
 
@@ -372,6 +371,13 @@ func loadContentType(req *http.Request, r io.Reader) (contentType string, err er
 	return
 }
 
+func getRequestHost(req *http.Request) string {
+	if *useClientRequestHost {
+		return req.Host
+	}
+	return *upstreamHost
+}
+
 func logRequestError(req *http.Request, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	logMessage("%s - %s - %s - %s. %s", req.RemoteAddr, req.RequestURI, req.Referer(), req.UserAgent(), msg)
@@ -389,6 +395,87 @@ func logFatal(format string, args ...interface{}) {
 
 func ip4ToUint32(ip4 net.IP) uint32 {
 	return (uint32(ip4[0]) << 24) | (uint32(ip4[1]) << 16) | (uint32(ip4[2]) << 8) | uint32(ip4[3])
+}
+
+type UpstreamClient struct {
+	freeConns     []net.Conn
+	freeConnsLock sync.Mutex
+}
+
+func (c *UpstreamClient) GetResponseAndBody(host, requestURI string) (resp *http.Response, body []byte, err error) {
+	for i := 0; i < *maxUpstreamFetchAttempts; i++ {
+		if resp, body, err = c.tryGetResponseAndBody(host, requestURI); err == nil {
+			return resp, body, nil
+		}
+	}
+	return nil, nil, err
+}
+
+func (c *UpstreamClient) tryGetResponseAndBody(host, requestURI string) (resp *http.Response, body []byte, err error) {
+	var conn net.Conn
+	if conn, err = c.acquireConn(); err != nil {
+		return nil, nil, fmt.Errorf("Cannot obtain free connection to upstreamHost=%s: %s", *upstreamHost, err)
+	}
+
+	var redirectsCount int
+	for {
+		requestString := []byte(fmt.Sprintf("GET %s HTTP/1.1\nHost: %s\nUser-Agent: go-cdn-booster\n\n", requestURI, host))
+		if _, err = conn.Write(requestString); err != nil {
+			conn.Close()
+			return nil, nil, fmt.Errorf("Cannot write request to upstreamHost: %s", err)
+		}
+		r := bufio.NewReader(conn)
+		if resp, err = http.ReadResponse(r, nil); err != nil {
+			conn.Close()
+			return nil, nil, fmt.Errorf("Cannot read response header: %s", err)
+		}
+		if body, err = ioutil.ReadAll(resp.Body); err != nil {
+			resp.Body.Close()
+			conn.Close()
+			return nil, nil, fmt.Errorf("Cannot read response body: %s", err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != 301 && resp.StatusCode != 302 {
+			c.releaseConn(conn)
+			return resp, body, nil
+		}
+
+		redirectsCount++
+		if redirectsCount > *maxRedirectsCount {
+			c.releaseConn(conn)
+			return nil, nil, fmt.Errorf("Exceeded the maximum number of redirects=%d", *maxRedirectsCount)
+		}
+
+		redirectUrl := resp.Header.Get("Location")
+		redirectURL, err := url.Parse(redirectUrl)
+		if err != nil {
+			c.releaseConn(conn)
+			return nil, nil, fmt.Errorf("Cannot parse redirect url=[%s] read from upstream response: %s", redirectUrl, err)
+		}
+		host = redirectURL.Host
+		requestURI = redirectURL.RequestURI()
+	}
+}
+
+func (c *UpstreamClient) acquireConn() (conn net.Conn, err error) {
+	c.freeConnsLock.Lock()
+	freeConnsCount := len(c.freeConns)
+	if freeConnsCount > 0 {
+		conn = c.freeConns[freeConnsCount-1]
+		c.freeConns = c.freeConns[:freeConnsCount-1]
+	}
+	c.freeConnsLock.Unlock()
+	if conn != nil {
+		return conn, nil
+	}
+	return net.Dial("tcp", upstreamHostPort)
+}
+
+func (c *UpstreamClient) releaseConn(conn net.Conn) {
+	c.freeConnsLock.Lock()
+	c.freeConns = append(c.freeConns, conn)
+	c.freeConnsLock.Unlock()
 }
 
 type PerIpConnTracker struct {
@@ -424,7 +511,7 @@ type Stats struct {
 	BytesSentToClients    int64
 }
 
-func (s *Stats) WriteTo(w io.Writer) {
+func (s *Stats) WriteToStream(w io.Writer) {
 	fmt.Fprintf(w, "Command-line flags\n")
 	flag.VisitAll(func(f *flag.Flag) {
 		fmt.Fprintf(w, "%s=%v\n", f.Name, f.Value)
