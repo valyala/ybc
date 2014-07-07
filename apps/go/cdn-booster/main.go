@@ -250,7 +250,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
-			logFatal("Unexpeced error when obtaining cache value by key=[%s]: [%s]", key, err)
+			logFatal("Unexpected error when obtaining cache value by key=[%s]: [%s]", key, err)
 		}
 
 		atomic.AddInt64(&stats.CacheMissesCount, 1)
