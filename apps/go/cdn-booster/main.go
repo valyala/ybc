@@ -233,17 +233,16 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 		return false
 	}
 
-	reqH := req.Header
-	if reqH.Get("If-None-Match") != "" {
-		_, err := w.Write(ifNoneMatchResponseHeader)
-		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
-		return err == nil
-	}
-
 	if req.RequestURI == *statsRequestPath {
 		w.Write(statsResponseHeader)
 		stats.WriteToStream(w)
 		return false
+	}
+
+	if req.Header.Get("If-None-Match") != "" {
+		_, err := w.Write(ifNoneMatchResponseHeader)
+		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
+		return err == nil
 	}
 
 	key := append([]byte(getRequestHost(req)), []byte(req.RequestURI)...)
