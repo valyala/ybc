@@ -141,8 +141,13 @@ func writeRequests(conn net.Conn, ch <-chan int, requestsChan chan<- int, testUr
 	var requestsWritten int
 	w := bufio.NewWriter(conn)
 	requestUri := testUri.RequestURI()
+	delimiter := "?"
+	if strings.Contains(requestUri, "?") {
+		delimiter = "&"
+	}
 	for _ = range ch {
-		requestStr := []byte(fmt.Sprintf("GET %s?%d HTTP/1.1\nHost: %s\n\n", requestUri, rand.Intn(*filesCount), testUri.Host))
+		requestStr := []byte(fmt.Sprintf("GET %s%s%d HTTP/1.1\r\nHost: %s\r\nUser-Agent: go-cdn-booster-bench\r\n\r\n",
+			requestUri, delimiter, rand.Intn(*filesCount), testUri.Host))
 		if _, err := w.Write(requestStr); err != nil {
 			log.Fatalf("Error=[%s] when writing HTTP request [%d] to connection\n", err, requestsWritten)
 		}
