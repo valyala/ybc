@@ -36,12 +36,13 @@ import (
 var (
 	numCpu = runtime.NumCPU()
 
-	filesCount                 = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
-	goMaxProcs                 = flag.Int("goMaxProcs", numCpu, "The number of go procs")
-	requestsCount              = flag.Int("requestsCount", 100000, "The number of requests to perform")
-	requestsPerConnectionCount = flag.Int("requestsPerConnectionCount", 100, "The maximum number of requests per established connection to the testUrl")
-	testUrl                    = flag.String("testUrl", "http://localhost:8098/", "Url to test")
-	workersCount               = flag.Int("workersCount", 4*numCpu, "The number of workers")
+	filesCount                      = flag.Int("filesCount", 500, "The number of distinct files to cache. Random query parameter is added to testUrl for generating distinct file urls")
+	goMaxProcs                      = flag.Int("goMaxProcs", numCpu, "The number of go procs")
+	maxPendingRequestsPerConnection = flag.Int("maxPendingRequestsPerConnection", 100, "The maximum number of pending requests per connection to the testUrl")
+	requestsCount                   = flag.Int("requestsCount", 100000, "The number of requests to perform")
+	requestsPerConnectionCount      = flag.Int("requestsPerConnectionCount", 100, "The maximum number of requests per connection to the testUrl. This value shouldn't exceed max keepalive requests count set on the server")
+	testUrl                         = flag.String("testUrl", "http://localhost:8098/", "Url to test")
+	workersCount                    = flag.Int("workersCount", 4*numCpu, "The number of workers")
 )
 
 var (
@@ -130,7 +131,7 @@ func issueRequestsPerConnection(ch <-chan int, hostPort string, testUri *url.URL
 	}
 
 	statsChan := make(chan int64)
-	requestsChan := make(chan int, 1000)
+	requestsChan := make(chan int, *maxPendingRequestsPerConnection)
 	go readResponses(conn, statsChan, requestsChan)
 	writeRequests(conn, ch, requestsChan, testUri)
 	close(requestsChan)
@@ -152,7 +153,14 @@ func writeRequests(conn net.Conn, ch <-chan int, requestsChan chan<- int, testUr
 			log.Fatalf("Error=[%s] when writing HTTP request [%d] to connection\n", err, requestsWritten)
 		}
 		requestsWritten += 1
-		requestsChan <- requestsWritten
+		select {
+		case requestsChan <- requestsWritten:
+		default:
+			if err := w.Flush(); err != nil {
+				log.Fatalf("Error when flushing requests' buffer: [%s]\n", err)
+			}
+			requestsChan <- requestsWritten
+		}
 		if requestsWritten == *requestsPerConnectionCount {
 			break
 		}
