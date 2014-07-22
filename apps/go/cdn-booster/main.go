@@ -54,7 +54,6 @@ var (
 	maxConnsPerIp        = flag.Int("maxConnsPerIp", 32, "The maximum number of concurrent connections from a single ip")
 	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	maxRedirectsCount    = flag.Int("maxRedirectsCount", 3, "The maximum number of redirects upstream server may initiate per request")
 	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
 	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from. May include port in the form 'host:port'")
