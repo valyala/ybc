@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/valyala/ybc/bindings/go/ybc"
+	"github.com/vharitonsky/iniflags"
 	"io"
 	"io/ioutil"
 	"log"
@@ -78,7 +79,7 @@ var (
 )
 
 func main() {
-	flag.Parse()
+	iniflags.Parse()
 
 	runtime.GOMAXPROCS(*goMaxProcs)
 

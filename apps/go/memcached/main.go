@@ -19,6 +19,7 @@ import (
 	"flag"
 	"github.com/valyala/ybc/bindings/go/ybc"
 	"github.com/valyala/ybc/libs/go/memcache"
+	"github.com/vharitonsky/iniflags"
 	"log"
 	"runtime"
 	"strings"
@@ -50,7 +51,7 @@ var (
 )
 
 func main() {
-	flag.Parse()
+	iniflags.Parse()
 
 	runtime.GOMAXPROCS(*goMaxProcs)
 

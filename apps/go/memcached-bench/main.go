@@ -8,6 +8,7 @@ import (
 	"fmt"
 	memcache_org "github.com/bradfitz/gomemcache/memcache"
 	memcache_new "github.com/valyala/ybc/libs/go/memcache"
+	"github.com/vharitonsky/iniflags"
 	"log"
 	"math/rand"
 	"runtime"
@@ -449,7 +450,7 @@ func getWorkerNew(serverAddrs_ []string) func(wg *sync.WaitGroup, ch chan int, s
 }
 
 func main() {
-	flag.Parse()
+	iniflags.Parse()
 	fmt.Printf("Config:\n")
 	flag.VisitAll(func(f *flag.Flag) {
 		fmt.Printf("%s=%v\n", f.Name, f.Value)

@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"github.com/vharitonsky/iniflags"
 	"io"
 	"io/ioutil"
 	"log"
@@ -52,7 +53,7 @@ var (
 )
 
 func main() {
-	flag.Parse()
+	iniflags.Parse()
 	flag.VisitAll(func(f *flag.Flag) {
 		fmt.Printf("%s=%v\n", f.Name, f.Value)
 	})
