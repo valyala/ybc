@@ -138,13 +138,13 @@ go-memcached-bench:
 	$(GOCC) build -o go-memcached-bench -a -tags release ./apps/go/memcached-bench
 
 go-update:
-	$(GOCC) get -u -a github.com/vharitonsky/iniflags
-	$(GOCC) get -u -a github.com/valyala/ybc/bindings/go/ybc
-	$(GOCC) get -u -a github.com/valyala/ybc/libs/go/memcache
-	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/cdn-booster
-	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/cdn-booster-bench
-	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached
-	$(GOCC) get -u -a github.com/valyala/ybc/apps/go/memcached-bench
+	$(GOCC) get -u github.com/vharitonsky/iniflags
+	$(GOCC) get -u github.com/valyala/ybc/bindings/go/ybc
+	$(GOCC) get -u github.com/valyala/ybc/libs/go/memcache
+	$(GOCC) get -u github.com/valyala/ybc/apps/go/cdn-booster
+	$(GOCC) get -u github.com/valyala/ybc/apps/go/cdn-booster-bench
+	$(GOCC) get -u github.com/valyala/ybc/apps/go/memcached
+	$(GOCC) get -u github.com/valyala/ybc/apps/go/memcached-bench
 
 clean:
 	rm -f ybc-32-release.o

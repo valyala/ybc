@@ -49,6 +49,6 @@ Use cases:
 How to build and run it?
 
 $ sudo apt-get install golang
-$ go get -u -a github.com/valyala/ybc/apps/go/cdn-booster
+$ go get -u github.com/valyala/ybc/apps/go/cdn-booster
 $ go build -tags release github.com/valyala/ybc/apps/go/cdn-booster
 $ ./cdn-booster -help

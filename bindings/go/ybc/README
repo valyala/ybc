@@ -17,7 +17,7 @@ The wrapper has the following features:
 ------------------------
 How to build and use it?
 
-$ go get -u -a github.com/valyala/ybc/bindings/go/ybc
+$ go get -u github.com/valyala/ybc/bindings/go/ybc
 
 Then import it into your program:
 
