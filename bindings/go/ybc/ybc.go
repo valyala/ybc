@@ -576,9 +576,15 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 // Use this method instead of Cache.GetDe() for obtaining big values
 // from the cache such as video files.
 func (cache *Cache) GetDeItem(key []byte, graceDuration time.Duration) (item *Item, err error) {
+	maxDuration := graceDuration * 2
+	start := time.Now()
 	for {
 		item, err = cache.GetDeAsyncItem(key, graceDuration)
 		if err == ErrWouldBlock {
+			if time.Since(start) > maxDuration {
+				err = ErrCacheMiss
+				return
+			}
 			time.Sleep(time.Millisecond * 100)
 			continue
 		}
@@ -783,10 +789,10 @@ func (txn *SetTxn) ctx() *C.struct_ybc_set_txn {
 
 // Cache item.
 type Item struct {
-	dg         debugGuard
-	buf        []byte
-	value      C.struct_ybc_value
-	offset     int
+	dg     debugGuard
+	buf    []byte
+	value  C.struct_ybc_value
+	offset int
 }
 
 // Closes the item.
