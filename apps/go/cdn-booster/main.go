@@ -58,6 +58,7 @@ var (
 	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
 	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from. May include port in the form 'host:port'")
+	upstreamProtocol     = flag.String("upstreamProtocol", "http", "Use this protocol when talking to the upstream")
 	useClientRequestHost = flag.Bool("useClientRequestHost", false, "If set to true, then use 'Host' header from client requests in requests to upstream host. Otherwise use upstreamHost as a 'Host' header in upstream requests")
 	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for incoming connections")
 )
@@ -283,7 +284,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 }
 
 func fetchFromUpstream(req *http.Request, key []byte) *ybc.Item {
-	upstreamUrl := fmt.Sprintf("http://%s%s", *upstreamHost, req.RequestURI)
+	upstreamUrl := fmt.Sprintf("%s://%s%s", *upstreamProtocol, *upstreamHost, req.RequestURI)
 	upstreamReq, err := http.NewRequest("GET", upstreamUrl, nil)
 	if err != nil {
 		logRequestError(req, "Cannot create request structure for [%s]: [%s]", key, err)
