@@ -64,12 +64,12 @@ var (
 )
 
 var (
-	ifNoneMatchResponseHeader         = []byte("HTTP/1.1 304 Not Modified\nServer: go-cdn-booster\nEtag: W/\"CacheForever\"\n\n")
-	internalServerErrorResponseHeader = []byte("HTTP/1.1 500 Internal Server Error\nServer: go-cdn-booster\n\n")
-	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\nServer: go-cdn-booster\n\n")
-	okResponseHeader                  = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nCache-Control: public, max-age=31536000\nETag: W/\"CacheForever\"\n")
-	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\nServer: go-cdn-booster\n\n")
-	statsResponseHeader               = []byte("HTTP/1.1 200 OK\nServer: go-cdn-booster\nContent-Type: text/plain\n\n")
+	ifNoneMatchResponseHeader         = []byte("HTTP/1.1 304 Not Modified\r\nServer: go-cdn-booster\r\nEtag: W/\"CacheForever\"\r\n\r\n")
+	internalServerErrorResponseHeader = []byte("HTTP/1.1 500 Internal Server Error\r\nServer: go-cdn-booster\r\n\r\n")
+	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\r\nServer: go-cdn-booster\r\n\r\n")
+	okResponseHeader                  = []byte("HTTP/1.1 200 OK\r\nServer: go-cdn-booster\r\nCache-Control: public, max-age=31536000\r\nETag: W/\"CacheForever\"\r\n")
+	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\r\nServer: go-cdn-booster\r\n\r\n")
+	statsResponseHeader               = []byte("HTTP/1.1 200 OK\r\nServer: go-cdn-booster\r\nContent-Type: text/plain\r\n\r\n")
 )
 
 var (
@@ -271,7 +271,7 @@ func handleRequest(req *http.Request, w io.Writer) bool {
 	if _, err = w.Write(okResponseHeader); err != nil {
 		return false
 	}
-	if _, err = fmt.Fprintf(w, "Content-Type: %s\nContent-Length: %d\n\n", contentType, item.Available()); err != nil {
+	if _, err = fmt.Fprintf(w, "Content-Type: %s\r\nContent-Length: %d\r\n\r\n", contentType, item.Available()); err != nil {
 		return false
 	}
 	var bytesSent int64
