@@ -20,18 +20,18 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"github.com/vharitonsky/iniflags"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
-	"net/http"
 	"net/url"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/valyala/fasthttp"
+	"github.com/vharitonsky/iniflags"
 )
 
 var (
@@ -171,23 +171,27 @@ func writeRequests(conn net.Conn, ch <-chan int, requestsChan chan<- int, testUr
 	}
 }
 
+var responsePool sync.Pool
+
 func readResponses(r io.Reader, statsChan chan<- int64, requestsChan <-chan int) {
+	v := responsePool.Get()
+	if v == nil {
+		v = &fasthttp.Response{}
+	}
+	resp := v.(*fasthttp.Response)
+
 	var bytesRead int64
 	rb := bufio.NewReader(r)
 	for n := range requestsChan {
-		resp, err := http.ReadResponse(rb, nil)
+		err := resp.Read(rb)
 		if err != nil {
 			log.Fatalf("Error when reading response %d: [%s]\n", n, err)
 		}
-		if resp.StatusCode != http.StatusOK {
-			log.Fatalf("Unexpected status code for the response %d: [%d]\n", n, resp.StatusCode)
+		if resp.Header.StatusCode != 200 {
+			log.Fatalf("Unexpected status code for the response %d: [%d]\n", n, resp.Header.StatusCode)
 		}
-		n, err := io.Copy(ioutil.Discard, resp.Body)
-		if err != nil {
-			log.Fatalf("Error when reading response %d body: [%s]\n", n, err)
-		}
-		bytesRead += int64(n)
-		resp.Body.Close()
+		bytesRead += int64(len(resp.Body))
 	}
 	statsChan <- bytesRead
+	responsePool.Put(v)
 }
