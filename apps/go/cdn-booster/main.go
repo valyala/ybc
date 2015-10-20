@@ -206,8 +206,9 @@ func requestHandler(ctx *fasthttp.ServerCtx) {
 	}
 
 	if len(h.Peek("If-None-Match")) > 0 {
-		ctx.Response.Header.StatusCode = 304
-		ctx.Response.Header.Set("Etag", "W/\"CacheForever\"")
+		resp := ctx.Response()
+		resp.Header.StatusCode = 304
+		resp.Header.Set("Etag", "W/\"CacheForever\"")
 		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
 		return
 	}
@@ -243,13 +244,13 @@ func requestHandler(ctx *fasthttp.ServerCtx) {
 		return
 	}
 
-	ctx.Response.Header.Set("Etag", "W/\"CacheForever\"")
-	ctx.Response.Header.Set("Cache-Control", "public, max-age=31536000")
-	ctx.Response.Header.Set("Content-Type", contentType)
+	rh := &ctx.Response().Header
+	rh.Set("Etag", "W/\"CacheForever\"")
+	rh.Set("Cache-Control", "public, max-age=31536000")
 	buf := item.Value()
 	buf = buf[len(buf)-item.Available():]
-	ctx.Response.Body = append(ctx.Response.Body[:0], buf...)
-	atomic.AddInt64(&stats.BytesSentToClients, int64(len(ctx.Response.Body)))
+	ctx.Success(contentType, buf)
+	atomic.AddInt64(&stats.BytesSentToClients, int64(len(buf)))
 }
 
 func fetchFromUpstream(h *fasthttp.RequestHeader, key []byte) *ybc.Item {
@@ -356,14 +357,14 @@ var upstreamHostBytes []byte
 
 func getRequestHost(h *fasthttp.RequestHeader) []byte {
 	if *useClientRequestHost {
-		return h.Host
+		return h.Peek("Host")
 	}
 	return upstreamHostBytes
 }
 
 func logRequestError(h *fasthttp.RequestHeader, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	logMessage("%s - %s - %s. %s", h.RequestURI, h.Referer, h.UserAgent, msg)
+	logMessage("%s - %s - %s. %s", h.RequestURI, h.Get("Referer"), h.Get("UserAgent"), msg)
 }
 
 func logMessage(format string, args ...interface{}) {
