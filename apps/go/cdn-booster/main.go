@@ -31,7 +31,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,28 +48,16 @@ var (
 			"This can increase performance only if frequently accessed items don't fit RAM\n"+
 			"and each cache file is located on a distinct physical storage.")
 	cacheSize            = flag.Int("cacheSize", 100, "The total cache size in Mbytes")
-	goMaxProcs           = flag.Int("goMaxProcs", runtime.NumCPU(), "Maximum number of simultaneous Go threads")
 	httpsCertFile        = flag.String("httpsCertFile", "/etc/ssl/certs/ssl-cert-snakeoil.pem", "Path to HTTPS server certificate. Used only if listenHttpsAddr is set")
 	httpsKeyFile         = flag.String("httpsKeyFile", "/etc/ssl/private/ssl-cert-snakeoil.key", "Path to HTTPS server key. Used only if listenHttpsAddr is set")
 	httpsListenAddrs     = flag.String("httpsListenAddrs", "", "A list of TCP addresses to listen to HTTPS requests. Leave empty if you don't need https")
 	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
 	maxIdleUpstreamConns = flag.Int("maxIdleUpstreamConns", 50, "The maximum idle connections to upstream host")
 	maxItemsCount        = flag.Int("maxItemsCount", 100*1000, "The maximum number of items in the cache")
-	readBufferSize       = flag.Int("readBufferSize", 1024, "The size of read buffer for incoming connections")
 	statsRequestPath     = flag.String("statsRequestPath", "/static_proxy_stats", "Path to page with statistics")
 	upstreamHost         = flag.String("upstreamHost", "www.google.com", "Upstream host to proxy data from. May include port in the form 'host:port'")
 	upstreamProtocol     = flag.String("upstreamProtocol", "http", "Use this protocol when talking to the upstream")
 	useClientRequestHost = flag.Bool("useClientRequestHost", false, "If set to true, then use 'Host' header from client requests in requests to upstream host. Otherwise use upstreamHost as a 'Host' header in upstream requests")
-	writeBufferSize      = flag.Int("writeBufferSize", 4096, "The size of write buffer for incoming connections")
-)
-
-var (
-	ifNoneMatchResponseHeader         = []byte("HTTP/1.1 304 Not Modified\r\nServer: go-cdn-booster\r\nEtag: W/\"CacheForever\"\r\n\r\n")
-	internalServerErrorResponseHeader = []byte("HTTP/1.1 500 Internal Server Error\r\nServer: go-cdn-booster\r\n\r\n")
-	notAllowedResponseHeader          = []byte("HTTP/1.1 405 Method Not Allowed\r\nServer: go-cdn-booster\r\n\r\n")
-	okResponseHeader                  = []byte("HTTP/1.1 200 OK\r\nServer: go-cdn-booster\r\nCache-Control: public, max-age=31536000\r\nETag: W/\"CacheForever\"\r\n")
-	serviceUnavailableResponseHeader  = []byte("HTTP/1.1 503 Service Unavailable\r\nServer: go-cdn-booster\r\n\r\n")
-	statsResponseHeader               = []byte("HTTP/1.1 200 OK\r\nServer: go-cdn-booster\r\nContent-Type: text/plain\r\n\r\n")
 )
 
 var (
@@ -83,8 +70,6 @@ func main() {
 	iniflags.Parse()
 
 	upstreamHostBytes = []byte(*upstreamHost)
-
-	runtime.GOMAXPROCS(*goMaxProcs)
 
 	cache = createCache()
 	defer cache.Close()
@@ -194,7 +179,7 @@ var keyPool sync.Pool
 func requestHandler(ctx *fasthttp.ServerCtx) {
 	h := &ctx.Request.Header
 	if !h.IsMethodGet() {
-		ctx.Error("Method not allowed", 405)
+		ctx.Error("Method not allowed", fasthttp.StatusMethodNotAllowed)
 		return
 	}
 
@@ -206,8 +191,8 @@ func requestHandler(ctx *fasthttp.ServerCtx) {
 	}
 
 	if len(h.Peek("If-None-Match")) > 0 {
-		resp := ctx.Response()
-		resp.Header.StatusCode = 304
+		resp := &ctx.Response
+		resp.Header.StatusCode = fasthttp.StatusNotModified
 		resp.Header.Set("Etag", "W/\"CacheForever\"")
 		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
 		return
@@ -229,7 +214,7 @@ func requestHandler(ctx *fasthttp.ServerCtx) {
 		atomic.AddInt64(&stats.CacheMissesCount, 1)
 		item = fetchFromUpstream(h, key)
 		if item == nil {
-			ctx.Error("Service unavailable", 503)
+			ctx.Error("Service unavailable", fasthttp.StatusServiceUnavailable)
 			return
 		}
 	} else {
@@ -240,11 +225,11 @@ func requestHandler(ctx *fasthttp.ServerCtx) {
 
 	contentType, err := loadContentType(h, item)
 	if err != nil {
-		ctx.Error("Internal Server Error", 500)
+		ctx.Error("Internal Server Error", fasthttp.StatusInternalServerError)
 		return
 	}
 
-	rh := &ctx.Response().Header
+	rh := &ctx.Response.Header
 	rh.Set("Etag", "W/\"CacheForever\"")
 	rh.Set("Cache-Control", "public, max-age=31536000")
 	buf := item.Value()
