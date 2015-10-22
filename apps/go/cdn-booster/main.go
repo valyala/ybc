@@ -176,7 +176,7 @@ func serve(ln net.Listener) {
 
 var keyPool sync.Pool
 
-func requestHandler(ctx *fasthttp.ServerCtx) {
+func requestHandler(ctx *fasthttp.RequestCtx) {
 	h := &ctx.Request.Header
 	if !h.IsMethodGet() {
 		ctx.Error("Method not allowed", fasthttp.StatusMethodNotAllowed)
