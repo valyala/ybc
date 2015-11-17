@@ -178,12 +178,12 @@ var keyPool sync.Pool
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
 	h := &ctx.Request.Header
-	if !h.IsMethodGet() {
+	if !ctx.IsGet() {
 		ctx.Error("Method not allowed", fasthttp.StatusMethodNotAllowed)
 		return
 	}
 
-	if fasthttp.EqualBytesStr(h.RequestURI, *statsRequestPath) {
+	if fasthttp.EqualBytesStr(ctx.RequestURI(), *statsRequestPath) {
 		var w bytes.Buffer
 		stats.WriteToStream(&w)
 		ctx.Success("text/plain", w.Bytes())
@@ -204,7 +204,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 	}
 	key := v.([]byte)
 	key = append(key[:0], getRequestHost(h)...)
-	key = append(key, h.RequestURI...)
+	key = append(key, ctx.RequestURI()...)
 	item, err := cache.GetDeItem(key, time.Second)
 	if err != nil {
 		if err != ybc.ErrCacheMiss {
@@ -239,7 +239,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 }
 
 func fetchFromUpstream(h *fasthttp.RequestHeader, key []byte) *ybc.Item {
-	upstreamUrl := fmt.Sprintf("%s://%s%s", *upstreamProtocol, *upstreamHost, h.RequestURI)
+	upstreamUrl := fmt.Sprintf("%s://%s%s", *upstreamProtocol, *upstreamHost, h.RequestURI())
 	upstreamReq, err := http.NewRequest("GET", upstreamUrl, nil)
 	if err != nil {
 		logRequestError(h, "Cannot create request structure for [%s]: [%s]", key, err)
@@ -349,7 +349,7 @@ func getRequestHost(h *fasthttp.RequestHeader) []byte {
 
 func logRequestError(h *fasthttp.RequestHeader, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
-	logMessage("%s - %s - %s. %s", h.RequestURI, h.Get("Referer"), h.Get("UserAgent"), msg)
+	logMessage("%s - %s - %s. %s", h.RequestURI(), h.Referer(), h.UserAgent(), msg)
 }
 
 func logMessage(format string, args ...interface{}) {
