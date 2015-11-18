@@ -190,7 +190,7 @@ func readResponses(r io.Reader, statsChan chan<- int64, requestsChan <-chan int)
 		if resp.Header.StatusCode != 200 {
 			log.Fatalf("Unexpected status code for the response %d: [%d]\n", n, resp.Header.StatusCode)
 		}
-		bytesRead += int64(len(resp.Body))
+		bytesRead += int64(len(resp.Body()))
 	}
 	statsChan <- bytesRead
 	responsePool.Put(v)
