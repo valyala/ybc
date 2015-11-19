@@ -192,7 +192,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 
 	if len(h.Peek("If-None-Match")) > 0 {
 		resp := &ctx.Response
-		resp.Header.StatusCode = fasthttp.StatusNotModified
+		resp.SetStatusCode(fasthttp.StatusNotModified)
 		resp.Header.Set("Etag", "W/\"CacheForever\"")
 		atomic.AddInt64(&stats.IfNoneMatchHitsCount, 1)
 		return
@@ -342,7 +342,7 @@ var upstreamHostBytes []byte
 
 func getRequestHost(h *fasthttp.RequestHeader) []byte {
 	if *useClientRequestHost {
-		return h.Peek("Host")
+		return h.Host()
 	}
 	return upstreamHostBytes
 }

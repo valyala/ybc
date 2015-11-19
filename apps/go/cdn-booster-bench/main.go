@@ -187,8 +187,8 @@ func readResponses(r io.Reader, statsChan chan<- int64, requestsChan <-chan int)
 		if err != nil {
 			log.Fatalf("Error when reading response %d: [%s]\n", n, err)
 		}
-		if resp.Header.StatusCode != 200 {
-			log.Fatalf("Unexpected status code for the response %d: [%d]\n", n, resp.Header.StatusCode)
+		if resp.StatusCode() != 200 {
+			log.Fatalf("Unexpected status code for the response %d: [%d]\n", n, resp.StatusCode())
 		}
 		bytesRead += int64(len(resp.Body()))
 	}
