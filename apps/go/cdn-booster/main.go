@@ -27,10 +27,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,7 +61,7 @@ var (
 var (
 	cache          ybc.Cacher
 	stats          Stats
-	upstreamClient http.Client
+	upstreamClient *fasthttp.HostClient
 )
 
 func main() {
@@ -74,10 +72,9 @@ func main() {
 	cache = createCache()
 	defer cache.Close()
 
-	upstreamClient = http.Client{
-		Transport: &http.Transport{
-			MaxIdleConnsPerHost: *maxIdleUpstreamConns,
-		},
+	upstreamClient = &fasthttp.HostClient{
+		Addr:     *upstreamHost,
+		MaxConns: *maxIdleUpstreamConns,
 	}
 
 	var addr string
@@ -240,34 +237,26 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 
 func fetchFromUpstream(h *fasthttp.RequestHeader, key []byte) *ybc.Item {
 	upstreamUrl := fmt.Sprintf("%s://%s%s", *upstreamProtocol, *upstreamHost, h.RequestURI())
-	upstreamReq, err := http.NewRequest("GET", upstreamUrl, nil)
-	if err != nil {
-		logRequestError(h, "Cannot create request structure for [%s]: [%s]", key, err)
-		return nil
-	}
-	upstreamReq.Host = string(getRequestHost(h))
-	resp, err := upstreamClient.Do(upstreamReq)
+	var req fasthttp.Request
+	req.SetRequestURI(upstreamUrl)
+
+	var resp fasthttp.Response
+	err := upstreamClient.Do(&req, &resp)
 	if err != nil {
 		logRequestError(h, "Cannot make request for [%s]: [%s]", key, err)
 		return nil
 	}
-	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		logRequestError(h, "Cannot read response for [%s]: [%s]", key, err)
+	if resp.StatusCode() != fasthttp.StatusOK {
+		logRequestError(h, "Unexpected status code=%d for the response [%s]", resp.StatusCode(), key)
 		return nil
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		logRequestError(h, "Unexpected status code=%d for the response [%s]", resp.StatusCode, key)
-		return nil
-	}
-
-	contentType := resp.Header.Get("Content-Type")
+	contentType := string(resp.Header.ContentType())
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	body := resp.Body()
 	contentLength := len(body)
 	itemSize := contentLength + len(contentType) + 1
 	txn, err := cache.NewSetTxn(key, itemSize, ybc.MaxTtl)
