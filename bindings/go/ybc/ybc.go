@@ -292,7 +292,7 @@ func (cfg *Config) internal(isSimpleCache bool) *configInternal {
 		buf: make([]byte, configSize),
 	}
 
-	ctx := (*C.struct_ybc_config)(unsafe.Pointer(&c.buf[0]))
+	ctx := (*C.struct_ybc_config)(bufPtr(c.buf))
 	C.ybc_config_init(ctx)
 
 	if cfg.MaxItemsCount != 0 {
@@ -375,7 +375,7 @@ func (sc *SimpleCache) Set(key, value []byte, ttl time.Duration) error {
 	initKey(&k, key)
 	var v C.struct_ybc_value
 	initValue(&v, value, ttl)
-	if C.ybc_simple_set(sc.cache.ctx(), &k, &v) == 0 {
+	if C.go_simple_set(sc.cache.ctx(), k, v) == 0 {
 		return ErrNoSpace
 	}
 	return nil
@@ -389,15 +389,16 @@ func (sc *SimpleCache) Get(key []byte) (value []byte, err error) {
 
 	value = make([]byte, sc.maxItemSize)
 	v := C.struct_ybc_value{
-		ptr:  unsafe.Pointer(&value[0]),
+		ptr:  bufPtr(value),
 		size: C.size_t(len(value)),
 	}
-	if C.ybc_simple_get(sc.cache.ctx(), &k, &v) != 1 {
+	rv := C.go_simple_get(sc.cache.ctx(), k, v)
+	if rv.result != 1 {
 		value = nil
 		err = ErrCacheMiss
 		return
 	}
-	value = value[:int(v.size)]
+	value = value[:int(rv.size)]
 	return
 }
 
@@ -452,7 +453,7 @@ func (cache *Cache) Set(key []byte, value []byte, ttl time.Duration) error {
 	initKey(&k, key)
 	var v C.struct_ybc_value
 	initValue(&v, value, ttl)
-	if C.ybc_item_set(cache.ctx(), &k, &v) == 0 {
+	if C.go_item_set(cache.ctx(), k, v) == 0 {
 		return ErrNoSpace
 	}
 	return nil
@@ -525,7 +526,7 @@ func (cache *Cache) Delete(key []byte) bool {
 	cache.dg.CheckLive()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	return C.ybc_item_remove(cache.ctx(), &k) != C.int(0)
+	return C.go_item_remove(cache.ctx(), k) != C.int(0)
 }
 
 // The same as Cache.Set(), but additionally returns item object associated
@@ -537,12 +538,15 @@ func (cache *Cache) SetItem(key []byte, value []byte, ttl time.Duration) (item *
 	item = acquireItem()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	initValue(&item.value, value, ttl)
-	if C.go_set_item_and_value(cache.ctx(), item.ctx(), &k, &item.value) == 0 {
+	var v C.struct_ybc_value
+	initValue(&v, value, ttl)
+	rv := C.go_set_item_and_value(cache.ctx(), item.ctx(), k, v)
+	if rv.result == 0 {
 		releaseItem(item)
 		err = ErrNoSpace
 		return
 	}
+	item.value = rv.value
 	item.dg.Init()
 	return
 }
@@ -560,11 +564,13 @@ func (cache *Cache) GetItem(key []byte) (item *Item, err error) {
 	item = acquireItem()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	if C.go_get_item_and_value(cache.ctx(), item.ctx(), &item.value, &k) == 0 {
+	rv := C.go_get_item_and_value(cache.ctx(), item.ctx(), k)
+	if rv.result == 0 {
 		releaseItem(item)
 		err = ErrCacheMiss
 		return
 	}
+	item.value = rv.value
 	item.dg.Init()
 	return
 }
@@ -607,7 +613,8 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceDuration time.Duration) (ite
 	var k C.struct_ybc_key
 	initKey(&k, key)
 	mGraceTtl := C.uint64_t(graceDuration / time.Millisecond)
-	switch C.go_get_item_and_value_de_async(cache.ctx(), item.ctx(), &item.value, &k, mGraceTtl) {
+	rv := C.go_get_item_and_value_de_async(cache.ctx(), item.ctx(), k, mGraceTtl)
+	switch rv.status {
 	case C.YBC_DE_WOULDBLOCK:
 		releaseItem(item)
 		err = ErrWouldBlock
@@ -617,6 +624,7 @@ func (cache *Cache) GetDeAsyncItem(key []byte, graceDuration time.Duration) (ite
 		err = ErrCacheMiss
 		return
 	case C.YBC_DE_SUCCESS:
+		item.value = rv.value
 		item.dg.Init()
 		return
 	}
@@ -639,12 +647,16 @@ func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn
 	txn = acquireSetTxn()
 	var k C.struct_ybc_key
 	initKey(&k, key)
-	if C.ybc_set_txn_begin(cache.ctx(), txn.ctx(), &k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
+	if C.go_set_txn_begin(cache.ctx(), txn.ctx(), k, C.size_t(valueSize), C.uint64_t(ttl/time.Millisecond)) == 0 {
 		err = ErrNoSpace
 		return
 	}
 	txn.dg.Init()
 	return
+}
+
+func bufPtr(b []byte) unsafe.Pointer {
+	return unsafe.Pointer(&b[0])
 }
 
 // Instantly removes all the cache contents.
@@ -657,7 +669,7 @@ func (cache *Cache) Clear() {
 }
 
 func (cache *Cache) ctx() *C.struct_ybc {
-	return (*C.struct_ybc)(unsafe.Pointer(&cache.buf[0]))
+	return (*C.struct_ybc)(bufPtr(cache.buf))
 }
 
 /*******************************************************************************
@@ -751,7 +763,7 @@ func (txn *SetTxn) CommitItem() (item *Item, err error) {
 		return
 	}
 	item = acquireItem()
-	C.go_commit_item_and_value(txn.ctx(), item.ctx(), &item.value)
+	item.value = C.go_commit_item_and_value(txn.ctx(), item.ctx())
 	txn.finish()
 	item.dg.Init()
 	return
@@ -780,7 +792,7 @@ func (txn *SetTxn) unsafeBuf() []byte {
 }
 
 func (txn *SetTxn) ctx() *C.struct_ybc_set_txn {
-	return (*C.struct_ybc_set_txn)(unsafe.Pointer(&txn.buf[0]))
+	return (*C.struct_ybc_set_txn)(bufPtr(txn.buf))
 }
 
 /*******************************************************************************
@@ -911,7 +923,7 @@ func (item *Item) unsafeBuf() []byte {
 }
 
 func (item *Item) ctx() *C.struct_ybc_item {
-	return (*C.struct_ybc_item)(unsafe.Pointer(&item.buf[0]))
+	return (*C.struct_ybc_item)(bufPtr(item.buf))
 }
 
 /*******************************************************************************
@@ -1080,7 +1092,7 @@ func (cluster *Cluster) cache(key []byte) *Cache {
 func initKey(k *C.struct_ybc_key, key []byte) {
 	var ptr unsafe.Pointer
 	if len(key) > 0 {
-		ptr = unsafe.Pointer(&key[0])
+		ptr = bufPtr(key)
 	}
 	k.ptr = ptr
 	k.size = C.size_t(len(key))
@@ -1092,7 +1104,7 @@ func initValue(v *C.struct_ybc_value, value []byte, ttl time.Duration) {
 	}
 	var ptr unsafe.Pointer
 	if len(value) > 0 {
-		ptr = unsafe.Pointer(&value[0])
+		ptr = bufPtr(value)
 	}
 	v.ptr = ptr
 	v.size = C.size_t(len(value))
