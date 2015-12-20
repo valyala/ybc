@@ -138,6 +138,7 @@ go-memcached-bench:
 	$(GOCC) build -o go-memcached-bench -a -tags release ./apps/go/memcached-bench
 
 go-update:
+	$(GOCC) get -u github.com/valyala/fasthttp
 	$(GOCC) get -u github.com/vharitonsky/iniflags
 	$(GOCC) get -u github.com/valyala/ybc/bindings/go/ybc
 	$(GOCC) get -u github.com/valyala/ybc/libs/go/memcache
