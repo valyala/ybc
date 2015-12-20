@@ -26,6 +26,7 @@ import (
 	"hash/fnv"
 	"io"
 	"reflect"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -1112,7 +1113,7 @@ func initValue(v *C.struct_ybc_value, value []byte, ttl time.Duration) {
 }
 
 func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
-	// This trick is stolen from http://code.google.com/p/go-wiki/wiki/cgo .
+	// This trick has been stolen from http://code.google.com/p/go-wiki/wiki/cgo .
 	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&buf))
 	hdr.Data = uintptr(ptr)
 	hdr.Len = size
@@ -1120,52 +1121,34 @@ func newUnsafeSlice(ptr unsafe.Pointer, size int) (buf []byte) {
 	return
 }
 
-/*******************************************************************************
- * Leaky buffers for SetTxn and Item.
- *
- * See http://golang.org/doc/effective_go.html#leaky_buffer .
- ******************************************************************************/
-
-const addTxnsPoolSize = 1024
-
-var addTxnsPool = make(chan *SetTxn, addTxnsPoolSize)
+var addTxnsPool sync.Pool
 
 func acquireSetTxn() *SetTxn {
-	select {
-	case txn := <-addTxnsPool:
-		return txn
-	default:
+	v := addTxnsPool.Get()
+	if v == nil {
 		return &SetTxn{
 			buf: make([]byte, addTxnSize),
 		}
 	}
+	return v.(*SetTxn)
 }
 
 func releaseSetTxn(txn *SetTxn) {
-	select {
-	case addTxnsPool <- txn:
-	default:
-	}
+	addTxnsPool.Put(txn)
 }
 
-const itemsPoolSize = 1024
-
-var itemsPool = make(chan *Item, itemsPoolSize)
+var itemsPool sync.Pool
 
 func acquireItem() *Item {
-	select {
-	case item := <-itemsPool:
-		return item
-	default:
+	v := itemsPool.Get()
+	if v == nil {
 		return &Item{
 			buf: make([]byte, itemSize),
 		}
 	}
+	return v.(*Item)
 }
 
 func releaseItem(item *Item) {
-	select {
-	case itemsPool <- item:
-	default:
-	}
+	itemsPool.Put(item)
 }
