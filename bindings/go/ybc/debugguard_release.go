@@ -1,6 +1,6 @@
 // Release version of debug helpers
 
-// +build release
+// +build !debug
 
 package ybc
 

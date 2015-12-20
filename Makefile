@@ -98,12 +98,12 @@ tests: build-tests
 	tests/functional-shared-release
 
 go-tests-debug:
-	$(GOCC) test -a ./bindings/go/ybc
-	$(GOCC) test -a ./libs/go/memcache
+	$(GOCC) test -a -tags debug ./bindings/go/ybc
+	$(GOCC) test -a -tags debug ./libs/go/memcache
 
 go-tests-release:
-	$(GOCC) test -a -tags release ./bindings/go/ybc
-	$(GOCC) test -a -tags release ./libs/go/memcache
+	$(GOCC) test -a ./bindings/go/ybc
+	$(GOCC) test -a ./libs/go/memcache
 
 go-tests: go-tests-debug go-tests-release
 
@@ -118,24 +118,24 @@ perftests: build-perftests
 	tests/performance-64-release
 
 go-perftests-bindings:
-	$(GOCC) test -a -tags release -test.bench=".*" ./bindings/go/ybc
+	$(GOCC) test -a -test.bench=".*" ./bindings/go/ybc
 
 go-perftests-memcache:
-	$(GOCC) test -a -tags release -test.bench=".*" ./libs/go/memcache
+	$(GOCC) test -a -test.bench=".*" ./libs/go/memcache
 
 go-perftests: go-perftests-bindings go-perftests-memcache
 
 go-cdn-booster:
-	$(GOCC) build -o go-cdn-booster -a -tags release ./apps/go/cdn-booster
+	$(GOCC) build -o go-cdn-booster -a ./apps/go/cdn-booster
 
 go-cdn-booster-bench:
-	$(GOCC) build -o go-cdn-booster-bench -a -tags release ./apps/go/cdn-booster-bench
+	$(GOCC) build -o go-cdn-booster-bench -a ./apps/go/cdn-booster-bench
 
 go-memcached:
-	$(GOCC) build -o go-memcached -a -tags release ./apps/go/memcached
+	$(GOCC) build -o go-memcached -a ./apps/go/memcached
 
 go-memcached-bench:
-	$(GOCC) build -o go-memcached-bench -a -tags release ./apps/go/memcached-bench
+	$(GOCC) build -o go-memcached-bench -a ./apps/go/memcached-bench
 
 go-update:
 	$(GOCC) get -u github.com/valyala/fasthttp

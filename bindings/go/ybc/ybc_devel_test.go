@@ -1,6 +1,6 @@
 // Tests for development build only
 
-// +build !release
+// +build debug
 
 package ybc
 
