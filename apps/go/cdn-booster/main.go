@@ -180,7 +180,7 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if fasthttp.EqualBytesStr(ctx.RequestURI(), *statsRequestPath) {
+	if string(ctx.RequestURI()) == *statsRequestPath {
 		var w bytes.Buffer
 		stats.WriteToStream(&w)
 		ctx.Success("text/plain", w.Bytes())
