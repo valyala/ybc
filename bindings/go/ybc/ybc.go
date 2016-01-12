@@ -824,11 +824,19 @@ func (item *Item) Close() error {
 // Returns value associated with the item.
 //
 // Do not use this method for obtaining big values such as video files -
-// use io.* interface implementations provided by the Item instead.
+// use Peek or io.* interface implementations provided by the Item instead.
 func (item *Item) Value() []byte {
 	item.dg.CheckLive()
 	mValue := &item.value
 	return C.GoBytes(mValue.ptr, C.int(mValue.size))
+}
+
+// Peek returns item contents.
+//
+// The returned contents is valid until item is closed with Close.
+// Use Value for obtaining item contents valid after Close.
+func (item *Item) Peek() []byte {
+	return item.unsafeBuf()
 }
 
 // Returns the size of value associated with the item.

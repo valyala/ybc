@@ -305,7 +305,12 @@ func cacher_GetItem(cache Cacher, t *testing.T) {
 			t.Fatal(err)
 		}
 		defer item.Close()
-		checkValue(t, value, item.Value())
+
+		if i&1 == 0 {
+			checkValue(t, value, item.Value())
+		} else {
+			checkValue(t, value, item.Peek())
+		}
 	}
 }
 
