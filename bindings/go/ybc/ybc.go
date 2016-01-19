@@ -13,7 +13,7 @@
 package ybc
 
 /*
-#cgo release CFLAGS: -O2 -DNDEBUG
+#cgo !debug CFLAGS: -O2 -DNDEBUG
 #cgo linux CFLAGS: -std=gnu99 -DYBC_PLATFORM_LINUX
 #cgo linux LDFLAGS: -lrt
 #include "ybc_go_glue.c"
