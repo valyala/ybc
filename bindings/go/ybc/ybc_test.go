@@ -129,23 +129,42 @@ func simple_cacher_Set_Get_Remove(cache SimpleCacher, t *testing.T) {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		_, err := cache.Get(key)
 		if err != ErrCacheMiss {
-			t.Fatal(err)
+			t.Fatalf("Unexpected error: [%s]. Expecting [%s]", err, ErrCacheMiss)
+		}
+		_, err = cache.AppendGet(key, nil)
+		if err != ErrCacheMiss {
+			t.Fatalf("Unexpected error: [%s]. Expecting [%s]", err, ErrCacheMiss)
 		}
 	}
 
+	dst := []byte("foobarbaz")
 	for i := 1; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
 		err := cache.Set(key, value, MaxTtl)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Unexpected error: [%s]", err)
 		}
 
 		actualValue, err := cache.Get(key)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Unepxected error: [%s]", err)
 		}
 		checkValue(t, value, actualValue)
+
+		actualValue, err = cache.AppendGet(key, nil)
+		if err != nil {
+			t.Fatalf("Unepxected error: [%s]", err)
+		}
+		checkValue(t, value, actualValue)
+
+		actualValue, err = cache.AppendGet(key, dst)
+		if err != nil {
+			t.Fatalf("Unepxected error: [%s]", err)
+		}
+		checkValue(t, dst, actualValue[:len(dst)])
+		checkValue(t, value, actualValue[len(dst):])
+
 		if !cache.Delete(key) {
 			t.Fatalf("Cannot remove item with key=[%s]", key)
 		}
@@ -283,6 +302,7 @@ func cacher_GetItem(cache Cacher, t *testing.T) {
 		}
 	}
 
+	dst := []byte("foobarbaz")
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(fmt.Sprintf("value_%d", i))
@@ -297,10 +317,17 @@ func cacher_GetItem(cache Cacher, t *testing.T) {
 		}
 		defer item.Close()
 
-		if i&1 == 0 {
+		switch i % 4 {
+		case 0:
 			checkValue(t, value, item.Value())
-		} else {
+		case 1:
 			checkValue(t, value, item.Peek())
+		case 2:
+			checkValue(t, value, item.Append(nil))
+		case 3:
+			b := item.Append(dst)
+			checkValue(t, dst, b[:len(dst)])
+			checkValue(t, value, b[len(dst):])
 		}
 	}
 }

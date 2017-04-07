@@ -63,6 +63,7 @@ var (
 type SimpleCacher interface {
 	Set(key []byte, value []byte, ttl time.Duration) error
 	Get(key []byte) (value []byte, err error)
+	AppendGet(key, dst []byte) ([]byte, error)
 	Delete(key []byte) bool
 	Clear()
 	Close() error
@@ -380,21 +381,49 @@ func (sc *SimpleCache) Get(key []byte) (value []byte, err error) {
 	var k C.struct_ybc_key
 	initKey(&k, key)
 
-	itemSize := 64
-again:
-	value = make([]byte, itemSize)
+	value = make([]byte, 128)
 	rv := C.go_simple_get(sc.cache.ctx(), k.ptr, k.size, bufPtr(value), C.size_t(len(value)))
 	switch rv.result {
-	case 0:
-		value = nil
-		err = ErrCacheMiss
-		return
-	case -1:
-		itemSize = int(rv.size)
-		goto again
 	case 1:
-		value = value[:int(rv.size)]
-		return
+		return value[:int(rv.size)], nil
+	case 0:
+		return nil, ErrCacheMiss
+	case -1:
+		value = make([]byte, int(rv.size))
+		rv = C.go_simple_get(sc.cache.ctx(), k.ptr, k.size, bufPtr(value), C.size_t(len(value)))
+		if rv.result == 1 {
+			return value[:int(rv.size)], nil
+		}
+		return nil, ErrCacheMiss
+	default:
+		panic(fmt.Sprintf("BUG: unknown rv.result: %d", rv.result))
+	}
+}
+
+// AppendGet appends value associated with the given key
+// to dst and returns the appended dst (which may be newly allocated)
+func (sc *SimpleCache) AppendGet(key, dst []byte) ([]byte, error) {
+	sc.cache.dg.CheckLive()
+	var k C.struct_ybc_key
+	initKey(&k, key)
+
+	value := dst[len(dst):cap(dst)]
+	rv := C.go_simple_get(sc.cache.ctx(), k.ptr, k.size, bufPtr(value), C.size_t(len(value)))
+	switch rv.result {
+	case 1:
+		return dst[:len(dst)+int(rv.size)], nil
+	case 0:
+		return dst, ErrCacheMiss
+	case -1:
+		newDst := make([]byte, len(dst), len(dst)+int(rv.size))
+		copy(newDst, dst)
+		dst = newDst
+		value = dst[len(dst):cap(dst)]
+		rv = C.go_simple_get(sc.cache.ctx(), k.ptr, k.size, bufPtr(value), C.size_t(len(value)))
+		if rv.result == 1 {
+			return dst[:len(dst)+int(rv.size)], nil
+		}
+		return dst, ErrCacheMiss
 	default:
 		panic(fmt.Sprintf("BUG: unknown rv.result: %d", rv.result))
 	}
@@ -470,9 +499,23 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 	}
 	value = item.Value()
 
-	// do not use defer item.Close() for performance reasons
+	// do not use defer item.close() for performance reasons
 	item.Close()
 	return
+}
+
+// AppendGet appends value associated with the given key
+// to dst and returns the appended dst (which may be newly allocated)
+func (cache *Cache) AppendGet(key, dst []byte) ([]byte, error) {
+	item, err := cache.GetItem(key)
+	if err != nil {
+		return dst, err
+	}
+	dst = item.Append(dst)
+
+	// do not use defer item.close() for performance reasons
+	item.Close()
+	return dst, nil
 }
 
 // Returns value associated with the given key from the cache using automatic
@@ -653,8 +696,11 @@ func (cache *Cache) NewSetTxn(key []byte, valueSize int, ttl time.Duration) (txn
 	return
 }
 
-func bufPtr(b []byte) unsafe.Pointer {
-	return unsafe.Pointer(&b[0])
+func bufPtr(b []byte) (p unsafe.Pointer) {
+	if len(b) > 0 {
+		p = unsafe.Pointer(&b[0])
+	}
+	return p
 }
 
 // Instantly removes all the cache contents.
@@ -826,6 +872,13 @@ func (item *Item) Value() []byte {
 	item.dg.CheckLive()
 	mValue := &item.value
 	return C.GoBytes(mValue.ptr, C.int(mValue.size))
+}
+
+// Append appends the item's value to dst and returns the result
+// (which may be newly allocated)
+func (item *Item) Append(dst []byte) []byte {
+	b := item.unsafeBuf()
+	return append(dst, b...)
 }
 
 // Peek returns item contents.
@@ -1030,6 +1083,11 @@ func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
 	return cluster.cache(key).Get(key)
 }
 
+// See Cache.AppendGet()
+func (cluster *Cluster) AppendGet(key, dst []byte) ([]byte, error) {
+	return cluster.cache(key).AppendGet(key, dst)
+}
+
 // See Cache.GetDe()
 func (cluster *Cluster) GetDe(key []byte, graceDuration time.Duration) (value []byte, err error) {
 	return cluster.cache(key).GetDe(key, graceDuration)
@@ -1096,11 +1154,7 @@ func (cluster *Cluster) cache(key []byte) *Cache {
  ******************************************************************************/
 
 func initKey(k *C.struct_ybc_key, key []byte) {
-	var ptr unsafe.Pointer
-	if len(key) > 0 {
-		ptr = bufPtr(key)
-	}
-	k.ptr = ptr
+	k.ptr = bufPtr(key)
 	k.size = C.size_t(len(key))
 }
 
@@ -1108,11 +1162,7 @@ func initValue(v *C.struct_ybc_value, value []byte, ttl time.Duration) {
 	if ttl < 0 {
 		ttl = 0
 	}
-	var ptr unsafe.Pointer
-	if len(value) > 0 {
-		ptr = bufPtr(value)
-	}
-	v.ptr = ptr
+	v.ptr = bufPtr(value)
 	v.size = C.size_t(len(value))
 	v.ttl = C.uint64_t(ttl / time.Millisecond)
 }

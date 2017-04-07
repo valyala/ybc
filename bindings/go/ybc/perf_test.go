@@ -117,6 +117,78 @@ func benchmarkCache_GetHit(b *testing.B, workersCount int, isSimpleCache bool) {
 	runBenchmark(isSimpleCache, initFunc, iterationFunc, workersCount, b)
 }
 
+func BenchmarkCache_AppendGetHit_1(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 1, false)
+}
+
+func BenchmarkCache_AppendGetHit_2(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 2, false)
+}
+
+func BenchmarkCache_AppendGetHit_4(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 4, false)
+}
+
+func BenchmarkCache_AppendGetHit_8(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 8, false)
+}
+
+func BenchmarkCache_AppendGetHit_16(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 16, false)
+}
+
+func BenchmarkCache_AppendGetHitSimple_1(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 1, true)
+}
+
+func BenchmarkCache_AppendGetHitSimple_2(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 2, true)
+}
+
+func BenchmarkCache_AppendGetHitSimple_4(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 4, true)
+}
+
+func BenchmarkCache_AppendGetHitSimple_8(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 8, true)
+}
+
+func BenchmarkCache_AppendGetHitSimple_16(b *testing.B) {
+	benchmarkCache_AppendGetHit(b, 16, true)
+}
+
+func benchmarkCache_AppendGetHit(b *testing.B, workersCount int, isSimpleCache bool) {
+	key := []byte("12345")
+	value := []byte("value")
+
+	initFunc := func(cache SimpleCacher) {
+		if err := cache.Set(key, value, MaxTtl); err != nil {
+			b.Fatalf("Cannot set item with key=[%s], value=[%s]: [%s]", key, value, err)
+		}
+	}
+
+	iterationFunc := func(cache SimpleCacher) {
+		var err error
+		bufP := bufPool.Get().(*[]byte)
+		buf := *bufP
+		buf, err = cache.AppendGet(key, buf[:0])
+		if err != nil {
+			b.Fatalf("Cannot find item with key=[%s]: [%s]", key, err)
+		}
+		*bufP = buf
+		bufPool.Put(bufP)
+	}
+
+	runBenchmark(isSimpleCache, initFunc, iterationFunc, workersCount, b)
+}
+
+var bufPool = &sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 16)
+		return &buf
+	},
+}
+
 func BenchmarkCache_GetMiss_1(b *testing.B) {
 	benchmarkCache_GetMiss(b, 1, false)
 }
