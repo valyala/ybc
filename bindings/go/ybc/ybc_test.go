@@ -103,7 +103,7 @@ func TestConfig_OpenCache_DisabledSync(t *testing.T) {
 
 func TestConfig_OpenSimpleCache(t *testing.T) {
 	config := newConfig()
-	c, err := config.OpenSimpleCache(1000, true)
+	c, err := config.OpenSimpleCache(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,9 +114,9 @@ func TestConfig_OpenSimpleCache(t *testing.T) {
  * SimpleCache
  ******************************************************************************/
 
-func newSimpleCache(maxItemSize int, t *testing.T) *SimpleCache {
+func newSimpleCache(t *testing.T) *SimpleCache {
 	config := newConfig()
-	sc, err := config.OpenSimpleCache(maxItemSize, true)
+	sc, err := config.OpenSimpleCache(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,17 +164,8 @@ func simple_cacher_Set_Get_Remove(cache SimpleCacher, t *testing.T) {
 }
 
 func TestSimpleCache_Set_Get(t *testing.T) {
-	sc := newSimpleCache(1000, t)
+	sc := newSimpleCache(t)
 	simple_cacher_Set_Get_Remove(sc, t)
-}
-
-func TestSimpleCache_TooLargeItem(t *testing.T) {
-	sc := newSimpleCache(5, t)
-	defer sc.Close()
-	err := sc.Set([]byte("key"), []byte("too large value"), MaxTtl)
-	if err != ErrItemTooLarge {
-		t.Fatalf("Unexpected error=[%s]. Expected ErrItemTooLarge", err)
-	}
 }
 
 func simple_cacher_Clear(cache SimpleCacher, t *testing.T) {
@@ -200,7 +191,7 @@ func simple_cacher_Clear(cache SimpleCacher, t *testing.T) {
 }
 
 func TestSimpleCache_Clear(t *testing.T) {
-	sc := newSimpleCache(1000, t)
+	sc := newSimpleCache(t)
 	simple_cacher_Clear(sc, t)
 }
 

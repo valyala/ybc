@@ -15,7 +15,7 @@ func runBenchmark(isSimpleCache bool, initFunc benchmark_InitFunc, iterationFunc
 	var cache SimpleCacher
 	var err error
 	if isSimpleCache {
-		cache, err = config.OpenSimpleCache(8, true)
+		cache, err = config.OpenSimpleCache(true)
 	} else {
 		cache, err = config.OpenCache(true)
 	}

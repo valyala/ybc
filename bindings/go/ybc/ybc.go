@@ -23,6 +23,7 @@ import "C"
 
 import (
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"io"
 	"reflect"
@@ -33,7 +34,6 @@ import (
 
 var (
 	ErrNoSpace       = errors.New("ybc: not enough space in the cache")
-	ErrItemTooLarge  = errors.New("ybc: item is too large to store in the cache")
 	ErrCacheMiss     = errors.New("ybc: the item is not found in the cache")
 	ErrOpenFailed    = errors.New("ybc: cannot open the cache")
 	ErrOutOfRange    = errors.New("ybc: out of range offset")
@@ -218,7 +218,6 @@ func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
 
 // Opens SimpleCache.
 //
-// maxItemSize is the maximum size of object the cache can handle.
 // Consider using Cache instead of SimpleCache if you plan storing objects
 // in the cache bigger than a few Kb.
 //
@@ -238,14 +237,13 @@ func (cfg *Config) OpenCache(force bool) (cache *Cache, err error) {
 //   }
 //   defer sc.Close()
 //
-func (cfg *Config) OpenSimpleCache(maxItemSize int, force bool) (sc *SimpleCache, err error) {
+func (cfg *Config) OpenSimpleCache(force bool) (sc *SimpleCache, err error) {
 	cache, err := cfg.openCacheInternal(force, true)
 	if err != nil {
 		return
 	}
 	sc = &SimpleCache{
-		cache:       cache,
-		maxItemSize: maxItemSize,
+		cache: cache,
 	}
 	return
 }
@@ -352,8 +350,7 @@ func (cfg *Config) internal(isSimpleCache bool) *configInternal {
 // Note that objects stored via SimpleCache cannot be read via Cache
 // and vice versa.
 type SimpleCache struct {
-	cache       *Cache
-	maxItemSize int
+	cache *Cache
 }
 
 // Closes the cache.
@@ -365,13 +362,8 @@ func (sc *SimpleCache) Close() error {
 }
 
 // Stores the given (key, value) pair with the given ttl in the cache.
-//
-// value size shouldn't exceed maxItemSize passed to Config.OpenSimpleCache().
 func (sc *SimpleCache) Set(key, value []byte, ttl time.Duration) error {
 	sc.cache.dg.CheckLive()
-	if len(value) > sc.maxItemSize {
-		return ErrItemTooLarge
-	}
 	var k C.struct_ybc_key
 	initKey(&k, key)
 	var v C.struct_ybc_value
@@ -388,15 +380,24 @@ func (sc *SimpleCache) Get(key []byte) (value []byte, err error) {
 	var k C.struct_ybc_key
 	initKey(&k, key)
 
-	value = make([]byte, sc.maxItemSize)
+	itemSize := 64
+again:
+	value = make([]byte, itemSize)
 	rv := C.go_simple_get(sc.cache.ctx(), k.ptr, k.size, bufPtr(value), C.size_t(len(value)))
-	if rv.result != 1 {
+	switch rv.result {
+	case 0:
 		value = nil
 		err = ErrCacheMiss
 		return
+	case -1:
+		itemSize = int(rv.size)
+		goto again
+	case 1:
+		value = value[:int(rv.size)]
+		return
+	default:
+		panic(fmt.Sprintf("BUG: unknown rv.result: %d", rv.result))
 	}
-	value = value[:int(rv.size)]
-	return
 }
 
 // Deletes an item associated with the given key.
