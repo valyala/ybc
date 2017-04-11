@@ -171,7 +171,7 @@ func benchmarkCache_AppendGetHit(b *testing.B, workersCount int, isSimpleCache b
 		var err error
 		bufP := bufPool.Get().(*[]byte)
 		buf := *bufP
-		buf, err = cache.AppendGet(key, buf[:0])
+		buf, err = cache.AppendGet(buf[:0], key)
 		if err != nil {
 			b.Fatalf("Cannot find item with key=[%s]: [%s]", key, err)
 		}

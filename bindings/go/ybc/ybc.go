@@ -63,7 +63,7 @@ var (
 type SimpleCacher interface {
 	Set(key []byte, value []byte, ttl time.Duration) error
 	Get(key []byte) (value []byte, err error)
-	AppendGet(key, dst []byte) ([]byte, error)
+	AppendGet(dst, key []byte) ([]byte, error)
 	Delete(key []byte) bool
 	Clear()
 	Close() error
@@ -402,7 +402,7 @@ func (sc *SimpleCache) Get(key []byte) (value []byte, err error) {
 
 // AppendGet appends value associated with the given key
 // to dst and returns the appended dst (which may be newly allocated)
-func (sc *SimpleCache) AppendGet(key, dst []byte) ([]byte, error) {
+func (sc *SimpleCache) AppendGet(dst, key []byte) ([]byte, error) {
 	sc.cache.dg.CheckLive()
 	var k C.struct_ybc_key
 	initKey(&k, key)
@@ -506,7 +506,7 @@ func (cache *Cache) Get(key []byte) (value []byte, err error) {
 
 // AppendGet appends value associated with the given key
 // to dst and returns the appended dst (which may be newly allocated)
-func (cache *Cache) AppendGet(key, dst []byte) ([]byte, error) {
+func (cache *Cache) AppendGet(dst, key []byte) ([]byte, error) {
 	item, err := cache.GetItem(key)
 	if err != nil {
 		return dst, err
@@ -1084,8 +1084,8 @@ func (cluster *Cluster) Get(key []byte) (value []byte, err error) {
 }
 
 // See Cache.AppendGet()
-func (cluster *Cluster) AppendGet(key, dst []byte) ([]byte, error) {
-	return cluster.cache(key).AppendGet(key, dst)
+func (cluster *Cluster) AppendGet(dst, key []byte) ([]byte, error) {
+	return cluster.cache(key).AppendGet(dst, key)
 }
 
 // See Cache.GetDe()

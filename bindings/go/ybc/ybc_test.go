@@ -131,7 +131,7 @@ func simple_cacher_Set_Get_Remove(cache SimpleCacher, t *testing.T) {
 		if err != ErrCacheMiss {
 			t.Fatalf("Unexpected error: [%s]. Expecting [%s]", err, ErrCacheMiss)
 		}
-		_, err = cache.AppendGet(key, nil)
+		_, err = cache.AppendGet(nil, key)
 		if err != ErrCacheMiss {
 			t.Fatalf("Unexpected error: [%s]. Expecting [%s]", err, ErrCacheMiss)
 		}
@@ -152,13 +152,13 @@ func simple_cacher_Set_Get_Remove(cache SimpleCacher, t *testing.T) {
 		}
 		checkValue(t, value, actualValue)
 
-		actualValue, err = cache.AppendGet(key, nil)
+		actualValue, err = cache.AppendGet(nil, key)
 		if err != nil {
 			t.Fatalf("Unepxected error: [%s]", err)
 		}
 		checkValue(t, value, actualValue)
 
-		actualValue, err = cache.AppendGet(key, dst)
+		actualValue, err = cache.AppendGet(dst, key)
 		if err != nil {
 			t.Fatalf("Unepxected error: [%s]", err)
 		}
