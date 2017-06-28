@@ -220,6 +220,11 @@ static void p_file_cache_in_ram(const struct p_file *file, size_t size);
 static void p_memory_init(void);
 
 /*
+ * Returns memory page mask.
+ */
+static size_t p_memory_page_mask(void);
+
+/*
  * Maps size bytes of the given file into memory and stores memory pointer
  * to *ptr.
  */

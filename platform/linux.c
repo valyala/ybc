@@ -489,6 +489,10 @@ static void p_file_cache_in_ram(const struct p_file *const file,
  */
 static size_t m_memory_page_mask = 0;
 
+static size_t p_memory_page_mask(void) {
+  return m_memory_page_mask;
+}
+
 static void p_memory_init(void)
 {
   if (m_memory_page_mask == 0) {

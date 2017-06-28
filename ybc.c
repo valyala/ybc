@@ -203,7 +203,7 @@ struct m_storage
   /*
    * A pointer to the next free memory in the storage.
    */
-  struct m_storage_cursor next_cursor;
+  struct m_storage_cursor *next_cursor;
 
   /*
    * Storage size in bytes.
@@ -369,7 +369,7 @@ static void m_item_skiplist_add(struct ybc_item *const item) {
         item->next[i] = NULL;
         item->prev[i] = NULL;
       }
-      break;
+      return;
     }
     h >>= 1;
   }
@@ -380,7 +380,7 @@ static void m_item_skiplist_del(struct ybc_item *const item)
   for (size_t i = C_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
     if (item->next[i] == NULL) {
-      break;
+      return;
     }
     m_item_skiplist_assert_valid(item, i);
     item->prev[i]->next[i] = item->next[i];
@@ -396,7 +396,7 @@ static void m_item_skiplist_relocate(struct ybc_item *const dst,
   for (size_t i = C_ITEM_SKIPLIST_HEIGHT; i > 0; ) {
     --i;
     if (src->next[i] == NULL) {
-      break;
+      return;
     }
     m_item_skiplist_assert_valid(src, i);
     src->prev[i]->next[i] = dst;
@@ -528,7 +528,7 @@ static int m_storage_allocate(struct m_storage *const storage,
     return 0;
   }
 
-  struct m_storage_cursor next_cursor = storage->next_cursor;
+  struct m_storage_cursor next_cursor = *storage->next_cursor;
   assert(next_cursor.offset <= storage_size);
 
   const size_t initial_offset = next_cursor.offset;
@@ -569,7 +569,7 @@ static int m_storage_allocate(struct m_storage *const storage,
   /* Update storage->next_cursor */
   assert(next_cursor.offset <= storage_size - item_size);
   next_cursor.offset += item_size;
-  storage->next_cursor = next_cursor;
+  *storage->next_cursor = next_cursor;
 
 
   /*
@@ -1385,7 +1385,7 @@ struct m_sync
   /*
    * Start pointer for unsynced storage data.
    */
-  struct m_storage_cursor *sync_cursor;
+  struct m_storage_cursor sync_cursor;
 
   /*
    * A pointer to ybc->storage.
@@ -1433,7 +1433,7 @@ static void m_sync_adjust_next_cursor(
   while (item->payload.cursor.offset < next_cursor->offset) {
     if (item->is_set_txn) {
       *next_cursor = item->payload.cursor;
-      break;
+      return;
     }
     item = item->next[N];
     m_item_skiplist_assert_valid(item, N);
@@ -1460,10 +1460,14 @@ static void m_sync_commit(const struct m_storage *const storage,
    * corruptions by clearing corrupted slots.
    */
 
-  const size_t sync_chunk_size = end_offset - start_offset;
-  if (sync_chunk_size > 0) {
+  /*
+   * There is no need in syncing the last page, which has unwritten data.
+   */
+  const size_t end_offset_adjusted = end_offset & ~p_memory_page_mask();
+
+  if (end_offset_adjusted > start_offset) {
     void *const ptr = m_storage_get_ptr(storage, start_offset);
-    p_memory_sync(ptr, sync_chunk_size);
+    p_memory_sync(ptr, end_offset_adjusted - start_offset);
   }
 }
 
@@ -1474,9 +1478,23 @@ static void m_sync_flush_data(struct p_lock *const cache_lock,
     const int has_overwrite_protection)
 {
   p_lock_lock(cache_lock);
-  struct m_storage_cursor next_cursor = storage->next_cursor;
+  struct m_storage_cursor next_cursor = *storage->next_cursor;
   if (has_overwrite_protection) {
-    m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+    if (next_cursor.offset < sync_cursor->offset) {
+
+        assert(next_cursor.wrap_count != sync_cursor->wrap_count);
+
+        next_cursor.offset = storage->size;
+        m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+        if (next_cursor.offset == storage->size) {
+          next_cursor = *storage->next_cursor;
+          struct m_storage_cursor zero_cursor = next_cursor;
+          zero_cursor.offset = 0;
+          m_sync_adjust_next_cursor(acquired_items_head, &zero_cursor, &next_cursor);
+        }
+    } else {
+      m_sync_adjust_next_cursor(acquired_items_head, sync_cursor, &next_cursor);
+    }
   }
   p_lock_unlock(cache_lock);
 
@@ -1529,15 +1547,15 @@ static void m_sync_thread_func(void *const ctx)
 
   while (!p_event_wait_with_timeout(&sc->stop_event, sc->sync_interval)) {
     m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_head,
-        sc->sync_cursor, sc->has_overwrite_protection);
+        &sc->sync_cursor, sc->has_overwrite_protection);
   }
 
   m_sync_flush_data(sc->cache_lock, sc->storage, sc->acquired_items_head,
-      sc->sync_cursor, sc->has_overwrite_protection);
+      &sc->sync_cursor, sc->has_overwrite_protection);
 }
 
 static void m_sync_init(struct m_sync *const sc,
-    const uint64_t sync_interval, struct m_storage_cursor *const sync_cursor,
+    const uint64_t sync_interval, const struct m_storage_cursor sync_cursor,
     struct m_storage *const storage,
     struct ybc_item *const acquired_items_head,
     struct p_lock *const cache_lock,
@@ -1562,10 +1580,6 @@ static void m_sync_destroy(struct m_sync *const sc)
     p_event_set(&sc->stop_event);
     p_thread_join_and_destroy(&sc->sync_thread);
     p_event_destroy(&sc->stop_event);
-  }
-  else {
-    /* Syncing is disabled, so just update sync cursor. */
-    *sc->sync_cursor = sc->storage->next_cursor;
   }
 }
 
@@ -1670,7 +1684,7 @@ static struct m_de_item *m_de_item_get(
     struct m_de_item *const de_item = *prev_ptr;
 
     if (de_item == NULL) {
-      break;
+      return NULL;
     }
 
     if (de_item->expiration_time <= current_time) {
@@ -1876,7 +1890,7 @@ static int m_open(struct ybc *const cache,
     next_cursor->offset = 0;
   }
 
-  cache->storage.next_cursor = *next_cursor;
+  cache->storage.next_cursor = next_cursor;
   cache->storage.hash_seed = *cache->index.hash_seed_ptr;
 
   if (!m_storage_open(&cache->storage, &cache->storage_file, config->data_file,
@@ -1897,7 +1911,7 @@ static int m_open(struct ybc *const cache,
    */
   p_lock_init(&cache->lock);
 
-  m_sync_init(&cache->sc, config->sync_interval, next_cursor, &cache->storage,
+  m_sync_init(&cache->sc, config->sync_interval, *cache->storage.next_cursor, &cache->storage,
       &cache->acquired_items_head, &cache->lock,
       cache->has_overwrite_protection);
   m_de_init(&cache->de, config->de_hashtable_size);
@@ -2097,7 +2111,7 @@ void ybc_set_txn_update_value_size(struct ybc_set_txn *const txn,
       old_payload_size, key_size);
 
   // move next_cursor backwards if possible in order to conserve unused space.
-  struct m_storage_cursor *const next_cursor = &cache->storage.next_cursor;
+  struct m_storage_cursor *const next_cursor = cache->storage.next_cursor;
   p_lock_lock(&cache->lock);
   if (next_cursor->offset == payload->cursor.offset + old_payload_size &&
       next_cursor->wrap_count == payload->cursor.wrap_count) {
@@ -2139,7 +2153,7 @@ void ybc_set_txn_rollback(struct ybc_set_txn *const txn)
   // move next_cursor backwards if possible in order to conserve unused space.
   struct ybc *const cache = txn->item.cache;
   const struct m_storage_payload *const payload = &txn->item.payload;
-  struct m_storage_cursor *const next_cursor = &cache->storage.next_cursor;
+  struct m_storage_cursor *const next_cursor = cache->storage.next_cursor;
   p_lock_lock(&cache->lock);
   if (next_cursor->offset == payload->cursor.offset + payload->size &&
       next_cursor->wrap_count == payload->cursor.wrap_count) {
@@ -2177,7 +2191,7 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
 
 
   /*
-   * Race condition is possible when makin a copy of cache->storage.next_cursor
+   * Race condition is possible when making a copy of cache->storage.next_cursor
    * if it is concurrently updated by other thread in m_storage_allocate().
    * In this case copied next_cursor may have corrupted value. This is OK.
    * Two innocent things may occur if next_cursor contains invalid value:
@@ -2187,7 +2201,7 @@ static int m_item_acquire(struct ybc *const cache, struct ybc_item *const item,
    * This racy copy significantly improves scalability of 'get item' operation
    * if overwrite protection is disabled ( cache->has_overwrite_protection = 0).
    */
-  const struct m_storage_cursor next_cursor = cache->storage.next_cursor;
+  const struct m_storage_cursor next_cursor = *cache->storage.next_cursor;
 
   const uint64_t current_time = p_get_current_time();
   if (!m_storage_payload_check(&cache->storage, &next_cursor, &item->payload,
