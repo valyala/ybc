@@ -1310,7 +1310,7 @@ static int m_index_open(struct m_index *const index,
    * at creation time.
    * See m_file_open_or_create() for details.
    */
-  p_file_cache_in_ram(index_file, file_size);
+  p_file_cache_in_ram(index_file);
 
   /*
    * Hint the OS about random access pattern to index file contents.

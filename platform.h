@@ -207,9 +207,9 @@ static void p_file_resize_and_preallocate(const struct p_file *file,
 static void p_file_advise_random_access(const struct p_file *file, size_t size);
 
 /*
- * Tries caching the given file contents in the range [0...size] bytes in RAM.
+ * Tries caching the given file contents in RAM.
  */
-static void p_file_cache_in_ram(const struct p_file *file, size_t size);
+static void p_file_cache_in_ram(const struct p_file *file);
 
 /*
  * Initializes memory API.

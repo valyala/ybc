@@ -17,7 +17,7 @@ const (
 
 func newCache(t *testing.T) *ybc.Cache {
 	config := ybc.Config{
-		MaxItemsCount: 1000 * 1000,
+		MaxItemsCount: 100 * 1000,
 		DataFileSize:  10 * 1000 * 1000,
 	}
 

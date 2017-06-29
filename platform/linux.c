@@ -19,8 +19,7 @@
 #include <assert.h>     /* assert */
 #include <errno.h>      /* errno */
 #include <error.h>      /* error */
-#include <fcntl.h>      /* open, posix_allocate, readahead, posix_fadvise,
-                         * fcntl */
+#include <fcntl.h>      /* open, posix_fadvise, fcntl */
 #include <pthread.h>    /* pthread_* */
 #include <stddef.h>     /* size_t */
 #include <stdint.h>     /* uint*_t */
@@ -29,9 +28,11 @@
 #include <string.h>     /* strdup */
 #include <sys/mman.h>   /* mmap, munmap, msync */
 #include <sys/stat.h>   /* open, fstat */
-#include <sys/types.h>  /* pthread_*_t, open, stat */
+#include <sys/types.h>  /* pthread_*_t, open, stat, lseek */
 #include <time.h>       /* clock_gettime, timespec, nanosleep */
-#include <unistd.h>     /* close, fstat, access, unlink, dup, fcntl, sysconf */
+#include <unistd.h>     /* close, fstat, access, unlink, dup, fcntl, sysconf, read,
+                         * lseek, read, write
+                         */
 
 #ifndef O_CLOEXEC
   #define O_CLOEXEC 0
@@ -446,13 +447,45 @@ static void p_file_get_size(const struct p_file *const file, size_t *const size)
   *size = st.st_size;
 }
 
+static void m_file_seek_zero(const struct p_file *const file) {
+  const off_t off = lseek(file->fd, 0, SEEK_SET);
+  if (off == -1) {
+    error(EXIT_FAILURE, off, "lseek(fd=%d, 0)", file->fd);
+  }
+}
+
 static void p_file_resize_and_preallocate(const struct p_file *const file,
     const size_t size)
 {
-  const int rv = posix_fallocate(file->fd, 0, size);
-  if (rv != 0) {
-    error(EXIT_FAILURE, rv, "posix_fallocate(fd=%d, size=%zu)", file->fd, size);
+  /*
+   * Do not use posix_fallocate(), since it cheats and doesn't really
+   * allocate pyhsical space on the storage.
+   *
+   * Just fill the file with garbage.
+   */
+
+  m_file_seek_zero(file);
+
+  const size_t buf_size = 1024 * 1024;
+  char *const buf = p_malloc(buf_size);
+
+  size_t remain = size;
+  while (remain) {
+    size_t n = buf_size;
+    if (remain < buf_size) {
+      n = remain;
+    }
+    const int rv = write(file->fd, buf, n);
+    if (rv == -1 && errno != EINTR) {
+      error(EXIT_FAILURE, rv, "write(fd=%d, size=%zu)", file->fd, n);
+    }
+    assert((size_t)rv <= n);
+    remain -= rv;
   }
+
+  p_free(buf);
+
+  m_file_seek_zero(file);
 }
 
 static void p_file_advise_random_access(const struct p_file *const file,
@@ -465,23 +498,32 @@ static void p_file_advise_random_access(const struct p_file *const file,
   }
 }
 
-static void p_file_cache_in_ram(const struct p_file *const file,
-    const size_t size)
+static void p_file_cache_in_ram(const struct p_file *const file)
 {
   /*
-   * According to manpages, readahead() cannot generate EINTR,
-   * so don't handle this case.
+   * Do not use readahead(), since it returns immediately instead of waiting
+   * until the file is read into RAM.
    */
-  if (readahead(file->fd, 0, size) == -1) {
-    if (errno == EINVAL) {
-        /*
-         * it looks like file is created on device such as /dev/shm/,
-         * which doensn't support readahead(). Do nothing in this case.
-         */
-        return;
+
+  m_file_seek_zero(file);
+
+  const size_t buf_size = 1024 * 1024;
+  char *const buf = p_malloc(buf_size);
+
+  for (;;) {
+    const ssize_t rv = read(file->fd, buf, buf_size);
+    if (rv == -1 && errno != EINTR) {
+      error(EXIT_FAILURE, rv, "read(fd=%d, size=%zu)", file->fd, sizeof(buf));
     }
-    error(EXIT_FAILURE, errno, "readahead(fd=%d, size=%zu)", file->fd, size);
+    if (rv == 0) {
+      /* end of file */
+      break;
+    }
   }
+
+  p_free(buf);
+
+  m_file_seek_zero(file);
 }
 
 /*
