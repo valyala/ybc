@@ -1,0 +1,21 @@
+# github.com/andybalholm/brotli v1.0.2
+github.com/andybalholm/brotli
+# github.com/bradfitz/gomemcache v0.0.0-20190913173617-a41fca850d0b
+## explicit
+github.com/bradfitz/gomemcache/memcache
+# github.com/klauspost/compress v1.12.2
+github.com/klauspost/compress/flate
+github.com/klauspost/compress/gzip
+github.com/klauspost/compress/zlib
+# github.com/valyala/bytebufferpool v1.0.0
+github.com/valyala/bytebufferpool
+# github.com/valyala/fasthttp v1.26.0
+## explicit
+github.com/valyala/fasthttp
+github.com/valyala/fasthttp/fasthttputil
+github.com/valyala/fasthttp/stackless
+# github.com/valyala/ybc v0.0.0-20181207142156-3d480539f84d
+## explicit
+# github.com/vharitonsky/iniflags v0.0.0-20180513140207-a33cd0b5f3de
+## explicit
+github.com/vharitonsky/iniflags
